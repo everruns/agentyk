@@ -64,6 +64,8 @@ everruns concept must be expressible on top of the agentyk primitive.
 | everruns (core/runtime) | agentyk | change |
 | --- | --- | --- |
 | `Event` / `EventData` / `EventRequest`, dot-notation types | `event::{Event, EventData, EventRequest}` | same protocol shape; log assigns id/ts/sequence |
+| `Event.sequence: Option<i32>`, ephemeral vs durable events | `Event.sequence: Option<u64>`, `EventData::is_ephemeral()` | same split; `None` for ephemeral (never persisted), `Some` for durable |
+| `output.message.started/delta/completed/replaced` | `OutputMessageStarted/Delta/Completed` | `Replaced` (guardrail rewrite) not yet ported — no guardrail capability exists to need it |
 | `EventEmitter` + runtime `EventBus` | `EventLog` (append + read) | unified; replay is first-class |
 | `EventListener` / `CompositeEventListener` | `EventListener` (fan-out built into the session) | same trait shape |
 | `Capability` (id, system_prompt_contribution, tools) | `Capability` | same trait shape; **attached by object, not registered + referenced by string id**; `tools()` is async so MCP fits |
@@ -79,6 +81,7 @@ everruns concept must be expressible on top of the agentyk primitive.
 | `TurnAction` (`ExecuteInput/Reason/Act/Complete`) | `turn::TurnAction` (`Reason` / `ExecuteTool` / `Complete`) | input phase became `TurnState::start` effects (pure); act is per-tool-call for per-call retries |
 | `TurnOutcome` (Success/Failed/MaxIterations/Sealed) | `turn::TurnOutcome` (Success/Failed/MaxIterations) | sealing reasons (no-progress, budget) are Phase-2 host policy |
 | atoms (`InputAtom`/`ReasonAtom`/`ActAtom`, stateless, own their message I/O) | `atoms::{assemble, reason, act}` (stateless, **no I/O beyond the LLM/tool call itself**) | atoms no longer load/store messages or emit events; recording belongs to the machine's effects |
+| stream reconnect, provider streaming | `atoms::reason_streaming` + `ChatDriver::complete_streaming` + `DeltaSink` | default streams as one full-text delta; OpenAI/Anthropic drivers stream real SSE increments; deltas never touch `TurnState` — `on_reason_started` is the only state transition, purely informational |
 | `RuntimeHostAdapter` + `plan_next_host_turn` (turn strategy) | `executor::TurnExecutor` + `TurnHost` | `InProcessExecutor` default; a durable host maps each `TurnAction` to a retryable activity and checkpoints `TurnState` between them |
 | MCP merge/discovery (runtime `mcp.rs`) | `McpCapability` / `McpClient` / `McpServer` | MCP is just a capability; stdio transport built in |
 | Typed prefixed ids (`session_<hex>`) | `id::TypedId` (`SessionId`, `TurnId`, `EventId`) | same format; only correlation ids remain — no `AgentId`, `ModelId`, `ProviderId` |
@@ -105,7 +108,8 @@ server):
   model can recover from.
 - Drivers — `SimDriver` (scripted, request-recording); `OpenAiDriver`
   (Chat Completions; any OpenAI-compatible endpoint via `base_url`) and
-  `AnthropicDriver` (Messages API) behind the `http` feature.
+  `AnthropicDriver` (Messages API) behind the `http` feature. Both stream
+  real incremental SSE deltas.
 - MCP — stdio JSON-RPC client (initialize handshake, `tools/list`,
   `tools/call`), lazy connection, tools exposed as ordinary `Tool`s.
 - Execution abstraction — the sans-IO `TurnState` machine + `atoms` +
@@ -115,12 +119,15 @@ server):
   from checkpoint + event-log replay) and
   `manual_drive_matches_in_process_executor` (manual machine drive and the
   default executor produce identical event sequences).
+- Multimodal messages — `Message.content: Vec<ContentPart>` (`Text`/`Image`).
+- Streaming — `OutputMessageStarted`/`Delta`/`Completed`, ephemeral events
+  (`sequence: None`, never persisted), `ChatDriver::complete_streaming` +
+  `DeltaSink`. Details: [`everruns-adoption.md`](everruns-adoption.md#tier-1).
 
 Remaining for Phase 1 completion:
 
 - Live smoke test of the HTTP drivers against real providers (needs keys; the
-  drivers are compile- and unit-tested only).
-- Streaming responses (`output.message` deltas) — protocol slot exists.
+  drivers are compile- and unit-tested only, including the SSE parsing).
 - CI workflow (fmt, clippy, test on the feature matrix).
 - Publish dry-run (`cargo publish --dry-run`) and crate docs polish.
 

@@ -15,18 +15,28 @@ and anything host-specific stays in everruns as a layer.
 These change types that are serialized into the event log, so they get more
 expensive to change the longer we wait.
 
-1. **Streaming.** Everruns' protocol has `OutputMessageStarted / Delta /
-   Replaced / Completed` plus `ReasonThinking*` deltas, and classifies events
-   as **ephemeral** (deltas — delivered, never persisted, no sequence) vs
-   **durable**. Agentyk has a single `OutputMessage` and every event is
-   durable. Needed:
-   - delta variants in `EventData` + an `is_ephemeral()` classification;
-   - `EventLog` semantics for ephemeral events (deliver to listeners, skip
-     append) — likely a `record` path change, not a trait change;
-   - a streaming API on `ChatDriver` (e.g. `complete_streaming` returning a
-     chunk stream, default-implemented via `complete`);
-   - the machine stays sans-IO: deltas are *listener traffic*, only the
-     completed message is a transition input.
+1. ✅ **Streaming — done.** `EventData` now has `OutputMessageStarted` /
+   `OutputMessageDelta` / `OutputMessageCompleted` (`Replaced` and
+   `ReasonThinking*` are not yet ported — no guardrail-replacement or
+   extended-thinking capability exists to need them). `EventData::is_ephemeral()`
+   classifies `OutputMessageDelta`; `Event.sequence` became `Option<u64>`
+   (`None` for ephemeral, mirroring everruns exactly). `TurnHost::record`
+   branches per-event: ephemeral events skip the `EventLog` entirely
+   (`EventRequest::into_ephemeral_event`, no append, no history fold) and go
+   straight to listeners; durable events persist as before. `ChatDriver`
+   gained `complete_streaming(request, sink: &mut dyn DeltaSink)`, default
+   `= complete()` + one synthetic full-text delta, so every driver streams
+   without opting in. `atoms::reason_streaming` is the streaming sibling of
+   `reason`; the machine itself stays sans-IO — `TurnState::on_reason_started`
+   is the only new transition (pure, emits `output.message.started`), deltas
+   never touch `TurnState` at all. `InProcessExecutor` wires a
+   `RecordingDeltaSink` that forwards straight to `TurnHost::record`. Real
+   incremental SSE streaming is implemented for both HTTP drivers — OpenAI
+   Chat Completions (`delta.content` + indexed `delta.tool_calls[]` fragment
+   accumulation) and Anthropic Messages (`content_block_delta` text/
+   `input_json_delta` fragment accumulation) — parsing is unit-tested against
+   synthetic SSE payloads (no live network, matching the existing driver
+   testing bar); `SimDriver` streams via the default (one full-text delta).
 
 2. ✅ **Multimodal messages — done.** `Message.content` is now
    `Vec<ContentPart>` (`Text`/`Image`, field-compatible with everruns'
@@ -176,7 +186,7 @@ Phase 1.5 (pre-adoption hardening, in this repo):
    Anthropic `image` blocks). Tool calls/results stay dedicated `Message`
    fields rather than folding into content parts — see "notable design
    differences" below.
-2. Streaming: delta events + ephemeral classification + streaming driver API
+2. ✅ Streaming: delta events + ephemeral classification + streaming driver API
 3. Cancellation + `TurnOutcome::Cancelled`
 4. `EventData::Custom` escape hatch
 5. Error retryability classification

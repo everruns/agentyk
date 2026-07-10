@@ -2,9 +2,10 @@
 //! endpoint (OpenRouter, local runtimes, proxies) via `ModelSpec::base_url`.
 
 use async_trait::async_trait;
+use futures_util::StreamExt;
 use serde_json::{Value, json};
 
-use agentyk_core::driver::{ChatDriver, ChatRequest, ChatResponse, DriverId, Usage};
+use agentyk_core::driver::{ChatDriver, ChatRequest, ChatResponse, DeltaSink, DriverId, Usage};
 use agentyk_core::error::{Error, Result};
 use agentyk_core::message::{ContentPart, Message, Role, ToolCall};
 
@@ -114,6 +115,171 @@ pub(crate) fn parse_tool_call_arguments(raw: &Value) -> Value {
     }
 }
 
+/// The Chat Completions request body shared by `complete` and
+/// `complete_streaming`; the caller sets `"stream"` afterward.
+fn build_body(request: &ChatRequest) -> Value {
+    let mut messages = Vec::new();
+    if let Some(system) = &request.system_prompt {
+        messages.push(json!({"role": "system", "content": system}));
+    }
+    messages.extend(request.messages.iter().map(to_wire_message));
+
+    let mut body = json!({
+        "model": request.model.model,
+        "messages": messages,
+    });
+    if !request.tools.is_empty() {
+        body["tools"] = Value::Array(
+            request
+                .tools
+                .iter()
+                .map(|t| {
+                    json!({
+                        "type": "function",
+                        "function": {
+                            "name": t.name,
+                            "description": t.description,
+                            "parameters": t.parameters,
+                        },
+                    })
+                })
+                .collect(),
+        );
+    }
+    body
+}
+
+fn request_builder(
+    client: &reqwest::Client,
+    model: &agentyk_core::driver::ModelSpec,
+    body: &Value,
+) -> reqwest::RequestBuilder {
+    let base_url = model
+        .base_url
+        .clone()
+        .unwrap_or_else(|| DEFAULT_BASE_URL.to_string());
+    let mut http = client
+        .post(format!(
+            "{}/chat/completions",
+            base_url.trim_end_matches('/')
+        ))
+        .json(body);
+    if let Some(key) = &model.api_key {
+        http = http.bearer_auth(key);
+    }
+    http
+}
+
+fn tool_calls_from_choice(choice: &Value) -> Vec<ToolCall> {
+    choice["tool_calls"]
+        .as_array()
+        .map(|calls| {
+            calls
+                .iter()
+                .map(|c| ToolCall {
+                    id: c["id"].as_str().unwrap_or_default().to_string(),
+                    name: c["function"]["name"]
+                        .as_str()
+                        .unwrap_or_default()
+                        .to_string(),
+                    arguments: parse_tool_call_arguments(&c["function"]["arguments"]),
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Extracts the JSON payload from one SSE `data: ...` line. Returns `None`
+/// for blank lines, comments (`:`-prefixed), non-data fields (`event:`,
+/// `id:`, …), and the `[DONE]` sentinel.
+pub(crate) fn parse_sse_data_line(line: &str) -> Option<&str> {
+    let line = line.trim_end_matches('\r');
+    let data = line.strip_prefix("data:")?.trim_start();
+    if data == "[DONE]" {
+        return None;
+    }
+    Some(data)
+}
+
+/// Drains complete `\n`-terminated lines from `buffer`, leaving any trailing
+/// partial line for the next chunk.
+fn drain_lines(buffer: &mut String) -> Vec<String> {
+    let mut lines = Vec::new();
+    while let Some(pos) = buffer.find('\n') {
+        lines.push(buffer[..pos].to_string());
+        buffer.drain(..=pos);
+    }
+    lines
+}
+
+#[derive(Default)]
+struct PartialToolCall {
+    id: String,
+    name: String,
+    arguments: String,
+}
+
+/// Accumulates a Chat Completions streaming response: `delta.content`
+/// fragments concatenate directly; `delta.tool_calls[].function.arguments`
+/// fragments are JSON-fragment text keyed by `index` and only parsed once
+/// complete, at [`Self::into_message`].
+#[derive(Default)]
+struct StreamAccumulator {
+    content: String,
+    tool_calls: Vec<PartialToolCall>,
+}
+
+impl StreamAccumulator {
+    /// Applies one `choices[0].delta` object, returning the text delta (if
+    /// any) so the caller can forward it to a [`DeltaSink`].
+    fn apply_delta(&mut self, delta: &Value) -> Option<String> {
+        let mut text_delta = None;
+        if let Some(content) = delta["content"].as_str()
+            && !content.is_empty()
+        {
+            self.content.push_str(content);
+            text_delta = Some(content.to_string());
+        }
+        if let Some(calls) = delta["tool_calls"].as_array() {
+            for call in calls {
+                let index = call["index"].as_u64().unwrap_or(0) as usize;
+                while self.tool_calls.len() <= index {
+                    self.tool_calls.push(PartialToolCall::default());
+                }
+                let entry = &mut self.tool_calls[index];
+                if let Some(id) = call["id"].as_str() {
+                    entry.id.push_str(id);
+                }
+                if let Some(name) = call["function"]["name"].as_str() {
+                    entry.name.push_str(name);
+                }
+                if let Some(args) = call["function"]["arguments"].as_str() {
+                    entry.arguments.push_str(args);
+                }
+            }
+        }
+        text_delta
+    }
+
+    fn into_message(self) -> Message {
+        let tool_calls: Vec<ToolCall> = self
+            .tool_calls
+            .into_iter()
+            .filter(|c| !c.name.is_empty())
+            .map(|c| ToolCall {
+                id: c.id,
+                name: c.name,
+                arguments: parse_tool_call_arguments(&Value::String(c.arguments)),
+            })
+            .collect();
+        if tool_calls.is_empty() {
+            Message::assistant(self.content)
+        } else {
+            Message::assistant_with_calls(self.content, tool_calls)
+        }
+    }
+}
+
 #[async_trait]
 impl ChatDriver for OpenAiDriver {
     fn id(&self) -> DriverId {
@@ -121,53 +287,8 @@ impl ChatDriver for OpenAiDriver {
     }
 
     async fn complete(&self, request: ChatRequest) -> Result<ChatResponse> {
-        let base_url = request
-            .model
-            .base_url
-            .clone()
-            .unwrap_or_else(|| DEFAULT_BASE_URL.to_string());
-
-        let mut messages = Vec::new();
-        if let Some(system) = &request.system_prompt {
-            messages.push(json!({"role": "system", "content": system}));
-        }
-        messages.extend(request.messages.iter().map(to_wire_message));
-
-        let mut body = json!({
-            "model": request.model.model,
-            "messages": messages,
-        });
-        if !request.tools.is_empty() {
-            body["tools"] = Value::Array(
-                request
-                    .tools
-                    .iter()
-                    .map(|t| {
-                        json!({
-                            "type": "function",
-                            "function": {
-                                "name": t.name,
-                                "description": t.description,
-                                "parameters": t.parameters,
-                            },
-                        })
-                    })
-                    .collect(),
-            );
-        }
-
-        let mut http = self
-            .client
-            .post(format!(
-                "{}/chat/completions",
-                base_url.trim_end_matches('/')
-            ))
-            .json(&body);
-        if let Some(key) = &request.model.api_key {
-            http = http.bearer_auth(key);
-        }
-
-        let response = http
+        let body = build_body(&request);
+        let response = request_builder(&self.client, &request.model, &body)
             .send()
             .await
             .map_err(|e| Error::Driver(format!("openai request failed: {e}")))?;
@@ -182,22 +303,7 @@ impl ChatDriver for OpenAiDriver {
 
         let choice = &payload["choices"][0]["message"];
         let content = choice["content"].as_str().unwrap_or_default().to_string();
-        let tool_calls = choice["tool_calls"]
-            .as_array()
-            .map(|calls| {
-                calls
-                    .iter()
-                    .map(|c| ToolCall {
-                        id: c["id"].as_str().unwrap_or_default().to_string(),
-                        name: c["function"]["name"]
-                            .as_str()
-                            .unwrap_or_default()
-                            .to_string(),
-                        arguments: parse_tool_call_arguments(&c["function"]["arguments"]),
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
+        let tool_calls = tool_calls_from_choice(choice);
 
         let usage = Usage {
             input_tokens: payload["usage"]["prompt_tokens"].as_u64().unwrap_or(0),
@@ -206,6 +312,62 @@ impl ChatDriver for OpenAiDriver {
 
         Ok(ChatResponse {
             message: Message::assistant_with_calls(content, tool_calls),
+            usage,
+        })
+    }
+
+    async fn complete_streaming(
+        &self,
+        request: ChatRequest,
+        sink: &mut dyn DeltaSink,
+    ) -> Result<ChatResponse> {
+        let mut body = build_body(&request);
+        body["stream"] = json!(true);
+        body["stream_options"] = json!({"include_usage": true});
+
+        let response = request_builder(&self.client, &request.model, &body)
+            .send()
+            .await
+            .map_err(|e| Error::Driver(format!("openai request failed: {e}")))?;
+        let status = response.status();
+        if !status.is_success() {
+            let payload: Value = response.json().await.unwrap_or(Value::Null);
+            return Err(Error::Driver(format!("openai http {status}: {payload}")));
+        }
+
+        let mut byte_stream = response.bytes_stream();
+        let mut buffer = String::new();
+        let mut accumulator = StreamAccumulator::default();
+        let mut usage = Usage::default();
+
+        while let Some(chunk) = byte_stream.next().await {
+            let chunk =
+                chunk.map_err(|e| Error::Driver(format!("openai stream read failed: {e}")))?;
+            buffer.push_str(&String::from_utf8_lossy(&chunk));
+            for line in drain_lines(&mut buffer) {
+                let Some(data) = parse_sse_data_line(&line) else {
+                    continue;
+                };
+                let Ok(payload) = serde_json::from_str::<Value>(data) else {
+                    continue;
+                };
+                if let Some(delta) = payload["choices"][0]["delta"].as_object() {
+                    let delta = Value::Object(delta.clone());
+                    if let Some(text) = accumulator.apply_delta(&delta) {
+                        sink.delta(&text, &accumulator.content).await?;
+                    }
+                }
+                if payload.get("usage").is_some_and(|u| !u.is_null()) {
+                    usage = Usage {
+                        input_tokens: payload["usage"]["prompt_tokens"].as_u64().unwrap_or(0),
+                        output_tokens: payload["usage"]["completion_tokens"].as_u64().unwrap_or(0),
+                    };
+                }
+            }
+        }
+
+        Ok(ChatResponse {
+            message: accumulator.into_message(),
             usage,
         })
     }
@@ -259,5 +421,125 @@ mod tests {
         );
         let wire = to_wire_message(&message);
         assert_eq!(wire["tool_calls"][0]["function"]["arguments"], "{\"a\":1}");
+    }
+
+    #[test]
+    fn sse_data_line_parsing() {
+        assert_eq!(parse_sse_data_line("data: {\"a\":1}"), Some("{\"a\":1}"));
+        assert_eq!(parse_sse_data_line("data:{\"a\":1}"), Some("{\"a\":1}"));
+        assert_eq!(parse_sse_data_line("data: [DONE]"), None);
+        assert_eq!(parse_sse_data_line(""), None);
+        assert_eq!(parse_sse_data_line("event: message"), None);
+        assert_eq!(parse_sse_data_line(": comment"), None);
+    }
+
+    #[test]
+    fn drain_lines_keeps_trailing_partial_line() {
+        let mut buffer = "line one\nline tw".to_string();
+        let lines = drain_lines(&mut buffer);
+        assert_eq!(lines, vec!["line one".to_string()]);
+        assert_eq!(buffer, "line tw");
+
+        buffer.push_str("o\n");
+        let lines = drain_lines(&mut buffer);
+        assert_eq!(lines, vec!["line two".to_string()]);
+        assert_eq!(buffer, "");
+    }
+
+    #[test]
+    fn stream_accumulator_assembles_text_deltas() {
+        let mut acc = StreamAccumulator::default();
+        assert_eq!(
+            acc.apply_delta(&json!({"content": "Hel"})),
+            Some("Hel".to_string())
+        );
+        assert_eq!(
+            acc.apply_delta(&json!({"content": "lo"})),
+            Some("lo".to_string())
+        );
+        assert_eq!(acc.apply_delta(&json!({})), None);
+        let message = acc.into_message();
+        assert_eq!(message.text(), "Hello");
+        assert!(message.tool_calls.is_empty());
+    }
+
+    #[test]
+    fn stream_accumulator_assembles_tool_call_fragments_by_index() {
+        let mut acc = StreamAccumulator::default();
+        acc.apply_delta(&json!({
+            "tool_calls": [{"index": 0, "id": "call_0", "function": {"name": "add", "arguments": ""}}]
+        }));
+        acc.apply_delta(&json!({
+            "tool_calls": [{"index": 0, "function": {"arguments": "{\"a\":"}}]
+        }));
+        acc.apply_delta(&json!({
+            "tool_calls": [{"index": 0, "function": {"arguments": "1}"}}]
+        }));
+        let message = acc.into_message();
+        assert_eq!(message.tool_calls.len(), 1);
+        assert_eq!(message.tool_calls[0].id, "call_0");
+        assert_eq!(message.tool_calls[0].name, "add");
+        assert_eq!(message.tool_calls[0].arguments, json!({"a": 1}));
+    }
+
+    #[tokio::test]
+    async fn complete_streaming_reports_deltas_and_returns_final_message() {
+        use agentyk_core::error::Result as CoreResult;
+
+        struct RecordingSink {
+            deltas: Vec<(String, String)>,
+        }
+        #[async_trait]
+        impl DeltaSink for RecordingSink {
+            async fn delta(&mut self, delta: &str, accumulated: &str) -> CoreResult<()> {
+                self.deltas
+                    .push((delta.to_string(), accumulated.to_string()));
+                Ok(())
+            }
+        }
+
+        // Simulate SSE chunk-by-chunk delivery straight through the parsing
+        // path used by `complete_streaming`, without a live network call.
+        let sse_body = concat!(
+            "data: {\"choices\":[{\"delta\":{\"content\":\"Hel\"}}]}\n",
+            "data: {\"choices\":[{\"delta\":{\"content\":\"lo\"}}]}\n",
+            "data: {\"choices\":[{\"delta\":{}}],\"usage\":{\"prompt_tokens\":3,\"completion_tokens\":2}}\n",
+            "data: [DONE]\n",
+        );
+
+        let mut sink = RecordingSink { deltas: Vec::new() };
+        let mut buffer = String::new();
+        let mut accumulator = StreamAccumulator::default();
+        let mut usage = Usage::default();
+        buffer.push_str(sse_body);
+        for line in drain_lines(&mut buffer) {
+            let Some(data) = parse_sse_data_line(&line) else {
+                continue;
+            };
+            let payload: Value = serde_json::from_str(data).unwrap();
+            if let Some(delta) = payload["choices"][0]["delta"].as_object() {
+                let delta = Value::Object(delta.clone());
+                if let Some(text) = accumulator.apply_delta(&delta) {
+                    sink.delta(&text, &accumulator.content).await.unwrap();
+                }
+            }
+            if payload.get("usage").is_some_and(|u| !u.is_null()) {
+                usage = Usage {
+                    input_tokens: payload["usage"]["prompt_tokens"].as_u64().unwrap_or(0),
+                    output_tokens: payload["usage"]["completion_tokens"].as_u64().unwrap_or(0),
+                };
+            }
+        }
+
+        assert_eq!(
+            sink.deltas,
+            vec![
+                ("Hel".to_string(), "Hel".to_string()),
+                ("lo".to_string(), "Hello".to_string()),
+            ]
+        );
+        assert_eq!(accumulator.into_message().text(), "Hello");
+        assert_eq!(usage.input_tokens, 3);
+        assert_eq!(usage.output_tokens, 2);
     }
 }

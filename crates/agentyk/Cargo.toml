@@ -18,12 +18,13 @@ tokio = { workspace = true, features = ["rt", "macros", "sync", "process", "io-u
 tracing = { workspace = true }
 
 # HTTP LLM drivers (feature: http)
-reqwest = { workspace = true, optional = true }
+reqwest = { workspace = true, optional = true, features = ["stream"] }
+futures-util = { version = "0.3", optional = true, default-features = false }
 
 [features]
 default = ["mcp"]
-# OpenAI-compatible and Anthropic HTTP drivers.
-http = ["dep:reqwest"]
+# OpenAI-compatible and Anthropic HTTP drivers, streaming included.
+http = ["dep:reqwest", "dep:futures-util"]
 # MCP stdio client + capability.
 mcp = []
 
