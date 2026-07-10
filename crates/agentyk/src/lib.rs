@@ -69,7 +69,7 @@ pub use in_process::InProcessExecutor;
 pub use jsonl_log::JsonlEventLog;
 #[cfg(feature = "mcp")]
 pub use mcp::{McpCapability, McpClient, McpServer};
-pub use session::Session;
+pub use session::{RunOptions, Session};
 
 #[cfg(feature = "http")]
 pub use drivers::{anthropic::AnthropicDriver, openai::OpenAiDriver};

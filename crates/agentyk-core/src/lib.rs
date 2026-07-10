@@ -26,6 +26,7 @@
 pub mod atoms;
 pub mod cancellation;
 pub mod capability;
+pub mod controls;
 pub mod driver;
 pub mod error;
 pub mod event;
@@ -40,8 +41,10 @@ pub mod turn;
 
 pub use cancellation::CancellationToken;
 pub use capability::{Capability, SystemPromptContext};
+pub use controls::TurnControls;
 pub use driver::{
-    ChatDriver, ChatRequest, ChatResponse, DeltaSink, DriverId, DriverRegistry, ModelSpec, Usage,
+    ChatDriver, ChatRequest, ChatResponse, DeltaSink, DriverId, DriverRegistry, ModelSpec,
+    ReasoningConfig, Usage,
 };
 pub use error::{Error, LlmErrorKind, Result};
 pub use event::{Event, EventData, EventListener, EventRequest, event_types};

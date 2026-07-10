@@ -85,6 +85,7 @@ everruns concept must be expressible on top of the agentyk primitive.
 | `turn.cancelled`, cancellation plumbing | `event_types::TURN_CANCELLED`, `cancellation::CancellationToken` on `TurnHost` | std-only token (no tokio), checked once per action and once per streaming chunk |
 | atoms (`InputAtom`/`ReasonAtom`/`ActAtom`, stateless, own their message I/O) | `atoms::{assemble, reason, act}` (stateless, **no I/O beyond the LLM/tool call itself**) | atoms no longer load/store messages or emit events; recording belongs to the machine's effects |
 | stream reconnect, provider streaming | `atoms::reason_streaming` + `ChatDriver::complete_streaming` + `DeltaSink` | default streams as one full-text delta; OpenAI/Anthropic drivers stream real SSE increments; deltas never touch `TurnState` — `on_reason_started` is the only state transition, purely informational |
+| `Controls` (per-input model override, `ReasoningConfig`) | `controls::TurnControls` + `ModelSpec.reasoning` | `Session::run_controlled`/`run_with_options`; reasoning wired for OpenAI, not yet for Anthropic (needs a token budget, not an effort string) |
 | `RuntimeHostAdapter` + `plan_next_host_turn` (turn strategy) | `executor::TurnExecutor` + `TurnHost` | `InProcessExecutor` default; a durable host maps each `TurnAction` to a retryable activity and checkpoints `TurnState` between them |
 | `PreToolUseHook`/`PostToolExecHook`/`PostActHook`/`ClientSideToolHook` | `hooks::{PreToolUseHook, PostToolExecHook}` on `AgentBuilder` | orchestrated by the executor around `atoms::act`, not inside it; `require-approval`, `PostActHook`, `ClientSideToolHook` not yet ported (see `everruns-adoption.md`) |
 | `tool.denied` (implicit in approval/guardrail flows) | `event_types::TOOL_DENIED` | durable; recorded alongside `tool.started`/`tool.completed` when a pre-hook denies |
@@ -139,6 +140,9 @@ server):
   orchestrated by the executor around `atoms::act`. `require-approval`,
   `PostActHook`, `ClientSideToolHook` deferred — see
   [`everruns-adoption.md`](everruns-adoption.md#tier-2).
+- Per-turn controls — `TurnControls { model, reasoning }`,
+  `Session::run_controlled`/`run_with_options`. Reasoning effort wired for
+  OpenAI; Anthropic deferred (needs a token budget, not an effort string).
 
 Remaining for Phase 1 completion:
 

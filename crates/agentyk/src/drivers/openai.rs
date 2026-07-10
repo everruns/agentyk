@@ -128,6 +128,14 @@ fn build_body(request: &ChatRequest) -> Value {
         "model": request.model.model,
         "messages": messages,
     });
+    if let Some(effort) = request
+        .model
+        .reasoning
+        .as_ref()
+        .and_then(|r| r.effort.as_deref())
+    {
+        body["reasoning_effort"] = json!(effort);
+    }
     if !request.tools.is_empty() {
         body["tools"] = Value::Array(
             request
@@ -452,6 +460,32 @@ mod tests {
         let message = Message::user("hello");
         let wire = to_wire_message(&message);
         assert_eq!(wire["content"], "hello");
+    }
+
+    #[test]
+    fn reasoning_effort_is_forwarded_when_set() {
+        let mut model = agentyk_core::driver::ModelSpec::openai("gpt-5.5");
+        model = model.reasoning_effort("high");
+        let request = ChatRequest {
+            model,
+            system_prompt: None,
+            messages: vec![Message::user("hi")],
+            tools: vec![],
+        };
+        let body = build_body(&request);
+        assert_eq!(body["reasoning_effort"], "high");
+    }
+
+    #[test]
+    fn reasoning_effort_omitted_when_unset() {
+        let request = ChatRequest {
+            model: agentyk_core::driver::ModelSpec::openai("gpt-5.5"),
+            system_prompt: None,
+            messages: vec![Message::user("hi")],
+            tools: vec![],
+        };
+        let body = build_body(&request);
+        assert!(body.get("reasoning_effort").is_none());
     }
 
     #[test]

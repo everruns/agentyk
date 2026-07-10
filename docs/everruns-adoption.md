@@ -82,11 +82,19 @@ expensive to change the longer we wait.
    `Session::run_cancellable(input, token)` takes a caller-held token to
    cancel from another task.
 
-6. **Per-turn controls.** everruns `Controls` allows per-input model override
-   and reasoning config; agentyk fixes the model at agent build time. Add a
-   `run_with(input, TurnControls)` path where `TurnControls { model override,
-   reasoning effort, … }` feeds `atoms::reason`. Also carry `ReasoningConfig`
-   on `ModelSpec` so drivers can request thinking/effort.
+6. ✅ **Per-turn controls — done.** `controls::TurnControls { model,
+   reasoning }` — `Session::run_controlled(input, controls)` overrides the
+   model and/or reasoning effort for one turn without rebuilding the agent;
+   `reasoning` layers onto whichever model is chosen (override or default),
+   so bumping effort doesn't require also overriding the model. `ModelSpec`
+   gained `reasoning: Option<ReasoningConfig>` (+ `.reasoning_effort(...)`
+   builder method); the OpenAI driver forwards it as `reasoning_effort` in
+   the request body. **Not wired for Anthropic** — extended thinking needs a
+   `budget_tokens` integer, not an effort string, and no clean 1:1 mapping
+   exists; left as a documented gap rather than guessing a mapping.
+   `Session::run_with_options(input, RunOptions { cancellation, controls })`
+   is the general form; `run`/`run_cancellable`/`run_controlled` are thin
+   wrappers over it.
 
 ## Tier 2 — machine & executor gaps (turn-semantics parity)
 
@@ -219,7 +227,7 @@ Phase 1.5 (pre-adoption hardening, in this repo):
 5. ✅ Error retryability classification
 6. ✅ Act hooks (pre/post tool) — unlocks guardrail ports; approval's
    require-approval path still needs a `TurnPhase::PendingApproval`
-7. Per-turn `TurnControls`
+7. ✅ Per-turn `TurnControls`
 8. Sealing (`Sealed(SealReason)`) + budget seam
 9. Parallel-capable `PendingAct` + tool policy types
 10. `ContextAssembler` seam

@@ -12,6 +12,7 @@
 use std::sync::Arc;
 
 use agentyk_core::cancellation::CancellationToken;
+use agentyk_core::controls::TurnControls;
 use agentyk_core::error::Result;
 use agentyk_core::event::Event;
 use agentyk_core::event_log::EventLog;
@@ -21,6 +22,18 @@ use agentyk_core::message::Message;
 use agentyk_core::replay::messages_from_events;
 
 use crate::agent::Agent;
+
+/// Everything one [`Session::run_with_options`] call can override. Defaults
+/// (`RunOptions::default()`) reproduce plain [`Session::run`]: an
+/// uncancellable turn on the agent's default model.
+#[derive(Default)]
+pub struct RunOptions {
+    /// Clone this before calling and cancel the clone from elsewhere to
+    /// stop the turn — see [`CancellationToken`].
+    pub cancellation: CancellationToken,
+    /// Per-turn model/reasoning overrides — see [`TurnControls`].
+    pub controls: TurnControls,
+}
 
 pub struct Session {
     agent: Agent,
@@ -70,11 +83,11 @@ impl Session {
         self.log.read(self.id).await
     }
 
-    /// Run one turn: user input in, final assistant text out. Not
-    /// cancellable — see [`Session::run_cancellable`] to stop a turn from
-    /// another task.
+    /// Run one turn: user input in, final assistant text out. Uncancellable
+    /// and on the agent's default model — see [`Session::run_with_options`]
+    /// for cancellation and per-turn model/reasoning overrides.
     pub async fn run(&mut self, input: impl Into<String>) -> Result<TurnResult> {
-        self.run_cancellable(input, CancellationToken::new()).await
+        self.run_with_options(input, RunOptions::default()).await
     }
 
     /// Run one turn, stoppable from elsewhere: clone `token` before calling,
@@ -87,19 +100,55 @@ impl Session {
         input: impl Into<String>,
         token: CancellationToken,
     ) -> Result<TurnResult> {
+        self.run_with_options(
+            input,
+            RunOptions {
+                cancellation: token,
+                ..Default::default()
+            },
+        )
+        .await
+    }
+
+    /// Run one turn with per-turn model/reasoning overrides, without
+    /// rebuilding the agent — see [`TurnControls`].
+    pub async fn run_controlled(
+        &mut self,
+        input: impl Into<String>,
+        controls: TurnControls,
+    ) -> Result<TurnResult> {
+        self.run_with_options(
+            input,
+            RunOptions {
+                controls,
+                ..Default::default()
+            },
+        )
+        .await
+    }
+
+    /// Run one turn with full control over cancellation and per-turn
+    /// overrides — the general form `run`/`run_cancellable`/`run_controlled`
+    /// delegate to.
+    pub async fn run_with_options(
+        &mut self,
+        input: impl Into<String>,
+        options: RunOptions,
+    ) -> Result<TurnResult> {
         let agent = self.agent.inner.clone();
         let executor = agent.executor.clone();
+        let effective_model = options.controls.resolve(&agent.model);
         let mut host = TurnHost {
             session_id: self.id,
             system_prompt: &agent.system_prompt,
-            model: &agent.model,
+            model: &effective_model,
             capabilities: &agent.capabilities,
             drivers: &agent.drivers,
             listeners: &agent.listeners,
             max_iterations: agent.max_iterations,
             log: self.log.as_ref(),
             messages: &mut self.messages,
-            cancellation: token,
+            cancellation: options.cancellation,
             pre_tool_hooks: &agent.pre_tool_hooks,
             post_tool_hooks: &agent.post_tool_hooks,
         };

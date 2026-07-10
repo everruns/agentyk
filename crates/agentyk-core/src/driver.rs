@@ -58,6 +58,15 @@ impl From<&str> for DriverId {
     }
 }
 
+/// Reasoning/thinking configuration for models that support it. Mirrors
+/// everruns' `ReasoningConfig`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct ReasoningConfig {
+    /// Provider-defined effort level, e.g. `"low"` / `"medium"` / `"high"`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effort: Option<String>,
+}
+
 /// A model, by value (everruns: `ResolvedModel`): wire model name, the driver
 /// that speaks its protocol, and optional credentials/endpoint. Build it
 /// inline and hand it to the agent — nothing to register.
@@ -71,6 +80,8 @@ pub struct ModelSpec {
     /// proxies, local runtimes).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub base_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning: Option<ReasoningConfig>,
 }
 
 impl ModelSpec {
@@ -80,6 +91,7 @@ impl ModelSpec {
             model: model.into(),
             api_key: None,
             base_url: None,
+            reasoning: None,
         }
     }
 
@@ -98,6 +110,16 @@ impl ModelSpec {
 
     pub fn api_key(mut self, key: impl Into<String>) -> Self {
         self.api_key = Some(key.into());
+        self
+    }
+
+    /// Request a reasoning/thinking effort level, where the driver supports
+    /// it (currently honored by [`crate::driver::DriverId::openai`]-shaped
+    /// drivers via `reasoning_effort`).
+    pub fn reasoning_effort(mut self, effort: impl Into<String>) -> Self {
+        self.reasoning = Some(ReasoningConfig {
+            effort: Some(effort.into()),
+        });
         self
     }
 
