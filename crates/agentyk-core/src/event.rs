@@ -85,11 +85,29 @@ pub enum EventData {
         output: String,
         is_error: bool,
     },
+    /// Escape hatch for domain events this crate doesn't know about yet —
+    /// a capability or host emitting its own event without forking core.
+    /// `event_type` should follow the dot-notation convention (e.g.
+    /// `"budget.warning"`); as protocol coverage grows, well-known custom
+    /// types are expected to graduate into first-class variants (see
+    /// `docs/everruns-adoption.md`).
+    Custom {
+        event_type: String,
+        #[serde(default)]
+        payload: serde_json::Value,
+    },
 }
 
 impl EventData {
+    pub fn custom(event_type: impl Into<String>, payload: serde_json::Value) -> Self {
+        EventData::Custom {
+            event_type: event_type.into(),
+            payload,
+        }
+    }
+
     /// The dot-notation type string for this payload.
-    pub fn event_type(&self) -> &'static str {
+    pub fn event_type(&self) -> &str {
         match self {
             EventData::TurnStarted => event_types::TURN_STARTED,
             EventData::TurnCompleted { .. } => event_types::TURN_COMPLETED,
@@ -101,11 +119,14 @@ impl EventData {
             EventData::OutputMessageCompleted { .. } => event_types::OUTPUT_MESSAGE_COMPLETED,
             EventData::ToolStarted { .. } => event_types::TOOL_STARTED,
             EventData::ToolCompleted { .. } => event_types::TOOL_COMPLETED,
+            EventData::Custom { event_type, .. } => event_type,
         }
     }
 
     /// Ephemeral events are delivered to listeners but never persisted —
-    /// see the module docs. Only `output.message.delta` is ephemeral today.
+    /// see the module docs. Only `output.message.delta` is ephemeral today;
+    /// `Custom` events are durable by default (a custom *ephemeral* event
+    /// isn't representable yet — add one if a use case needs it).
     pub fn is_ephemeral(&self) -> bool {
         matches!(self, EventData::OutputMessageDelta { .. })
     }
@@ -248,5 +269,19 @@ mod tests {
             }
             .is_ephemeral()
         );
+    }
+
+    #[test]
+    fn custom_event_carries_its_own_type_and_is_durable() {
+        let data = EventData::custom("budget.warning", serde_json::json!({"remaining": 10}));
+        assert_eq!(data.event_type(), "budget.warning");
+        assert!(!data.is_ephemeral());
+
+        let event =
+            EventRequest::new(SessionId::new(), data).into_event(EventId::new(), Utc::now(), 1);
+        let json = serde_json::to_string(&event).unwrap();
+        let back: Event = serde_json::from_str(&json).unwrap();
+        assert_eq!(event, back);
+        assert_eq!(back.event_type, "budget.warning");
     }
 }

@@ -66,6 +66,7 @@ everruns concept must be expressible on top of the agentyk primitive.
 | `Event` / `EventData` / `EventRequest`, dot-notation types | `event::{Event, EventData, EventRequest}` | same protocol shape; log assigns id/ts/sequence |
 | `Event.sequence: Option<i32>`, ephemeral vs durable events | `Event.sequence: Option<u64>`, `EventData::is_ephemeral()` | same split; `None` for ephemeral (never persisted), `Some` for durable |
 | `output.message.started/delta/completed/replaced` | `OutputMessageStarted/Delta/Completed` | `Replaced` (guardrail rewrite) not yet ported — no guardrail capability exists to need it |
+| ~40 `EventData` variants (`Reason*`/`Act*`/`Budget*`/…) | `EventData::Custom { event_type, payload }` | escape hatch; each variant graduates to first-class as its feature lands |
 | `EventEmitter` + runtime `EventBus` | `EventLog` (append + read) | unified; replay is first-class |
 | `EventListener` / `CompositeEventListener` | `EventListener` (fan-out built into the session) | same trait shape |
 | `Capability` (id, system_prompt_contribution, tools) | `Capability` | same trait shape; **attached by object, not registered + referenced by string id**; `tools()` is async so MCP fits |
@@ -127,6 +128,7 @@ server):
 - Cancellation — `cancellation::CancellationToken`, `TurnOutcome::Cancelled`,
   `Session::run_cancellable`. Checked between actions and per streaming
   chunk.
+- Event extensibility — `EventData::Custom { event_type, payload }`.
 
 Remaining for Phase 1 completion:
 

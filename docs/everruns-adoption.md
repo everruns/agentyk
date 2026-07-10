@@ -49,12 +49,15 @@ expensive to change the longer we wait.
 3. **Event protocol extensibility.** Everruns has ~40 `EventData` variants
    (`Reason*`, `Act*`, `Budget*`, `ContextCompacting/Compacted`,
    `FileWritten`, `CapabilityUsage`, `LlmGeneration`, session lifecycle…).
-   Agentyk's closed 7-variant enum cannot host them. Two-part answer:
+   Agentyk's closed enum can't host them all at once. Two-part answer:
+   - ✅ `EventData::Custom { event_type, payload }` — done. Escape hatch so
+     hosts and capabilities can emit domain events without forking core;
+     `EventData::event_type()` returns `&str` (was `&'static str`, to admit
+     `Custom`'s owned type string) and durable by default (no custom
+     *ephemeral* event exists yet — add one if a use case needs it).
    - adopt the everruns *frozen* protocol names incrementally as features
      land (compaction events arrive with the compaction seam, budget events
-     with the budget seam);
-   - add an `EventData::Custom { event_type, payload }` escape hatch now, so
-     hosts and capabilities can emit domain events without forking core.
+     with the budget seam) — `Custom` is the bridge until each graduates.
 
 4. **Error taxonomy for retries.** Durable execution retries activities, so
    it must distinguish retryable LLM failures (rate limit, overload,
@@ -193,7 +196,7 @@ Phase 1.5 (pre-adoption hardening, in this repo):
    differences" below.
 2. ✅ Streaming: delta events + ephemeral classification + streaming driver API
 3. ✅ Cancellation + `TurnOutcome::Cancelled`
-4. `EventData::Custom` escape hatch
+4. ✅ `EventData::Custom` escape hatch
 5. Error retryability classification
 6. Act hooks (pre/post tool) — unlocks approval + guardrails ports
 7. Per-turn `TurnControls`
