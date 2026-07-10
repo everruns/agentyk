@@ -45,18 +45,21 @@
 //! ```
 
 pub mod agent;
+pub mod atoms;
 pub mod capability;
 pub mod driver;
 pub mod drivers;
 pub mod error;
 pub mod event;
 pub mod event_log;
+pub mod executor;
 pub mod id;
 #[cfg(feature = "mcp")]
 pub mod mcp;
 pub mod message;
 pub mod session;
 pub mod tool;
+pub mod turn;
 
 pub use agent::{Agent, AgentBuilder};
 pub use capability::{Capability, SystemPromptContext};
@@ -67,12 +70,14 @@ pub use drivers::sim::{SimDriver, SimToolCall, SimTurn};
 pub use error::{Error, Result};
 pub use event::{Event, EventData, EventListener, EventRequest, event_types};
 pub use event_log::{EventLog, InMemoryEventLog, JsonlEventLog};
+pub use executor::{InProcessExecutor, TurnExecutor, TurnHost};
 pub use id::{EventId, SessionId, TurnId};
 #[cfg(feature = "mcp")]
 pub use mcp::{McpCapability, McpClient, McpServer};
 pub use message::{Message, Role, ToolCall};
-pub use session::{Session, TurnResult};
+pub use session::{Session, TurnResult, messages_from_events};
 pub use tool::{FnTool, Tool, ToolContext, ToolDefinition, ToolOutput};
+pub use turn::{TurnAction, TurnOutcome, TurnPhase, TurnState};
 
 #[cfg(feature = "http")]
 pub use drivers::{anthropic::AnthropicDriver, openai::OpenAiDriver};

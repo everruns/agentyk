@@ -68,6 +68,11 @@ everruns concept must be expressible on top of the agentyk primitive.
 | `Harness` → `Agent` → `Session` hierarchy | `Agent` → `Session` | harness collapsed into the agent; reintroduced in Phase 2 as an agent-template layer if needed |
 | `InProcessRuntime::run_turn(session_id, input)` | `Session::run(input)` | the session holds its own id |
 | `TurnResult` | `TurnResult` | same |
+| `TurnStateMachine` + `RuntimeTurnState` (host-persisted phase state) | `turn::TurnState` (one serializable value: machine + bookkeeping) | **sans-IO**: transitions are pure and return the events to record as data, instead of atoms doing their own load/store/emit |
+| `TurnAction` (`ExecuteInput/Reason/Act/Complete`) | `turn::TurnAction` (`Reason` / `ExecuteTool` / `Complete`) | input phase became `TurnState::start` effects (pure); act is per-tool-call for per-call retries |
+| `TurnOutcome` (Success/Failed/MaxIterations/Sealed) | `turn::TurnOutcome` (Success/Failed/MaxIterations) | sealing reasons (no-progress, budget) are Phase-2 host policy |
+| atoms (`InputAtom`/`ReasonAtom`/`ActAtom`, stateless, own their message I/O) | `atoms::{assemble, reason, act}` (stateless, **no I/O beyond the LLM/tool call itself**) | atoms no longer load/store messages or emit events; recording belongs to the machine's effects |
+| `RuntimeHostAdapter` + `plan_next_host_turn` (turn strategy) | `executor::TurnExecutor` + `TurnHost` | `InProcessExecutor` default; a durable host maps each `TurnAction` to a retryable activity and checkpoints `TurnState` between them |
 | MCP merge/discovery (runtime `mcp.rs`) | `McpCapability` / `McpClient` / `McpServer` | MCP is just a capability; stdio transport built in |
 | Typed prefixed ids (`session_<hex>`) | `id::TypedId` (`SessionId`, `TurnId`, `EventId`) | same format; only correlation ids remain — no `AgentId`, `ModelId`, `ProviderId` |
 
@@ -96,6 +101,13 @@ server):
   `AnthropicDriver` (Messages API) behind the `http` feature.
 - MCP — stdio JSON-RPC client (initialize handshake, `tools/list`,
   `tools/call`), lazy connection, tools exposed as ordinary `Tool`s.
+- Execution abstraction — the sans-IO `TurnState` machine + `atoms` +
+  `TurnExecutor` strategy seam (see the mapping table). Proven by two tests:
+  `durable_host_drives_turn_across_a_crash` (a simulated durable host
+  checkpoints the JSON `TurnState` mid-turn, "crashes", and resumes purely
+  from checkpoint + event-log replay) and
+  `manual_drive_matches_in_process_executor` (manual machine drive and the
+  default executor produce identical event sequences).
 
 Remaining for Phase 1 completion:
 

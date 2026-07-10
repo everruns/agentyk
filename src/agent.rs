@@ -12,6 +12,7 @@ use crate::driver::{ChatDriver, DriverRegistry, ModelSpec};
 use crate::error::{Error, Result};
 use crate::event::EventListener;
 use crate::event_log::{EventLog, InMemoryEventLog};
+use crate::executor::{InProcessExecutor, TurnExecutor};
 use crate::id::SessionId;
 use crate::session::{Session, TurnResult};
 use crate::tool::Tool;
@@ -24,6 +25,7 @@ pub(crate) struct AgentInner {
     pub(crate) drivers: DriverRegistry,
     pub(crate) listeners: Vec<Arc<dyn EventListener>>,
     pub(crate) max_iterations: usize,
+    pub(crate) executor: Arc<dyn TurnExecutor>,
 }
 
 /// A runnable agent, composed by value. Cheap to clone (shared internals).
@@ -49,6 +51,32 @@ impl Agent {
 
     pub fn name(&self) -> &str {
         &self.inner.name
+    }
+
+    pub fn system_prompt(&self) -> &str {
+        &self.inner.system_prompt
+    }
+
+    pub fn model(&self) -> &ModelSpec {
+        &self.inner.model
+    }
+
+    pub fn capabilities(&self) -> &[Arc<dyn Capability>] {
+        &self.inner.capabilities
+    }
+
+    pub fn drivers(&self) -> &DriverRegistry {
+        &self.inner.drivers
+    }
+
+    /// The driver that speaks this agent's model protocol. Guaranteed by
+    /// `build()` to exist.
+    pub fn driver_for_model(&self) -> Option<Arc<dyn ChatDriver>> {
+        self.inner.drivers.get(&self.inner.model.driver)
+    }
+
+    pub fn max_iterations(&self) -> usize {
+        self.inner.max_iterations
     }
 
     /// Start a session with an in-memory event log.
@@ -86,6 +114,7 @@ pub struct AgentBuilder {
     drivers: DriverRegistry,
     listeners: Vec<Arc<dyn EventListener>>,
     max_iterations: usize,
+    executor: Arc<dyn TurnExecutor>,
 }
 
 impl AgentBuilder {
@@ -99,6 +128,7 @@ impl AgentBuilder {
             drivers: DriverRegistry::new(),
             listeners: Vec::new(),
             max_iterations: 16,
+            executor: Arc::new(InProcessExecutor),
         }
     }
 
@@ -152,6 +182,13 @@ impl AgentBuilder {
         self
     }
 
+    /// Replace how turns execute (default: [`InProcessExecutor`]). Durable
+    /// hosts plug in here — see [`crate::executor`].
+    pub fn executor(mut self, executor: impl TurnExecutor + 'static) -> Self {
+        self.executor = Arc::new(executor);
+        self
+    }
+
     pub fn build(self) -> Result<Agent> {
         let model = self
             .model
@@ -188,6 +225,7 @@ impl AgentBuilder {
                 drivers,
                 listeners: self.listeners,
                 max_iterations: self.max_iterations,
+                executor: self.executor,
             }),
         })
     }
