@@ -137,6 +137,15 @@ pub struct ChatResponse {
     pub usage: Usage,
 }
 
+/// Receives incremental text as a [`ChatDriver`] streams a completion.
+/// `accumulated` is the full text so far, including `delta` — the executor
+/// forwards each call straight to [`crate::executor::TurnHost::record`] as an
+/// ephemeral `output.message.delta` event.
+#[async_trait]
+pub trait DeltaSink: Send {
+    async fn delta(&mut self, delta: &str, accumulated: &str) -> Result<()>;
+}
+
 /// One provider protocol. Implementations translate [`ChatRequest`] to the
 /// provider's wire format and back.
 #[async_trait]
@@ -144,6 +153,25 @@ pub trait ChatDriver: Send + Sync {
     fn id(&self) -> DriverId;
 
     async fn complete(&self, request: ChatRequest) -> Result<ChatResponse>;
+
+    /// Stream a completion, reporting text as it arrives through `sink`, and
+    /// return the same final [`ChatResponse`] [`complete`](Self::complete)
+    /// would. The default forwards to `complete` and reports the whole
+    /// response as a single delta — real incremental streaming is an
+    /// opt-in per-driver upgrade (see the `http` feature's OpenAI/Anthropic
+    /// drivers), not a requirement of the trait.
+    async fn complete_streaming(
+        &self,
+        request: ChatRequest,
+        sink: &mut dyn DeltaSink,
+    ) -> Result<ChatResponse> {
+        let response = self.complete(request).await?;
+        let text = response.message.text();
+        if !text.is_empty() {
+            sink.delta(&text, &text).await?;
+        }
+        Ok(response)
+    }
 }
 
 /// Routes a [`ModelSpec`] to the [`ChatDriver`] that speaks its protocol.

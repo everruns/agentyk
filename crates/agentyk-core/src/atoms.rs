@@ -20,7 +20,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::capability::{Capability, SystemPromptContext};
-use crate::driver::{ChatDriver, ChatRequest, ChatResponse, ModelSpec};
+use crate::driver::{ChatDriver, ChatRequest, ChatResponse, DeltaSink, ModelSpec};
 use crate::error::Result;
 use crate::id::SessionId;
 use crate::message::{Message, ToolCall};
@@ -81,6 +81,19 @@ pub async fn assemble(
     })
 }
 
+fn chat_request(
+    model: &ModelSpec,
+    assembled: &AssembledTurn,
+    messages: Vec<Message>,
+) -> ChatRequest {
+    ChatRequest {
+        model: model.clone(),
+        system_prompt: assembled.system_prompt.clone(),
+        messages,
+        tools: assembled.tool_definitions.clone(),
+    }
+}
+
 /// The reason atom: one LLM completion over the current history.
 pub async fn reason(
     driver: &dyn ChatDriver,
@@ -89,12 +102,22 @@ pub async fn reason(
     messages: Vec<Message>,
 ) -> Result<ChatResponse> {
     driver
-        .complete(ChatRequest {
-            model: model.clone(),
-            system_prompt: assembled.system_prompt.clone(),
-            messages,
-            tools: assembled.tool_definitions.clone(),
-        })
+        .complete(chat_request(model, assembled, messages))
+        .await
+}
+
+/// The reason atom, streaming: text arrives incrementally through `sink` as
+/// the driver generates it (see [`DeltaSink`]), and the final response is
+/// identical to what [`reason`] would return.
+pub async fn reason_streaming(
+    driver: &dyn ChatDriver,
+    model: &ModelSpec,
+    assembled: &AssembledTurn,
+    messages: Vec<Message>,
+    sink: &mut dyn DeltaSink,
+) -> Result<ChatResponse> {
+    driver
+        .complete_streaming(chat_request(model, assembled, messages), sink)
         .await
 }
 

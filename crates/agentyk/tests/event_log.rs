@@ -29,7 +29,7 @@ async fn jsonl_log_persists_and_resumes_across_reopen() -> Result<()> {
     let log = Arc::new(JsonlEventLog::new(&path)?);
     let events = log.read(session_id).await?;
     assert!(events.len() >= 5);
-    assert_eq!(events[0].sequence, 1);
+    assert_eq!(events[0].sequence, Some(1));
     assert_eq!(events.last().unwrap().event_type, "turn.completed");
 
     // Resume the session from the reopened log and keep going.
@@ -43,8 +43,8 @@ async fn jsonl_log_persists_and_resumes_across_reopen() -> Result<()> {
 
     // New events continue the same sequence, not a fresh one.
     let all = log.read(session_id).await?;
-    let sequences: Vec<u64> = all.iter().map(|e| e.sequence).collect();
-    let expected: Vec<u64> = (1..=all.len() as u64).collect();
+    let sequences: Vec<Option<u64>> = all.iter().map(|e| e.sequence).collect();
+    let expected: Vec<Option<u64>> = (1..=all.len() as u64).map(Some).collect();
     assert_eq!(sequences, expected);
     Ok(())
 }
@@ -66,8 +66,8 @@ async fn two_sessions_share_one_file_with_independent_sequences() -> Result<()> 
 
     let events_a = log.read(a.id()).await?;
     let events_b = log.read(b.id()).await?;
-    assert_eq!(events_a[0].sequence, 1);
-    assert_eq!(events_b[0].sequence, 1);
+    assert_eq!(events_a[0].sequence, Some(1));
+    assert_eq!(events_b[0].sequence, Some(1));
     assert_ne!(a.id(), b.id());
     Ok(())
 }

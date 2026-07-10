@@ -82,6 +82,8 @@ async fn durable_host_drives_turn_across_a_crash() -> Result<()> {
 
         // Activity: reason.
         assert_eq!(state.next_action(), TurnAction::Reason);
+        let started = state.on_reason_started(Some(&agent.model().model));
+        record(&log, &state, started).await?;
         let history = messages_from_events(&log.read(session_id).await?);
         let response = atoms::reason(driver.as_ref(), agent.model(), &assembled, history).await?;
         let effects = state.on_reason_completed(&response);
@@ -105,6 +107,8 @@ async fn durable_host_drives_turn_across_a_crash() -> Result<()> {
     loop {
         match state.next_action() {
             TurnAction::Reason => {
+                let started = state.on_reason_started(Some(&agent.model().model));
+                record(&log, &state, started).await?;
                 let history = messages_from_events(&log.read(state.session_id).await?);
                 let response =
                     atoms::reason(driver.as_ref(), agent.model(), &assembled, history).await?;
@@ -143,10 +147,12 @@ async fn durable_host_drives_turn_across_a_crash() -> Result<()> {
         vec![
             "turn.started",
             "input.message",
-            "output.message",
+            "output.message.started",
+            "output.message.completed",
             "tool.started",
             "tool.completed",
-            "output.message",
+            "output.message.started",
+            "output.message.completed",
             "turn.completed",
         ]
     );
@@ -205,6 +211,8 @@ async fn manual_drive_matches_in_process_executor() -> Result<()> {
     loop {
         match state.next_action() {
             TurnAction::Reason => {
+                let started = state.on_reason_started(Some(&agent.model().model));
+                record(&log, &state, started).await?;
                 let history = messages_from_events(&log.read(session_id).await?);
                 let response =
                     atoms::reason(driver.as_ref(), agent.model(), &assembled, history).await?;

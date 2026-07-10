@@ -48,7 +48,9 @@ async fn turn_with_tool_call() -> Result<()> {
     assert_eq!(turn.iterations, 2);
     assert_eq!(turn.tool_calls, 1);
 
-    // Event protocol: full lifecycle recorded, in order.
+    // Event protocol: full lifecycle recorded, in order. Streaming deltas
+    // are ephemeral and never reach the log — see the durable_simulation
+    // and streaming tests for those.
     let events = session.events().await?;
     let types: Vec<&str> = events.iter().map(|e| e.event_type.as_str()).collect();
     assert_eq!(
@@ -56,16 +58,18 @@ async fn turn_with_tool_call() -> Result<()> {
         vec![
             event_types::TURN_STARTED,
             event_types::INPUT_MESSAGE,
-            event_types::OUTPUT_MESSAGE, // assistant tool-call message
+            event_types::OUTPUT_MESSAGE_STARTED,
+            event_types::OUTPUT_MESSAGE_COMPLETED, // assistant tool-call message
             event_types::TOOL_STARTED,
             event_types::TOOL_COMPLETED,
-            event_types::OUTPUT_MESSAGE, // final answer
+            event_types::OUTPUT_MESSAGE_STARTED,
+            event_types::OUTPUT_MESSAGE_COMPLETED, // final answer
             event_types::TURN_COMPLETED,
         ]
     );
-    // Sequences are contiguous from 1.
+    // Sequences are contiguous from 1 — every persisted event is durable.
     for (index, event) in events.iter().enumerate() {
-        assert_eq!(event.sequence, index as u64 + 1);
+        assert_eq!(event.sequence, Some(index as u64 + 1));
     }
     // The tool actually ran.
     assert!(events.iter().any(|e| matches!(

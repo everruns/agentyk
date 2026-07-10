@@ -200,6 +200,14 @@ impl AgentBuilder {
         self
     }
 
+    /// Attach a listener you already hold as an `Arc` — the way to keep a
+    /// handle to inspect its state (e.g. a test collector) after the agent
+    /// is built.
+    pub fn listener_arc(mut self, listener: Arc<dyn EventListener>) -> Self {
+        self.listeners.push(listener);
+        self
+    }
+
     /// Ceiling on reason/act iterations within one turn (default 16).
     pub fn max_iterations(mut self, max_iterations: usize) -> Self {
         self.max_iterations = max_iterations;

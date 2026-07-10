@@ -3,11 +3,31 @@
 
 use agentyk_core::atoms;
 use agentyk_core::error::{Error, Result};
+use agentyk_core::event::EventData;
 use agentyk_core::executor::{TurnExecutor, TurnHost, TurnResult};
+use agentyk_core::id::TurnId;
 use agentyk_core::message::Message;
 use agentyk_core::tool::ToolContext;
 use agentyk_core::turn::{TurnAction, TurnOutcome, TurnState};
 use async_trait::async_trait;
+
+/// Forwards streaming deltas straight to [`TurnHost::record`] as ephemeral
+/// `output.message.delta` events.
+struct RecordingDeltaSink<'h, 'a> {
+    host: &'h mut TurnHost<'a>,
+    turn_id: TurnId,
+}
+
+#[async_trait]
+impl agentyk_core::driver::DeltaSink for RecordingDeltaSink<'_, '_> {
+    async fn delta(&mut self, delta: &str, accumulated: &str) -> Result<()> {
+        let effects = vec![EventData::OutputMessageDelta {
+            delta: delta.to_string(),
+            accumulated: accumulated.to_string(),
+        }];
+        self.host.record(self.turn_id, effects).await
+    }
+}
 
 /// Drives [`TurnState`] over the [`atoms`] in-process. The reference
 /// implementation every other executor (durable, custom) must stay
@@ -33,9 +53,24 @@ impl TurnExecutor for InProcessExecutor {
         loop {
             match state.next_action() {
                 TurnAction::Reason => {
-                    match atoms::reason(driver.as_ref(), &model, &assembled, host.messages.clone())
-                        .await
-                    {
+                    let started = state.on_reason_started(Some(&model.model));
+                    host.record(turn_id, started).await?;
+
+                    let messages = host.messages.clone();
+                    let mut sink = RecordingDeltaSink {
+                        host: &mut *host,
+                        turn_id,
+                    };
+                    let outcome = atoms::reason_streaming(
+                        driver.as_ref(),
+                        &model,
+                        &assembled,
+                        messages,
+                        &mut sink,
+                    )
+                    .await;
+
+                    match outcome {
                         Ok(response) => {
                             let effects = state.on_reason_completed(&response);
                             host.record(turn_id, effects).await?;

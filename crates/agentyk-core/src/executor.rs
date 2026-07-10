@@ -14,13 +14,14 @@
 //!   history from the log on resume.
 
 use async_trait::async_trait;
+use chrono::Utc;
 
 use crate::capability::Capability;
 use crate::driver::{DriverRegistry, ModelSpec, Usage};
 use crate::error::Result;
 use crate::event::{EventData, EventListener, EventRequest};
 use crate::event_log::EventLog;
-use crate::id::{SessionId, TurnId};
+use crate::id::{EventId, SessionId, TurnId};
 use crate::message::Message;
 use crate::replay::message_from_event_data;
 use std::sync::Arc;
@@ -55,18 +56,23 @@ pub struct TurnHost<'a> {
 }
 
 impl TurnHost<'_> {
-    /// Record effects: append each to the event log, fan out to listeners,
-    /// and update the history projection. This is the single write path —
-    /// history stays a pure fold over the log.
+    /// Record effects: durable ones are appended to the event log and fold
+    /// into the history projection; ephemeral ones (see
+    /// [`EventData::is_ephemeral`]) skip the log entirely and go straight to
+    /// listeners with `sequence: None`. Either way, every listener sees
+    /// every event — this is the single write path, and history stays a
+    /// pure fold over only the durable events.
     pub async fn record(&mut self, turn_id: TurnId, effects: Vec<EventData>) -> Result<()> {
         for data in effects {
-            if let Some(message) = message_from_event_data(&data) {
-                self.messages.push(message);
-            }
-            let event = self
-                .log
-                .append(EventRequest::with_turn(self.session_id, turn_id, data))
-                .await?;
+            let request = EventRequest::with_turn(self.session_id, turn_id, data);
+            let event = if request.data.is_ephemeral() {
+                request.into_ephemeral_event(EventId::new(), Utc::now())
+            } else {
+                if let Some(message) = message_from_event_data(&request.data) {
+                    self.messages.push(message);
+                }
+                self.log.append(request).await?
+            };
             for listener in self.listeners {
                 listener.on_event(&event).await;
             }

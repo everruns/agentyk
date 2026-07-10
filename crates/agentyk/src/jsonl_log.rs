@@ -43,8 +43,16 @@ impl JsonlEventLog {
                 }
                 let event: Event = serde_json::from_str(&line)
                     .map_err(|e| Error::EventLog(format!("corrupt log line: {e}")))?;
+                // Every persisted line is durable (ephemeral events never
+                // reach an EventLog), so `sequence` is always `Some` here.
+                let sequence = event.sequence.ok_or_else(|| {
+                    Error::EventLog(format!(
+                        "log line for session {} has no sequence",
+                        event.session_id
+                    ))
+                })?;
                 let seq = sequences.entry(event.session_id).or_insert(0);
-                *seq = (*seq).max(event.sequence);
+                *seq = (*seq).max(sequence);
             }
         }
         let file = std::fs::OpenOptions::new()

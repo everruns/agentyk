@@ -36,7 +36,8 @@ async fn main() -> agentyk::Result<()> {
     );
     println!("\nevent log:");
     for event in session.events().await? {
-        println!("  {:>2}. {}", event.sequence, event.event_type);
+        // session.events() holds only durable events, so sequence is always set.
+        println!("  {:>2}. {}", event.sequence.unwrap_or(0), event.event_type);
     }
     Ok(())
 }

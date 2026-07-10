@@ -20,6 +20,10 @@
 //! loop {
 //!     match state.next_action() {                    // pure peek
 //!         TurnAction::Reason => {
+//!             record(state.on_reason_started(model_name));
+//!             // Streaming deltas (output.message.delta) are ephemeral: the
+//!             // driver reports them straight to `record` as it generates,
+//!             // outside the state machine — see `atoms::reason_streaming`.
 //!             let response = atoms::reason(…).await;  // effectful atom
 //!             record(state.on_reason_completed(&response));
 //!         }
@@ -151,13 +155,26 @@ impl TurnState {
         }
     }
 
-    /// Apply an LLM response. Emits `output.message`, then either finishes
-    /// the turn (`turn.completed` / `turn.failed` on max-iterations) or moves
-    /// to `PendingAct` with the requested tool calls.
+    /// About to run the reason atom for the upcoming iteration. Emits
+    /// `output.message.started`. Doesn't mutate `phase` — purely
+    /// informational, so it's safe to call again after a crash without
+    /// double-counting iterations (unlike `on_reason_completed`, which does
+    /// advance `self.iterations`).
+    pub fn on_reason_started(&self, model: Option<&str>) -> Vec<EventData> {
+        vec![EventData::OutputMessageStarted {
+            model: model.map(str::to_string),
+            iteration: Some(self.iterations as u32 + 1),
+        }]
+    }
+
+    /// Apply an LLM response. Emits `output.message.completed`, then either
+    /// finishes the turn (`turn.completed` / `turn.failed` on
+    /// max-iterations) or moves to `PendingAct` with the requested tool
+    /// calls.
     pub fn on_reason_completed(&mut self, response: &ChatResponse) -> Vec<EventData> {
         self.iterations += 1;
         self.usage.add(response.usage);
-        let mut effects = vec![EventData::OutputMessage {
+        let mut effects = vec![EventData::OutputMessageCompleted {
             message: response.message.clone(),
         }];
 

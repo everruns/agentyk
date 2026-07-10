@@ -37,7 +37,7 @@ pub mod turn;
 
 pub use capability::{Capability, SystemPromptContext};
 pub use driver::{
-    ChatDriver, ChatRequest, ChatResponse, DriverId, DriverRegistry, ModelSpec, Usage,
+    ChatDriver, ChatRequest, ChatResponse, DeltaSink, DriverId, DriverRegistry, ModelSpec, Usage,
 };
 pub use error::{Error, Result};
 pub use event::{Event, EventData, EventListener, EventRequest, event_types};
