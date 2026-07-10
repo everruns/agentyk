@@ -28,11 +28,13 @@ expensive to change the longer we wait.
    - the machine stays sans-IO: deltas are *listener traffic*, only the
      completed message is a transition input.
 
-2. **Multimodal messages.** everruns `Message` content is structured
-   (`ContentPart`: text, image, …); agentyk `Message.content` is a flat
-   `String`. Because `Message` is embedded in `input.message` /
-   `output.message` events, this is a protocol change — do it before any log
-   format matters. Flat-string constructors stay as conveniences.
+2. ✅ **Multimodal messages — done.** `Message.content` is now
+   `Vec<ContentPart>` (`Text`/`Image`, field-compatible with everruns'
+   `TextContentPart`/`ImageContentPart`). Flat-string constructors
+   (`Message::user`, `.assistant`, …) still take `impl Into<String>` and wrap
+   a single `Text` part (or none, for empty content) — zero call-site churn.
+   `Message::text()` derives the flat string for callers that only care about
+   text (e.g. `TurnOutcome::Success { response }`).
 
 3. **Event protocol extensibility.** Everruns has ~40 `EventData` variants
    (`Reason*`, `Act*`, `Budget*`, `ContextCompacting/Compacted`,
@@ -166,7 +168,14 @@ implements these as layers over the seams:
 
 Phase 1.5 (pre-adoption hardening, in this repo):
 
-1. Multimodal `ContentPart` message body (protocol, cheapest now)
+1. ✅ Multimodal `ContentPart` message body (protocol, cheapest now) — done:
+   `Message.content` is `Vec<ContentPart>` (`Text` / `Image`, matching
+   everruns' field shapes); `Message::text()` derives the flat string; both
+   HTTP drivers send a plain string on the wire for text-only messages and a
+   content-part array when an image is present (OpenAI `image_url`,
+   Anthropic `image` blocks). Tool calls/results stay dedicated `Message`
+   fields rather than folding into content parts — see "notable design
+   differences" below.
 2. Streaming: delta events + ephemeral classification + streaming driver API
 3. Cancellation + `TurnOutcome::Cancelled`
 4. `EventData::Custom` escape hatch

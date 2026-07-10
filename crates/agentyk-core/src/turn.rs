@@ -163,7 +163,7 @@ impl TurnState {
 
         if response.message.tool_calls.is_empty() {
             let outcome = TurnOutcome::Success {
-                response: response.message.content.clone(),
+                response: response.message.text(),
             };
             effects.push(EventData::TurnCompleted {
                 iterations: self.iterations,

@@ -44,7 +44,7 @@ pub use event::{Event, EventData, EventListener, EventRequest, event_types};
 pub use event_log::{EventLog, InMemoryEventLog};
 pub use executor::{TurnExecutor, TurnHost, TurnResult};
 pub use id::{EventId, SessionId, TurnId};
-pub use message::{Message, Role, ToolCall};
+pub use message::{ContentPart, ImageContentPart, Message, Role, TextContentPart, ToolCall};
 pub use replay::messages_from_events;
 pub use tool::{FnTool, Tool, ToolContext, ToolDefinition, ToolOutput};
 pub use turn::{TurnAction, TurnOutcome, TurnPhase, TurnState};

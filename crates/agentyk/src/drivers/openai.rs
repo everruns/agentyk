@@ -6,7 +6,7 @@ use serde_json::{Value, json};
 
 use agentyk_core::driver::{ChatDriver, ChatRequest, ChatResponse, DriverId, Usage};
 use agentyk_core::error::{Error, Result};
-use agentyk_core::message::{Message, Role, ToolCall};
+use agentyk_core::message::{ContentPart, Message, Role, ToolCall};
 
 const DEFAULT_BASE_URL: &str = "https://api.openai.com/v1";
 
@@ -36,12 +36,49 @@ impl Default for OpenAiDriver {
     }
 }
 
+/// OpenAI accepts `content` as either a plain string or an array of typed
+/// parts. Send a plain string for the common text-only case (matches what
+/// most OpenAI-compatible servers expect and keeps the wire payload small);
+/// switch to the array form only when an image is present.
+fn wire_content(content: &[ContentPart]) -> Value {
+    if content
+        .iter()
+        .all(|part| matches!(part, ContentPart::Text(_)))
+    {
+        return Value::String(
+            content
+                .iter()
+                .filter_map(ContentPart::as_text)
+                .collect::<Vec<_>>()
+                .join(""),
+        );
+    }
+    Value::Array(
+        content
+            .iter()
+            .map(|part| match part {
+                ContentPart::Text(text) => json!({"type": "text", "text": text.text}),
+                ContentPart::Image(image) => {
+                    let url = image.url.clone().unwrap_or_else(|| {
+                        format!(
+                            "data:{};base64,{}",
+                            image.media_type.as_deref().unwrap_or("image/png"),
+                            image.base64.as_deref().unwrap_or_default()
+                        )
+                    });
+                    json!({"type": "image_url", "image_url": {"url": url}})
+                }
+            })
+            .collect(),
+    )
+}
+
 fn to_wire_message(message: &Message) -> Value {
     match message.role {
-        Role::System => json!({"role": "system", "content": message.content}),
-        Role::User => json!({"role": "user", "content": message.content}),
+        Role::System => json!({"role": "system", "content": wire_content(&message.content)}),
+        Role::User => json!({"role": "user", "content": wire_content(&message.content)}),
         Role::Assistant => {
-            let mut wire = json!({"role": "assistant", "content": message.content});
+            let mut wire = json!({"role": "assistant", "content": wire_content(&message.content)});
             if !message.tool_calls.is_empty() {
                 wire["tool_calls"] = Value::Array(
                     message
@@ -65,7 +102,7 @@ fn to_wire_message(message: &Message) -> Value {
         Role::Tool => json!({
             "role": "tool",
             "tool_call_id": message.tool_call_id,
-            "content": message.content,
+            "content": wire_content(&message.content),
         }),
     }
 }
@@ -186,6 +223,28 @@ mod tests {
         );
         assert_eq!(parse_tool_call_arguments(&json!({"a": 1})), json!({"a": 1}));
         assert_eq!(parse_tool_call_arguments(&json!("not json")), json!({}));
+    }
+
+    #[test]
+    fn text_only_content_serializes_as_plain_string() {
+        let message = Message::user("hello");
+        let wire = to_wire_message(&message);
+        assert_eq!(wire["content"], "hello");
+    }
+
+    #[test]
+    fn image_content_serializes_as_content_part_array() {
+        let message = Message::user_multimodal(vec![
+            ContentPart::text("what is this?"),
+            ContentPart::image_url("https://example.com/cat.png"),
+        ]);
+        let wire = to_wire_message(&message);
+        assert_eq!(wire["content"][0]["type"], "text");
+        assert_eq!(wire["content"][1]["type"], "image_url");
+        assert_eq!(
+            wire["content"][1]["image_url"]["url"],
+            "https://example.com/cat.png"
+        );
     }
 
     #[test]

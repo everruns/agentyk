@@ -5,7 +5,7 @@ use serde_json::{Value, json};
 
 use agentyk_core::driver::{ChatDriver, ChatRequest, ChatResponse, DriverId, Usage};
 use agentyk_core::error::{Error, Result};
-use agentyk_core::message::{Message, Role, ToolCall};
+use agentyk_core::message::{ContentPart, Message, Role, ToolCall};
 
 const DEFAULT_BASE_URL: &str = "https://api.anthropic.com";
 const API_VERSION: &str = "2023-06-01";
@@ -36,6 +36,28 @@ impl Default for AnthropicDriver {
     }
 }
 
+/// Convert content parts to Anthropic content blocks (`text` / `image`).
+fn content_blocks(content: &[ContentPart]) -> Vec<Value> {
+    content
+        .iter()
+        .map(|part| match part {
+            ContentPart::Text(text) => json!({"type": "text", "text": text.text}),
+            ContentPart::Image(image) => {
+                let source = if let Some(url) = &image.url {
+                    json!({"type": "url", "url": url})
+                } else {
+                    json!({
+                        "type": "base64",
+                        "media_type": image.media_type.as_deref().unwrap_or("image/png"),
+                        "data": image.base64.as_deref().unwrap_or_default(),
+                    })
+                };
+                json!({"type": "image", "source": source})
+            }
+        })
+        .collect()
+}
+
 /// Convert the flat message list to Anthropic's user/assistant alternation:
 /// tool results become `tool_result` blocks inside a user message, and
 /// assistant tool calls become `tool_use` blocks.
@@ -54,18 +76,15 @@ pub(crate) fn to_wire_messages(messages: &[Message]) -> Vec<Value> {
             Role::Tool => pending_tool_results.push(json!({
                 "type": "tool_result",
                 "tool_use_id": message.tool_call_id,
-                "content": message.content,
+                "content": message.text(),
             })),
             Role::User => {
                 flush_tool_results(&mut wire, &mut pending_tool_results);
-                wire.push(json!({"role": "user", "content": message.content}));
+                wire.push(json!({"role": "user", "content": content_blocks(&message.content)}));
             }
             Role::Assistant => {
                 flush_tool_results(&mut wire, &mut pending_tool_results);
-                let mut blocks: Vec<Value> = Vec::new();
-                if !message.content.is_empty() {
-                    blocks.push(json!({"type": "text", "text": message.content}));
-                }
+                let mut blocks = content_blocks(&message.content);
                 for call in &message.tool_calls {
                     blocks.push(json!({
                         "type": "tool_use",
@@ -176,6 +195,19 @@ impl ChatDriver for AnthropicDriver {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn image_content_becomes_an_image_block() {
+        let messages = vec![Message::user_multimodal(vec![
+            ContentPart::text("what is this?"),
+            ContentPart::image_base64("Zm9v", "image/png"),
+        ])];
+        let wire = to_wire_messages(&messages);
+        assert_eq!(wire[0]["content"][0]["type"], "text");
+        assert_eq!(wire[0]["content"][1]["type"], "image");
+        assert_eq!(wire[0]["content"][1]["source"]["media_type"], "image/png");
+        assert_eq!(wire[0]["content"][1]["source"]["data"], "Zm9v");
+    }
 
     #[test]
     fn tool_results_merge_into_one_user_message() {
