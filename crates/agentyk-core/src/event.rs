@@ -29,6 +29,7 @@ pub mod event_types {
     pub const TURN_COMPLETED: &str = "turn.completed";
     pub const TURN_FAILED: &str = "turn.failed";
     pub const TURN_CANCELLED: &str = "turn.cancelled";
+    pub const TURN_SEALED: &str = "turn.sealed";
     pub const INPUT_MESSAGE: &str = "input.message";
     pub const OUTPUT_MESSAGE_STARTED: &str = "output.message.started";
     pub const OUTPUT_MESSAGE_DELTA: &str = "output.message.delta";
@@ -53,6 +54,11 @@ pub enum EventData {
     /// The turn was stopped via a [`crate::cancellation::CancellationToken`]
     /// rather than failing or completing.
     TurnCancelled,
+    /// The turn was deliberately sealed — see
+    /// [`crate::turn::SealReason`].
+    TurnSealed {
+        reason: crate::turn::SealReason,
+    },
     InputMessage {
         message: Message,
     },
@@ -123,6 +129,7 @@ impl EventData {
             EventData::TurnCompleted { .. } => event_types::TURN_COMPLETED,
             EventData::TurnFailed { .. } => event_types::TURN_FAILED,
             EventData::TurnCancelled => event_types::TURN_CANCELLED,
+            EventData::TurnSealed { .. } => event_types::TURN_SEALED,
             EventData::InputMessage { .. } => event_types::INPUT_MESSAGE,
             EventData::OutputMessageStarted { .. } => event_types::OUTPUT_MESSAGE_STARTED,
             EventData::OutputMessageDelta { .. } => event_types::OUTPUT_MESSAGE_DELTA,

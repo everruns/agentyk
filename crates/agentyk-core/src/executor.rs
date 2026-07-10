@@ -16,6 +16,7 @@
 use async_trait::async_trait;
 use chrono::Utc;
 
+use crate::budget::BudgetChecker;
 use crate::cancellation::CancellationToken;
 use crate::capability::Capability;
 use crate::driver::{DriverRegistry, ModelSpec, Usage};
@@ -65,6 +66,10 @@ pub struct TurnHost<'a> {
     /// Run after each executed (non-denied) tool call, in order, each
     /// seeing the previous hook's output — see [`PostToolExecHook`].
     pub post_tool_hooks: &'a [Arc<dyn PostToolExecHook>],
+    /// Checked once per turn action, like `cancellation` — a host that
+    /// wants to seal a turn on budget exhaustion sets this. `None` (the
+    /// default) means no budget policy — see [`BudgetChecker`].
+    pub budget_checker: Option<Arc<dyn BudgetChecker>>,
 }
 
 impl TurnHost<'_> {

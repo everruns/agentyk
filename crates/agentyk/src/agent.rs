@@ -7,6 +7,7 @@
 
 use std::sync::Arc;
 
+use agentyk_core::budget::BudgetChecker;
 use agentyk_core::capability::Capability;
 use agentyk_core::driver::{ChatDriver, DriverRegistry, ModelSpec};
 use agentyk_core::error::{Error, Result};
@@ -32,6 +33,7 @@ pub(crate) struct AgentInner {
     pub(crate) executor: Arc<dyn TurnExecutor>,
     pub(crate) pre_tool_hooks: Vec<Arc<dyn PreToolUseHook>>,
     pub(crate) post_tool_hooks: Vec<Arc<dyn PostToolExecHook>>,
+    pub(crate) budget_checker: Option<Arc<dyn BudgetChecker>>,
 }
 
 /// A runnable agent, composed by value. Cheap to clone (shared internals).
@@ -93,6 +95,10 @@ impl Agent {
         &self.inner.post_tool_hooks
     }
 
+    pub fn budget_checker(&self) -> Option<&Arc<dyn BudgetChecker>> {
+        self.inner.budget_checker.as_ref()
+    }
+
     /// Start a session with an in-memory event log.
     pub fn session(&self) -> Session {
         self.session_with_log(Arc::new(InMemoryEventLog::new()))
@@ -152,6 +158,7 @@ pub struct AgentBuilder {
     executor: Arc<dyn TurnExecutor>,
     pre_tool_hooks: Vec<Arc<dyn PreToolUseHook>>,
     post_tool_hooks: Vec<Arc<dyn PostToolExecHook>>,
+    budget_checker: Option<Arc<dyn BudgetChecker>>,
 }
 
 impl AgentBuilder {
@@ -168,6 +175,7 @@ impl AgentBuilder {
             executor: Arc::new(InProcessExecutor),
             pre_tool_hooks: Vec::new(),
             post_tool_hooks: Vec::new(),
+            budget_checker: None,
         }
     }
 
@@ -252,6 +260,15 @@ impl AgentBuilder {
         self
     }
 
+    /// Stop a turn deliberately rather than letting it run to
+    /// `MaxIterations` — checked once per action, like cancellation. See
+    /// [`agentyk_core::budget::BudgetChecker`]. No default policy: unset
+    /// means a turn never seals for budget reasons.
+    pub fn budget_checker(mut self, checker: impl BudgetChecker + 'static) -> Self {
+        self.budget_checker = Some(Arc::new(checker));
+        self
+    }
+
     pub fn build(self) -> Result<Agent> {
         let model = self
             .model
@@ -291,6 +308,7 @@ impl AgentBuilder {
                 executor: self.executor,
                 pre_tool_hooks: self.pre_tool_hooks,
                 post_tool_hooks: self.post_tool_hooks,
+                budget_checker: self.budget_checker,
             }),
         })
     }

@@ -61,10 +61,25 @@ use crate::id::{SessionId, TurnId};
 use crate::message::{Message, ToolCall};
 use crate::tool::ToolOutput;
 
+/// Why a turn was deliberately sealed rather than left to run to
+/// `MaxIterations` or fail. Mirrors everruns' `SealReason`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SealReason {
+    /// A durable turn was reclaimed repeatedly without making forward
+    /// progress. Host concern — agentyk's in-process executor can't
+    /// crash-loop, so it never seals for this reason; a durable host would.
+    NoProgress,
+    /// A [`crate::budget::BudgetChecker`] returned
+    /// [`crate::budget::BudgetDecision::Seal`].
+    BudgetExhausted,
+}
+
 /// How a turn ended. Mirrors everruns' `TurnOutcome`
 /// (Success/Failed/MaxIterations/Sealed) — `Cancelled` is the agentyk
 /// analogue of a caller-driven seal via
-/// [`crate::cancellation::CancellationToken`].
+/// [`crate::cancellation::CancellationToken`]; `Sealed` is a host- or
+/// budget-driven one.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum TurnOutcome {
@@ -78,6 +93,8 @@ pub enum TurnOutcome {
     /// Stopped cooperatively via a
     /// [`crate::cancellation::CancellationToken`] rather than failing.
     Cancelled,
+    /// Stopped deliberately to prevent wasted work — see [`SealReason`].
+    Sealed(SealReason),
 }
 
 /// Current phase of the turn. `PendingAct` carries the not-yet-executed tool
@@ -267,6 +284,13 @@ impl TurnState {
     pub fn on_cancel(&mut self) -> Vec<EventData> {
         self.phase = TurnPhase::Completed(TurnOutcome::Cancelled);
         vec![EventData::TurnCancelled]
+    }
+
+    /// Stop the turn deliberately (see [`SealReason`]), abandoning whatever
+    /// is pending. Emits `turn.sealed`.
+    pub fn on_seal(&mut self, reason: SealReason) -> Vec<EventData> {
+        self.phase = TurnPhase::Completed(TurnOutcome::Sealed(reason));
+        vec![EventData::TurnSealed { reason }]
     }
 
     pub fn is_complete(&self) -> bool {

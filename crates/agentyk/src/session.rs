@@ -151,6 +151,7 @@ impl Session {
             cancellation: options.cancellation,
             pre_tool_hooks: &agent.pre_tool_hooks,
             post_tool_hooks: &agent.post_tool_hooks,
+            budget_checker: agent.budget_checker.clone(),
         };
         executor.run_turn(&mut host, Message::user(input)).await
     }

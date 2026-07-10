@@ -24,6 +24,7 @@
 //! [`event_log::InMemoryEventLog`]).
 
 pub mod atoms;
+pub mod budget;
 pub mod cancellation;
 pub mod capability;
 pub mod controls;
@@ -39,6 +40,7 @@ pub mod replay;
 pub mod tool;
 pub mod turn;
 
+pub use budget::{BudgetChecker, BudgetDecision};
 pub use cancellation::CancellationToken;
 pub use capability::{Capability, SystemPromptContext};
 pub use controls::TurnControls;
@@ -55,4 +57,4 @@ pub use id::{EventId, SessionId, TurnId};
 pub use message::{ContentPart, ImageContentPart, Message, Role, TextContentPart, ToolCall};
 pub use replay::messages_from_events;
 pub use tool::{FnTool, Tool, ToolContext, ToolDefinition, ToolOutput};
-pub use turn::{TurnAction, TurnOutcome, TurnPhase, TurnState};
+pub use turn::{SealReason, TurnAction, TurnOutcome, TurnPhase, TurnState};

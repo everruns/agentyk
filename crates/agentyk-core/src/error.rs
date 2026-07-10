@@ -84,6 +84,10 @@ pub enum Error {
     #[error("turn cancelled")]
     Cancelled,
 
+    /// The turn was deliberately sealed — see [`crate::turn::SealReason`].
+    #[error("turn sealed: {0:?}")]
+    Sealed(crate::turn::SealReason),
+
     /// An LLM driver failed. `kind` classifies whether retrying is worth it
     /// — see [`Error::is_retryable`].
     #[error("driver error ({kind}): {message}")]

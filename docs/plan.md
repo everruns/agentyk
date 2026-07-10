@@ -88,6 +88,7 @@ everruns concept must be expressible on top of the agentyk primitive.
 | `Controls` (per-input model override, `ReasoningConfig`) | `controls::TurnControls` + `ModelSpec.reasoning` | `Session::run_controlled`/`run_with_options`; reasoning wired for OpenAI, not yet for Anthropic (needs a token budget, not an effort string) |
 | `RuntimeHostAdapter` + `plan_next_host_turn` (turn strategy) | `executor::TurnExecutor` + `TurnHost` | `InProcessExecutor` default; a durable host maps each `TurnAction` to a retryable activity and checkpoints `TurnState` between them |
 | `PreToolUseHook`/`PostToolExecHook`/`PostActHook`/`ClientSideToolHook` | `hooks::{PreToolUseHook, PostToolExecHook}` on `AgentBuilder` | orchestrated by the executor around `atoms::act`, not inside it; `require-approval`, `PostActHook`, `ClientSideToolHook` not yet ported (see `everruns-adoption.md`) |
+| `TurnOutcome::Sealed(SealReason)` (no-progress/budget), `HardLimitStopRule`/`BudgetChecker` | `turn::{TurnOutcome::Sealed, SealReason}` + `budget::BudgetChecker` | checked once per action, like cancellation; `NoProgress` exists but nothing sets it (needs a durable crash-reclaim host) |
 | `tool.denied` (implicit in approval/guardrail flows) | `event_types::TOOL_DENIED` | durable; recorded alongside `tool.started`/`tool.completed` when a pre-hook denies |
 | MCP merge/discovery (runtime `mcp.rs`) | `McpCapability` / `McpClient` / `McpServer` | MCP is just a capability; stdio transport built in |
 | Typed prefixed ids (`session_<hex>`) | `id::TypedId` (`SessionId`, `TurnId`, `EventId`) | same format; only correlation ids remain — no `AgentId`, `ModelId`, `ProviderId` |
@@ -143,6 +144,9 @@ server):
 - Per-turn controls — `TurnControls { model, reasoning }`,
   `Session::run_controlled`/`run_with_options`. Reasoning effort wired for
   OpenAI; Anthropic deferred (needs a token budget, not an effort string).
+- Sealing and budget — `TurnOutcome::Sealed(SealReason)`, `on_seal`,
+  `budget::BudgetChecker` on `AgentBuilder`. No default policy; `NoProgress`
+  is a durable-host concern with nothing to set it yet.
 
 Remaining for Phase 1 completion:
 

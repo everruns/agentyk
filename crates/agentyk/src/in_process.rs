@@ -2,6 +2,7 @@
 //! completion in a single async call.
 
 use agentyk_core::atoms;
+use agentyk_core::budget::BudgetDecision;
 use agentyk_core::cancellation::CancellationToken;
 use agentyk_core::error::{Error, Result};
 use agentyk_core::event::EventData;
@@ -10,7 +11,7 @@ use agentyk_core::hooks::PreToolUseDecision;
 use agentyk_core::id::TurnId;
 use agentyk_core::message::Message;
 use agentyk_core::tool::{ToolContext, ToolOutput};
-use agentyk_core::turn::{TurnAction, TurnOutcome, TurnState};
+use agentyk_core::turn::{SealReason, TurnAction, TurnOutcome, TurnState};
 use async_trait::async_trait;
 
 /// Forwards streaming deltas straight to [`TurnHost::record`] as ephemeral
@@ -66,6 +67,13 @@ impl TurnExecutor for InProcessExecutor {
                 let effects = state.on_cancel();
                 host.record(turn_id, effects).await?;
                 return Err(Error::Cancelled);
+            }
+            if let Some(checker) = &host.budget_checker
+                && checker.check(host.session_id).await == BudgetDecision::Seal
+            {
+                let effects = state.on_seal(SealReason::BudgetExhausted);
+                host.record(turn_id, effects).await?;
+                return Err(Error::Sealed(SealReason::BudgetExhausted));
             }
 
             match state.next_action() {
@@ -160,6 +168,7 @@ impl TurnExecutor for InProcessExecutor {
                         }
                         TurnOutcome::Failed { error } => Err(Error::Other(error)),
                         TurnOutcome::Cancelled => Err(Error::Cancelled),
+                        TurnOutcome::Sealed(reason) => Err(Error::Sealed(reason)),
                     };
                 }
             }

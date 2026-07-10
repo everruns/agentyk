@@ -127,11 +127,21 @@ expensive to change the longer we wait.
    missing: `ToolPolicy` / `DeferrablePolicy` / `ToolHints` (deferred tools
    are what ToolSearch is built on).
 
-9. **Sealing and budget.** `TurnOutcome` lacks `Sealed(SealReason)`
-   (no-progress crash loops, budget exhaustion) and there is no
-   `BudgetChecker` seam or `Budget*` events. The machine gets a
-   `seal(reason)` transition; the budget seam is a host-provided check the
-   executor consults per iteration.
+9. ✅ **Sealing and budget — done.** `TurnOutcome::Sealed(SealReason)`
+   (`NoProgress` | `BudgetExhausted`) + `TurnState::on_seal` (pure
+   transition, emits durable `turn.sealed`). `budget::BudgetChecker` is a
+   host-supplied seam (`AgentBuilder::budget_checker`, `None` by
+   default — never seals): `InProcessExecutor` checks it once per action,
+   next to the cancellation check, and seals via `Err(Error::Sealed(..))`
+   on `BudgetDecision::Seal`. Sealing abandons whatever's pending, same as
+   cancellation, but is distinct: cancellation is caller-driven
+   (`CancellationToken`), sealing is host-policy-driven (a budget rule).
+   `NoProgress` exists as a type but nothing sets it yet — it's meaningless
+   without a durable host's crash-reclaim loop; agentyk's in-process
+   executor can't crash-loop. No `Budget*` warning/paused/resumed events
+   (everruns' `budget.warning/paused/exhausted/resumed`) — only the
+   terminal `turn.sealed` outcome; a host wanting graduated warnings can
+   emit them via `EventData::Custom` today.
 
 10. **Reason robustness.** One-shot `driver.complete()` today. Everruns has:
     LLM retry with backoff + error classification (uses gap 4), stream
@@ -228,7 +238,7 @@ Phase 1.5 (pre-adoption hardening, in this repo):
 6. ✅ Act hooks (pre/post tool) — unlocks guardrail ports; approval's
    require-approval path still needs a `TurnPhase::PendingApproval`
 7. ✅ Per-turn `TurnControls`
-8. Sealing (`Sealed(SealReason)`) + budget seam
+8. ✅ Sealing (`Sealed(SealReason)`) + budget seam
 9. Parallel-capable `PendingAct` + tool policy types
 10. `ContextAssembler` seam
 11. Capability `commands()` + `mcp_servers()`; `ToolContext` extensions
