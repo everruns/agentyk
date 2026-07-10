@@ -7,15 +7,18 @@
 
 use std::sync::Arc;
 
-use crate::capability::{AdHocTools, Capability};
-use crate::driver::{ChatDriver, DriverRegistry, ModelSpec};
-use crate::error::{Error, Result};
-use crate::event::EventListener;
-use crate::event_log::{EventLog, InMemoryEventLog};
-use crate::executor::{InProcessExecutor, TurnExecutor};
-use crate::id::SessionId;
-use crate::session::{Session, TurnResult};
-use crate::tool::Tool;
+use agentyk_core::capability::Capability;
+use agentyk_core::driver::{ChatDriver, DriverRegistry, ModelSpec};
+use agentyk_core::error::{Error, Result};
+use agentyk_core::event::EventListener;
+use agentyk_core::event_log::{EventLog, InMemoryEventLog};
+use agentyk_core::executor::{TurnExecutor, TurnResult};
+use agentyk_core::id::SessionId;
+use agentyk_core::tool::Tool;
+use async_trait::async_trait;
+
+use crate::in_process::InProcessExecutor;
+use crate::session::Session;
 
 pub(crate) struct AgentInner {
     pub(crate) name: String,
@@ -104,6 +107,27 @@ impl Agent {
     }
 }
 
+/// Capability wrapping tools attached directly on the builder via
+/// [`AgentBuilder::tool`].
+struct AdHocTools {
+    tools: Vec<Arc<dyn Tool>>,
+}
+
+#[async_trait]
+impl Capability for AdHocTools {
+    fn id(&self) -> &str {
+        "tools"
+    }
+
+    fn description(&self) -> &str {
+        "Tools attached directly to the agent."
+    }
+
+    async fn tools(&self) -> Result<Vec<Arc<dyn Tool>>> {
+        Ok(self.tools.clone())
+    }
+}
+
 /// Fluent, by-value agent composition.
 pub struct AgentBuilder {
     name: String,
@@ -183,7 +207,7 @@ impl AgentBuilder {
     }
 
     /// Replace how turns execute (default: [`InProcessExecutor`]). Durable
-    /// hosts plug in here — see [`crate::executor`].
+    /// hosts plug in here — see [`agentyk_core::executor`].
     pub fn executor(mut self, executor: impl TurnExecutor + 'static) -> Self {
         self.executor = Arc::new(executor);
         self
@@ -203,7 +227,7 @@ impl AgentBuilder {
         let mut drivers = self.drivers;
         #[cfg(feature = "http")]
         {
-            use crate::driver::DriverId;
+            use agentyk_core::driver::DriverId;
             if !drivers.contains(&DriverId::openai()) {
                 drivers.register(crate::drivers::openai::OpenAiDriver::new());
             }

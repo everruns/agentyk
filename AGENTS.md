@@ -16,12 +16,27 @@ the long-term plan is to rebuild everruns-core/runtime on top of it. Read
 - Important decisions belong as concise comments near the relevant code.
 - No backward compatibility required — agentyk is pre-0.1 on crates.io.
 
+## Packaging
+
+Cargo workspace, lockstep versions:
+
+- `crates/agentyk-core` — the contract: traits, event protocol, turn machine,
+  atoms, replay. Lean by construction: **no tokio, no HTTP, no process
+  spawning**. Anything a third party implements or serializes lives here.
+- `crates/agentyk` — the framework: builders, `InProcessExecutor`,
+  `JsonlEventLog`, bundled drivers (features `http`), MCP (feature `mcp`).
+  Re-exports all of core; applications depend only on `agentyk`.
+
+New drivers/capabilities start as feature-gated modules in `agentyk` and
+graduate to `agentyk-<name>` satellite crates (depending only on core) when
+they grow a heavy dependency. Do not add tokio/reqwest/process deps to core.
+
 ## Design rules (enforced in review)
 
 - Values first: no API that requires creating-then-referencing an entity by
   id. Ids are outputs, never inputs.
 - The event log is the persistence seam; replay must suffice to resume a session.
-- Traits stay host-neutral: nothing in this crate presumes a database, server,
+- Traits stay host-neutral: nothing in core presumes a database, server,
   or tenant.
 - Heavy integrations go behind features (`http`, `mcp`) or arrive as capabilities.
 - Keep the everruns vocabulary (see the mapping table in `docs/plan.md`).
@@ -32,10 +47,10 @@ Everything runs offline — tests use the scripted `SimDriver` and a canned
 stdio MCP server; no API keys needed.
 
 ```sh
-cargo test --all-features
-cargo clippy --all-targets --all-features -- -D warnings
-cargo fmt --check
-cargo run --example hello
+cargo test --workspace --all-features
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo fmt --all --check
+cargo run -p agentyk --example hello
 ```
 
 ## Git and commits

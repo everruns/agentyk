@@ -37,11 +37,29 @@ println!("{}", turn.response);
   `DriverId`: OpenAI-compatible and Anthropic (feature `http`), plus a
   scripted `SimDriver` for deterministic offline tests and examples.
 
+## Packaging
+
+Two crates, lockstep-versioned:
+
+- **`agentyk`** — the framework: what you *build with*. `Agent`/`Session`
+  builders, the default in-process executor, bundled drivers, the JSONL event
+  log, MCP. Re-exports all of core, so this is the only dependency an
+  application needs.
+- **`agentyk-core`** — the contract: what you *implement against*. Traits
+  (`Tool`, `Capability`, `ChatDriver`, `EventLog`, `TurnExecutor`), the event
+  protocol, and the turn state machine. Deliberately lean — no tokio, no
+  HTTP — so hosts (a durable engine, a server) and extensions depend on a
+  small, stable surface.
+
+New drivers and capabilities start as feature-gated modules in `agentyk`; a
+module graduates to its own `agentyk-<name>` crate (depending only on core)
+when it grows a heavy dependency.
+
 ## Try it (offline, no API key)
 
 ```sh
-cargo run --example hello
-cargo test --all-features
+cargo run -p agentyk --example hello
+cargo test --workspace --all-features
 ```
 
 ## Relationship to everruns

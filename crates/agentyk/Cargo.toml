@@ -1,0 +1,33 @@
+[package]
+name = "agentyk"
+description = "Compose agents from values and run them: turn loop, event log, capabilities, MCP, multi-provider LLM drivers."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords = ["agent", "llm", "ai", "mcp"]
+categories = ["asynchronous"]
+
+[dependencies]
+agentyk-core = { workspace = true }
+async-trait = { workspace = true }
+chrono = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["rt", "macros", "sync", "process", "io-util", "time"] }
+tracing = { workspace = true }
+
+# HTTP LLM drivers (feature: http)
+reqwest = { workspace = true, optional = true }
+
+[features]
+default = ["mcp"]
+# OpenAI-compatible and Anthropic HTTP drivers.
+http = ["dep:reqwest"]
+# MCP stdio client + capability.
+mcp = []
+
+[dev-dependencies]
+serde = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+tempfile = { workspace = true }

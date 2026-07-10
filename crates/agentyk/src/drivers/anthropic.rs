@@ -3,9 +3,9 @@
 use async_trait::async_trait;
 use serde_json::{Value, json};
 
-use crate::driver::{ChatDriver, ChatRequest, ChatResponse, DriverId, Usage};
-use crate::error::{Error, Result};
-use crate::message::{Message, Role, ToolCall};
+use agentyk_core::driver::{ChatDriver, ChatRequest, ChatResponse, DriverId, Usage};
+use agentyk_core::error::{Error, Result};
+use agentyk_core::message::{Message, Role, ToolCall};
 
 const DEFAULT_BASE_URL: &str = "https://api.anthropic.com";
 const API_VERSION: &str = "2023-06-01";

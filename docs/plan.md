@@ -117,6 +117,29 @@ Remaining for Phase 1 completion:
 - CI workflow (fmt, clippy, test on the feature matrix).
 - Publish dry-run (`cargo publish --dry-run`) and crate docs polish.
 
+## Packaging
+
+Agentyk is headed toward a full framework (own drivers, own capabilities), so
+the crate boundary is drawn now, while it is cheap:
+
+- **`agentyk-core`** — the contract crate: what you *implement against*.
+  Traits (`Tool`, `Capability`, `ChatDriver`, `EventLog`, `EventListener`,
+  `TurnExecutor`), protocol data (events, messages, ids), the turn machine,
+  atoms, and replay. Lean by construction — no tokio, no HTTP, no process
+  spawning — so hosts and extensions get a small, stable, slow-moving surface.
+  This is what everruns (Phase 2) implements `EventLog`/`TurnExecutor`
+  against without inheriting reqwest or MCP.
+- **`agentyk`** — the framework crate: what you *build with*. Builders,
+  `InProcessExecutor`, `JsonlEventLog`, bundled drivers, MCP. Re-exports all
+  of core so applications see one crate name.
+
+Growth policy: new drivers and capabilities start as feature-gated modules in
+`agentyk`; a module graduates to an `agentyk-<name>` satellite crate
+(depending only on `agentyk-core`) when it grows a heavy dependency
+(tree-sitter, git2, image, …). Versions stay in lockstep across the workspace
+(the everruns/yolop convention). The split rule in one line: *core is for
+implementers, agentyk is for authors, satellites are for heavy deps.*
+
 ## Design rules
 
 1. **Values first.** Any API that requires creating-then-referencing an entity

@@ -1,35 +1,25 @@
 //! Session — a conversation with an agent.
 //!
 //! `Session::run` executes one turn of the everruns `input → reason → act`
-//! contract by delegating to the agent's [`crate::executor::TurnExecutor`]
-//! (default: [`crate::executor::InProcessExecutor`]), which drives the
-//! [`crate::turn::TurnState`] machine over the [`crate::atoms`]. Every step
-//! is appended to the [`EventLog`] and fanned out to listeners; a session can
-//! be [resumed](crate::Agent::resume_session) from its log alone.
+//! contract by delegating to the agent's
+//! [`TurnExecutor`](agentyk_core::executor::TurnExecutor) (default:
+//! [`crate::in_process::InProcessExecutor`]), which drives the
+//! [`TurnState`](agentyk_core::turn::TurnState) machine over the
+//! [`atoms`](agentyk_core::atoms). Every step is appended to the event log
+//! and fanned out to listeners; a session can be
+//! [resumed](crate::Agent::resume_session) from its log alone.
 
 use std::sync::Arc;
 
-use crate::agent::Agent;
-use crate::driver::Usage;
-use crate::error::Result;
-use crate::event::{Event, EventData};
-use crate::event_log::EventLog;
-use crate::executor::TurnHost;
-use crate::id::{SessionId, TurnId};
-use crate::message::Message;
+use agentyk_core::error::Result;
+use agentyk_core::event::Event;
+use agentyk_core::event_log::EventLog;
+use agentyk_core::executor::{TurnHost, TurnResult};
+use agentyk_core::id::SessionId;
+use agentyk_core::message::Message;
+use agentyk_core::replay::messages_from_events;
 
-/// The outcome of one [`Session::run`] call.
-#[derive(Debug, Clone)]
-pub struct TurnResult {
-    pub turn_id: TurnId,
-    /// The model's final text response.
-    pub response: String,
-    /// LLM completions performed within the turn.
-    pub iterations: usize,
-    /// Tool calls executed within the turn.
-    pub tool_calls: usize,
-    pub usage: Usage,
-}
+use crate::agent::Agent;
 
 pub struct Session {
     agent: Agent,
@@ -96,30 +86,4 @@ impl Session {
         };
         executor.run_turn(&mut host, Message::user(input)).await
     }
-}
-
-/// The message a recorded event contributes to history, if any. History is a
-/// pure fold of this over the event log — the invariant that makes
-/// resume-from-log (including mid-turn, for durable hosts) possible.
-pub(crate) fn message_from_event_data(data: &EventData) -> Option<Message> {
-    match data {
-        EventData::InputMessage { message } | EventData::OutputMessage { message } => {
-            Some(message.clone())
-        }
-        EventData::ToolCompleted {
-            call_id, output, ..
-        } => Some(Message::tool_result(call_id.clone(), output.clone())),
-        _ => None,
-    }
-}
-
-/// Rebuild message history from an event log — the replay half of the
-/// persistence story.
-pub fn messages_from_events(events: &[Event]) -> Vec<Message> {
-    let mut ordered: Vec<&Event> = events.iter().collect();
-    ordered.sort_by_key(|e| e.sequence);
-    ordered
-        .into_iter()
-        .filter_map(|event| message_from_event_data(&event.data))
-        .collect()
 }

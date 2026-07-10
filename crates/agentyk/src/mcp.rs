@@ -32,9 +32,9 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin, Command};
 use tokio::sync::{Mutex, OnceCell, oneshot};
 
-use crate::capability::Capability;
-use crate::error::{Error, Result};
-use crate::tool::{Tool, ToolContext, ToolDefinition, ToolOutput};
+use agentyk_core::capability::Capability;
+use agentyk_core::error::{Error, Result};
+use agentyk_core::tool::{Tool, ToolContext, ToolDefinition, ToolOutput};
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
 const PROTOCOL_VERSION: &str = "2025-06-18";

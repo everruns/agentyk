@@ -1,34 +1,26 @@
-[package]
-name = "agentyk"
+[workspace]
+resolver = "2"
+members = ["crates/agentyk-core", "crates/agentyk"]
+
+[workspace.package]
 version = "0.1.0"
 edition = "2024"
 license = "MIT"
-description = "Compose agents from values and run them: turn loop, event log, capabilities, MCP, multi-provider LLM drivers."
 repository = "https://github.com/everruns/agentyk"
 homepage = "https://github.com/everruns/agentyk"
-keywords = ["agent", "llm", "ai", "mcp"]
-categories = ["asynchronous"]
 
-[dependencies]
+[workspace.dependencies]
+# Internal (lockstep versions)
+agentyk-core = { path = "crates/agentyk-core", version = "0.1.0" }
+
+# Shared external
 async-trait = "0.1"
 chrono = { version = "0.4", features = ["serde"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
-tokio = { version = "1", features = ["rt", "macros", "sync", "process", "io-util", "time"] }
+tokio = { version = "1" }
 tracing = "0.1"
 uuid = { version = "1", features = ["v7", "serde"] }
-
-# HTTP LLM drivers (feature: http)
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"], optional = true }
-
-[features]
-default = ["mcp"]
-# OpenAI-compatible and Anthropic HTTP drivers.
-http = ["dep:reqwest"]
-# MCP stdio client + capability.
-mcp = []
-
-[dev-dependencies]
-tokio = { version = "1", features = ["full"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 tempfile = "3"

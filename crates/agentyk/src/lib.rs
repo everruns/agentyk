@@ -7,9 +7,17 @@
 //! entity creation, no registration, and no ids to thread. Ids exist only as
 //! internal correlation handles on sessions and events.
 //!
+//! This is the **framework crate**: builders, the default in-process
+//! executor, bundled drivers (sim; OpenAI/Anthropic behind `http`), the JSONL
+//! event log, and MCP support. The contract it drives — traits, the event
+//! protocol, and the turn state machine — lives in
+//! [`agentyk-core`](https://crates.io/crates/agentyk-core) and is fully
+//! re-exported here; depend on core directly only when *implementing* a seam
+//! (a custom driver, capability, event log, or executor).
+//!
 //! The domain language (events protocol, capabilities, drivers, the
 //! `input → reason → act` turn) is inherited from
-//! [everruns](https://github.com/everruns/everruns); this crate is the
+//! [everruns](https://github.com/everruns/everruns); agentyk is the
 //! value-first core that everruns-core and everruns-runtime are intended to
 //! be rebuilt on top of.
 //!
@@ -45,39 +53,23 @@
 //! ```
 
 pub mod agent;
-pub mod atoms;
-pub mod capability;
-pub mod driver;
 pub mod drivers;
-pub mod error;
-pub mod event;
-pub mod event_log;
-pub mod executor;
-pub mod id;
+pub mod in_process;
+pub mod jsonl_log;
 #[cfg(feature = "mcp")]
 pub mod mcp;
-pub mod message;
 pub mod session;
-pub mod tool;
-pub mod turn;
+
+// The full contract: protocol data, seams, the turn machine, atoms, replay.
+pub use agentyk_core::*;
 
 pub use agent::{Agent, AgentBuilder};
-pub use capability::{Capability, SystemPromptContext};
-pub use driver::{
-    ChatDriver, ChatRequest, ChatResponse, DriverId, DriverRegistry, ModelSpec, Usage,
-};
 pub use drivers::sim::{SimDriver, SimToolCall, SimTurn};
-pub use error::{Error, Result};
-pub use event::{Event, EventData, EventListener, EventRequest, event_types};
-pub use event_log::{EventLog, InMemoryEventLog, JsonlEventLog};
-pub use executor::{InProcessExecutor, TurnExecutor, TurnHost};
-pub use id::{EventId, SessionId, TurnId};
+pub use in_process::InProcessExecutor;
+pub use jsonl_log::JsonlEventLog;
 #[cfg(feature = "mcp")]
 pub use mcp::{McpCapability, McpClient, McpServer};
-pub use message::{Message, Role, ToolCall};
-pub use session::{Session, TurnResult, messages_from_events};
-pub use tool::{FnTool, Tool, ToolContext, ToolDefinition, ToolOutput};
-pub use turn::{TurnAction, TurnOutcome, TurnPhase, TurnState};
+pub use session::Session;
 
 #[cfg(feature = "http")]
 pub use drivers::{anthropic::AnthropicDriver, openai::OpenAiDriver};

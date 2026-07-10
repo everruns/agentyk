@@ -46,24 +46,3 @@ pub trait Capability: Send + Sync {
         Ok(Vec::new())
     }
 }
-
-/// Internal capability wrapping tools attached directly on the builder via
-/// [`crate::agent::AgentBuilder::tool`].
-pub(crate) struct AdHocTools {
-    pub(crate) tools: Vec<Arc<dyn Tool>>,
-}
-
-#[async_trait]
-impl Capability for AdHocTools {
-    fn id(&self) -> &str {
-        "tools"
-    }
-
-    fn description(&self) -> &str {
-        "Tools attached directly to the agent."
-    }
-
-    async fn tools(&self) -> Result<Vec<Arc<dyn Tool>>> {
-        Ok(self.tools.clone())
-    }
-}

@@ -7,9 +7,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use async_trait::async_trait;
 
-use crate::driver::{ChatDriver, ChatRequest, ChatResponse, DriverId, Usage};
-use crate::error::Result;
-use crate::message::{Message, ToolCall};
+use agentyk_core::driver::{ChatDriver, ChatRequest, ChatResponse, DriverId, Usage};
+use agentyk_core::error::Result;
+use agentyk_core::message::{Message, ToolCall};
 
 #[derive(Debug, Clone)]
 pub struct SimToolCall {

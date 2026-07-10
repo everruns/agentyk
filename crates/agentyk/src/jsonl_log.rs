@@ -1,71 +1,25 @@
-//! Event log — the append-only record of everything a session did.
-//!
-//! The log is the persistence seam of the library: sessions write through
-//! [`EventLog`] and can be resumed by replaying it. Hosts choose durability by
-//! choosing an implementation — [`InMemoryEventLog`] (default),
-//! [`JsonlEventLog`] (one JSON event per line, the yolop pattern), or their
-//! own (a future everruns-server implements this trait over PostgreSQL).
+//! File-backed event log: one JSON-serialized [`Event`] per line — the
+//! batteries-included durability option (the yolop pattern).
 
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::PathBuf;
 use std::sync::Mutex;
 
+use agentyk_core::error::{Error, Result};
+use agentyk_core::event::{Event, EventRequest};
+use agentyk_core::event_log::EventLog;
+use agentyk_core::id::{EventId, SessionId};
 use async_trait::async_trait;
 use chrono::Utc;
-
-use crate::error::{Error, Result};
-use crate::event::{Event, EventRequest};
-use crate::id::{EventId, SessionId};
-
-/// Append-only, per-session-sequenced event storage.
-#[async_trait]
-pub trait EventLog: Send + Sync {
-    /// Append an event; the log assigns `id`, `ts`, and the per-session
-    /// `sequence`, and returns the finalized event.
-    async fn append(&self, request: EventRequest) -> Result<Event>;
-
-    /// All events for a session, ordered by sequence.
-    async fn read(&self, session_id: SessionId) -> Result<Vec<Event>>;
-}
-
-/// In-memory event log. The default for `Agent::session()`.
-#[derive(Default)]
-pub struct InMemoryEventLog {
-    sessions: Mutex<HashMap<SessionId, Vec<Event>>>,
-}
-
-impl InMemoryEventLog {
-    pub fn new() -> Self {
-        Self::default()
-    }
-}
-
-#[async_trait]
-impl EventLog for InMemoryEventLog {
-    async fn append(&self, request: EventRequest) -> Result<Event> {
-        let mut sessions = self.sessions.lock().expect("event log poisoned");
-        let events = sessions.entry(request.session_id).or_default();
-        let sequence = events.len() as u64 + 1;
-        let event = request.into_event(EventId::new(), Utc::now(), sequence);
-        events.push(event.clone());
-        Ok(event)
-    }
-
-    async fn read(&self, session_id: SessionId) -> Result<Vec<Event>> {
-        let sessions = self.sessions.lock().expect("event log poisoned");
-        Ok(sessions.get(&session_id).cloned().unwrap_or_default())
-    }
-}
 
 struct JsonlState {
     writer: BufWriter<std::fs::File>,
     sequences: HashMap<SessionId, u64>,
 }
 
-/// File-backed event log: one JSON-serialized [`Event`] per line. Multiple
-/// sessions may share one file; sequences are tracked per session. Reopening
-/// an existing file resumes sequence numbering from its contents.
+/// Multiple sessions may share one file; sequences are tracked per session.
+/// Reopening an existing file resumes sequence numbering from its contents.
 pub struct JsonlEventLog {
     path: PathBuf,
     state: Mutex<JsonlState>,

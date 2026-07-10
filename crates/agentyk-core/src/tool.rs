@@ -65,7 +65,7 @@ type BoxedToolFn = Box<dyn Fn(serde_json::Value) -> BoxedToolFuture + Send + Syn
 /// function.
 ///
 /// ```
-/// use agentyk::{FnTool, ToolOutput};
+/// use agentyk_core::{FnTool, ToolOutput};
 /// use serde_json::json;
 ///
 /// let add = FnTool::new(
