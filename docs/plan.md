@@ -36,6 +36,13 @@ Composing agents, running them, event log, capability extensions, MCP,
 multi-provider drivers. Deterministic offline testing via the sim driver.
 Ship as a publishable crate with examples.
 
+**Phase 1.5: pre-adoption hardening.**
+Close the gaps that block everruns adoption — protocol-affecting ones first
+(multimodal content, streaming/ephemeral events, cancellation, custom events,
+error retryability), then execution semantics (act hooks, sealing/budget,
+parallel act, context-assembly seam). Full analysis and attack order:
+[`everruns-adoption.md`](everruns-adoption.md).
+
 **Phase 2: rebuild `everruns-core` and `everruns-runtime` on top.**
 The everruns engine re-bases onto agentyk: everruns' store traits, harness
 hierarchy, capability config records, and durable/server hosts become layers
