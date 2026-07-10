@@ -97,6 +97,7 @@ everruns concept must be expressible on top of the agentyk primitive.
 | Typed prefixed ids (`session_<hex>`) | `id::TypedId` (`SessionId`, `TurnId`, `EventId`) | same format; only correlation ids remain — no `AgentId`, `ModelId`, `ProviderId` |
 | `CommandDescriptor` + capability slash commands | `capability::{CommandDescriptor, CommandContext}`, `Capability::{commands, execute_command}` | `Session::commands()`/`execute_command()` route to the owning capability, bypassing the turn loop entirely (no model call, no event); `mcp_servers()` held back — see `everruns-adoption.md` gap 13 |
 | `ToolContext` service bag (workspace/file/storage/image/credential/utility-LLM) | `extensions::Extensions` (`ToolContext.extensions`) | axum-style `TypeId`-keyed bag instead of enumerated `Option<Arc<dyn …>>` fields; `AgentBuilder::extension(value)` populates it once per agent |
+| `SessionFileSystem` + `RealDiskFileStore`/`InMemorySessionFileStore`/`WriteBlocklistFileStore`, `FileSystemCapability` (7 tools) | `filesystem::{FileSystem, RealDiskFileSystem, InMemoryFileSystem, WriteBlocklistFileSystem}`, `FileSystemCapability` (4 tools) | no `session_id`/`workspace_id` param — one store is one workspace; `edit_file`/`grep_files`/`stat_file`, symlink rejection, and `MountFs` not ported |
 
 Deliberate omissions from Phase 1 (Phase-2+ territory): org/tenant scoping,
 provider catalog + credential encryption, durable execution, streaming deltas,
@@ -167,6 +168,15 @@ server):
   (`extensions::Extensions`, axum-style typed bag) populated via
   `AgentBuilder::extension(value)`. `mcp_servers()` deferred — see
   [`everruns-adoption.md`](everruns-adoption.md#tier-3).
+- File system capability (feature `fs`, default-on) — `filesystem::FileSystem`
+  trait (`read_file`/`write_file`/`list_directory`/`delete_file`), backed by
+  `RealDiskFileSystem` (structural `..` rejection, no OS round-trip needed to
+  reject a traversal) or `InMemoryFileSystem`; `WriteBlocklistFileSystem`
+  decorator guards vendored/build dirs. `FileSystemCapability` exposes 4
+  tools to the model. See
+  [`everruns-adoption.md`](everruns-adoption.md#tier-3) for what didn't port
+  (`edit_file` CAS, `grep_files`, `stat_file`, symlink rejection, mounts,
+  per-session workspace keying).
 
 Remaining for Phase 1 completion:
 

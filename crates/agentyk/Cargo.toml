@@ -14,7 +14,7 @@ agentyk-core = { workspace = true }
 async-trait = { workspace = true }
 chrono = { workspace = true }
 serde_json = { workspace = true }
-tokio = { workspace = true, features = ["rt", "macros", "sync", "process", "io-util", "time"] }
+tokio = { workspace = true, features = ["rt", "macros", "sync", "process", "io-util", "time", "fs"] }
 tracing = { workspace = true }
 
 # HTTP LLM drivers (feature: http)
@@ -22,11 +22,13 @@ reqwest = { workspace = true, optional = true, features = ["stream"] }
 futures-util = { version = "0.3", optional = true, default-features = false }
 
 [features]
-default = ["mcp"]
+default = ["mcp", "fs"]
 # OpenAI-compatible and Anthropic HTTP drivers, streaming included.
 http = ["dep:reqwest", "dep:futures-util"]
 # MCP stdio client + capability.
 mcp = []
+# FileSystemCapability + RealDisk/InMemory stores.
+fs = []
 
 [dev-dependencies]
 serde = { workspace = true }

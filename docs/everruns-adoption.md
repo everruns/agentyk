@@ -224,11 +224,39 @@ expensive to change the longer we wait.
     when a filesystem capability lands (gap 15), since every tool needs it,
     not just some.
 
-15. **Session file system.** Everruns tools assume a `SessionFileSystem`
-    (virtual FS, real-disk, write blocklists, mounts). Agentyk has none.
-    This arrives as the first big framework capability
-    (`FileSystemCapability` + `RealDisk`/`InMemory` stores) and is also the
-    forcing function for gap 14.
+15. ✅ **Session file system — `FileSystemCapability` (feature `fs`,
+    default-on).** `filesystem::FileSystem` (`agentyk` crate) mirrors
+    everruns' `SessionFileSystem` shape (`read_file`/`write_file`/
+    `list_directory`/`delete_file`, plain `&str` paths, async) with one
+    deliberate simplification: **no `session_id`/`workspace_id` parameter**.
+    One store is one workspace — the same behavior everruns'
+    `RealDiskFileStore` already has in practice (it accepts `session_id` but
+    ignores it). Multi-workspace hosts compose this by attaching a different
+    `FileSystemCapability` per agent/session rather than routing through a
+    shared, keyed store; first-classing `workspace_id` (gap 14's note) is
+    deferred until an adopter actually needs one store shared across
+    sessions.
+    - `RealDiskFileSystem` — rooted at a canonicalized directory; every path
+      is resolved component-by-component with `..` rejected structurally
+      (never touches the OS to check containment — there is no path that can
+      escape the root regardless of what the model sends). No symlink
+      rejection or mount layer (everruns' `reject_symlink_path`, `MountFs`)
+      — out of scope for this pass.
+    - `InMemoryFileSystem` — pure `HashMap`-backed VFS for tests/hosts that
+      don't want real disk I/O; directories are inferred from `/`-separated
+      key prefixes, not stored explicitly.
+    - `WriteBlocklistFileSystem` — decorator rejecting writes/deletes under
+      `.git`/`node_modules`/`target`/`dist`/`build` by default (configurable),
+      composes over either store; mirrors everruns'
+      `WriteBlocklistFileStore`. `ApprovalGatingFileStore` not ported (no
+      approval-gate capability exists yet — see gap 6's require-approval
+      note).
+    - `FileSystemCapability` exposes 4 tools (`read_file`, `write_file`,
+      `list_directory`, `delete_file`) — a deliberate subset of everruns'
+      seven (`edit_file`'s content-hash CAS, `grep_files`, `stat_file` not
+      ported; no offset/limit pagination, content-type-aware read defaults,
+      or byte caps). This is the minimal set a coding agent needs to get
+      started, not a full port of the tool surface.
 
 ## Tier 4 — host-side by design (non-gaps)
 
@@ -280,7 +308,10 @@ Phase 1.5 (pre-adoption hardening, in this repo):
 10. ✅ `ContextAssembler` seam
 11. ✅ Capability `commands()` + `ToolContext` extensions —
     `mcp_servers()` held back (core/framework layering conflict, see gap 13)
-12. `FileSystemCapability` (first big bundled capability)
+12. ✅ `FileSystemCapability` (first big bundled capability) — see gap 15
+
+All twelve Phase 1.5 items are now done (with the scoping notes above); see
+[`docs/plan.md`](plan.md#phase-1-status) for the full status list.
 
 Items 1–5 are protocol-affecting and should land before anyone persists a
 long-lived event log; 6–12 can land incrementally alongside early adoption

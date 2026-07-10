@@ -54,6 +54,8 @@
 
 pub mod agent;
 pub mod drivers;
+#[cfg(feature = "fs")]
+pub mod filesystem;
 pub mod in_process;
 pub mod jsonl_log;
 #[cfg(feature = "mcp")]
@@ -65,6 +67,11 @@ pub use agentyk_core::*;
 
 pub use agent::{Agent, AgentBuilder};
 pub use drivers::sim::{SimDriver, SimToolCall, SimTurn};
+#[cfg(feature = "fs")]
+pub use filesystem::{
+    FileEntry, FileSystem, FileSystemCapability, InMemoryFileSystem, RealDiskFileSystem,
+    WriteBlocklistFileSystem,
+};
 pub use in_process::InProcessExecutor;
 pub use jsonl_log::JsonlEventLog;
 #[cfg(feature = "mcp")]
