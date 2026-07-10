@@ -15,6 +15,10 @@ pub enum Error {
     #[error("turn exceeded max iterations ({0})")]
     MaxIterations(usize),
 
+    /// The turn was cancelled via a [`crate::cancellation::CancellationToken`].
+    #[error("turn cancelled")]
+    Cancelled,
+
     /// An LLM driver failed.
     #[error("driver error: {0}")]
     Driver(String),

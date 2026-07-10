@@ -23,6 +23,7 @@
 //! [`event_log::InMemoryEventLog`]).
 
 pub mod atoms;
+pub mod cancellation;
 pub mod capability;
 pub mod driver;
 pub mod error;
@@ -35,6 +36,7 @@ pub mod replay;
 pub mod tool;
 pub mod turn;
 
+pub use cancellation::CancellationToken;
 pub use capability::{Capability, SystemPromptContext};
 pub use driver::{
     ChatDriver, ChatRequest, ChatResponse, DeltaSink, DriverId, DriverRegistry, ModelSpec, Usage,

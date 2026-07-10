@@ -79,7 +79,8 @@ everruns concept must be expressible on top of the agentyk primitive.
 | `TurnResult` | `TurnResult` | same |
 | `TurnStateMachine` + `RuntimeTurnState` (host-persisted phase state) | `turn::TurnState` (one serializable value: machine + bookkeeping) | **sans-IO**: transitions are pure and return the events to record as data, instead of atoms doing their own load/store/emit |
 | `TurnAction` (`ExecuteInput/Reason/Act/Complete`) | `turn::TurnAction` (`Reason` / `ExecuteTool` / `Complete`) | input phase became `TurnState::start` effects (pure); act is per-tool-call for per-call retries |
-| `TurnOutcome` (Success/Failed/MaxIterations/Sealed) | `turn::TurnOutcome` (Success/Failed/MaxIterations) | sealing reasons (no-progress, budget) are Phase-2 host policy |
+| `TurnOutcome` (Success/Failed/MaxIterations/Sealed) | `turn::TurnOutcome` (Success/Failed/MaxIterations/**Cancelled**) | sealing reasons (no-progress, budget) are Phase-2 host policy; `Cancelled` is agentyk's caller-driven seal |
+| `turn.cancelled`, cancellation plumbing | `event_types::TURN_CANCELLED`, `cancellation::CancellationToken` on `TurnHost` | std-only token (no tokio), checked once per action and once per streaming chunk |
 | atoms (`InputAtom`/`ReasonAtom`/`ActAtom`, stateless, own their message I/O) | `atoms::{assemble, reason, act}` (stateless, **no I/O beyond the LLM/tool call itself**) | atoms no longer load/store messages or emit events; recording belongs to the machine's effects |
 | stream reconnect, provider streaming | `atoms::reason_streaming` + `ChatDriver::complete_streaming` + `DeltaSink` | default streams as one full-text delta; OpenAI/Anthropic drivers stream real SSE increments; deltas never touch `TurnState` — `on_reason_started` is the only state transition, purely informational |
 | `RuntimeHostAdapter` + `plan_next_host_turn` (turn strategy) | `executor::TurnExecutor` + `TurnHost` | `InProcessExecutor` default; a durable host maps each `TurnAction` to a retryable activity and checkpoints `TurnState` between them |
@@ -123,6 +124,9 @@ server):
 - Streaming — `OutputMessageStarted`/`Delta`/`Completed`, ephemeral events
   (`sequence: None`, never persisted), `ChatDriver::complete_streaming` +
   `DeltaSink`. Details: [`everruns-adoption.md`](everruns-adoption.md#tier-1).
+- Cancellation — `cancellation::CancellationToken`, `TurnOutcome::Cancelled`,
+  `Session::run_cancellable`. Checked between actions and per streaming
+  chunk.
 
 Remaining for Phase 1 completion:
 

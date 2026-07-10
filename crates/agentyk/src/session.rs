@@ -11,6 +11,7 @@
 
 use std::sync::Arc;
 
+use agentyk_core::cancellation::CancellationToken;
 use agentyk_core::error::Result;
 use agentyk_core::event::Event;
 use agentyk_core::event_log::EventLog;
@@ -69,8 +70,23 @@ impl Session {
         self.log.read(self.id).await
     }
 
-    /// Run one turn: user input in, final assistant text out.
+    /// Run one turn: user input in, final assistant text out. Not
+    /// cancellable — see [`Session::run_cancellable`] to stop a turn from
+    /// another task.
     pub async fn run(&mut self, input: impl Into<String>) -> Result<TurnResult> {
+        self.run_cancellable(input, CancellationToken::new()).await
+    }
+
+    /// Run one turn, stoppable from elsewhere: clone `token` before calling,
+    /// keep the clone, and call [`CancellationToken::cancel`] on it (e.g.
+    /// from a UI event or another task) to stop the turn at its next check
+    /// point — between reason/tool steps, or between streaming chunks.
+    /// Returns `Err(Error::Cancelled)` if the turn was stopped this way.
+    pub async fn run_cancellable(
+        &mut self,
+        input: impl Into<String>,
+        token: CancellationToken,
+    ) -> Result<TurnResult> {
         let agent = self.agent.inner.clone();
         let executor = agent.executor.clone();
         let mut host = TurnHost {
@@ -83,6 +99,7 @@ impl Session {
             max_iterations: agent.max_iterations,
             log: self.log.as_ref(),
             messages: &mut self.messages,
+            cancellation: token,
         };
         executor.run_turn(&mut host, Message::user(input)).await
     }

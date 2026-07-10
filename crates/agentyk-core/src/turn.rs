@@ -62,13 +62,22 @@ use crate::message::{Message, ToolCall};
 use crate::tool::ToolOutput;
 
 /// How a turn ended. Mirrors everruns' `TurnOutcome`
-/// (Success/Failed/MaxIterations).
+/// (Success/Failed/MaxIterations/Sealed) — `Cancelled` is the agentyk
+/// analogue of a caller-driven seal via
+/// [`crate::cancellation::CancellationToken`].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum TurnOutcome {
-    Success { response: String },
-    Failed { error: String },
+    Success {
+        response: String,
+    },
+    Failed {
+        error: String,
+    },
     MaxIterations,
+    /// Stopped cooperatively via a
+    /// [`crate::cancellation::CancellationToken`] rather than failing.
+    Cancelled,
 }
 
 /// Current phase of the turn. `PendingAct` carries the not-yet-executed tool
@@ -249,6 +258,15 @@ impl TurnState {
             error: error.clone(),
         });
         vec![EventData::TurnFailed { error }]
+    }
+
+    /// Stop the turn cooperatively (see
+    /// [`crate::cancellation::CancellationToken`]), abandoning whatever is
+    /// pending — including the rest of a not-yet-drained tool-call batch.
+    /// Emits `turn.cancelled`.
+    pub fn on_cancel(&mut self) -> Vec<EventData> {
+        self.phase = TurnPhase::Completed(TurnOutcome::Cancelled);
+        vec![EventData::TurnCancelled]
     }
 
     pub fn is_complete(&self) -> bool {

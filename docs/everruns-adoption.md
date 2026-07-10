@@ -63,11 +63,16 @@ expensive to change the longer we wait.
    `Error::Driver(String)` erases this. Add a retryability classification to
    driver errors in core; drivers populate it.
 
-5. **Cancellation.** No way to stop a running turn. Every interactive host
-   (yolop's Esc, everruns' stop button) needs it, and the durable engine
-   needs cooperative cancellation between activities. Add a cancellation
-   token to `TurnHost` (checked by the executor between actions) and a
-   `TurnOutcome::Cancelled` + `turn.cancelled` event.
+5. ✅ **Cancellation — done.** `cancellation::CancellationToken` (std-only,
+   `Arc<AtomicBool>`-backed, no tokio dependency, so it lives in core) is a
+   field on `TurnHost`, checked by `InProcessExecutor` once per action
+   (between reason/tool steps) and once per streaming chunk (inside
+   `RecordingDeltaSink::delta`, so cancellation lands mid-stream rather than
+   waiting for a whole completion). `TurnState::on_cancel` is the pure
+   transition to `TurnOutcome::Cancelled`, emitting `turn.cancelled`.
+   `Session::run` is uncancellable by construction (throwaway token);
+   `Session::run_cancellable(input, token)` takes a caller-held token to
+   cancel from another task.
 
 6. **Per-turn controls.** everruns `Controls` allows per-input model override
    and reasoning config; agentyk fixes the model at agent build time. Add a
@@ -187,7 +192,7 @@ Phase 1.5 (pre-adoption hardening, in this repo):
    fields rather than folding into content parts — see "notable design
    differences" below.
 2. ✅ Streaming: delta events + ephemeral classification + streaming driver API
-3. Cancellation + `TurnOutcome::Cancelled`
+3. ✅ Cancellation + `TurnOutcome::Cancelled`
 4. `EventData::Custom` escape hatch
 5. Error retryability classification
 6. Act hooks (pre/post tool) — unlocks approval + guardrails ports

@@ -16,6 +16,7 @@
 use async_trait::async_trait;
 use chrono::Utc;
 
+use crate::cancellation::CancellationToken;
 use crate::capability::Capability;
 use crate::driver::{DriverRegistry, ModelSpec, Usage};
 use crate::error::Result;
@@ -53,6 +54,10 @@ pub struct TurnHost<'a> {
     /// Live message history; the executor keeps it in sync with the events
     /// it records.
     pub messages: &'a mut Vec<Message>,
+    /// Checked between turn actions (and, for streaming drivers, between
+    /// chunks) so a caller can stop a running turn — see
+    /// [`CancellationToken`].
+    pub cancellation: CancellationToken,
 }
 
 impl TurnHost<'_> {

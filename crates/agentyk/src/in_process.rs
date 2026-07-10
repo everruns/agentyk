@@ -2,6 +2,7 @@
 //! completion in a single async call.
 
 use agentyk_core::atoms;
+use agentyk_core::cancellation::CancellationToken;
 use agentyk_core::error::{Error, Result};
 use agentyk_core::event::EventData;
 use agentyk_core::executor::{TurnExecutor, TurnHost, TurnResult};
@@ -12,15 +13,21 @@ use agentyk_core::turn::{TurnAction, TurnOutcome, TurnState};
 use async_trait::async_trait;
 
 /// Forwards streaming deltas straight to [`TurnHost::record`] as ephemeral
-/// `output.message.delta` events.
+/// `output.message.delta` events. Checks cancellation once per chunk, so a
+/// caller can stop a turn mid-stream rather than waiting for a whole
+/// completion — see [`Session::run_cancellable`](crate::Session::run_cancellable).
 struct RecordingDeltaSink<'h, 'a> {
     host: &'h mut TurnHost<'a>,
     turn_id: TurnId,
+    cancellation: CancellationToken,
 }
 
 #[async_trait]
 impl agentyk_core::driver::DeltaSink for RecordingDeltaSink<'_, '_> {
     async fn delta(&mut self, delta: &str, accumulated: &str) -> Result<()> {
+        if self.cancellation.is_cancelled() {
+            return Err(Error::Cancelled);
+        }
         let effects = vec![EventData::OutputMessageDelta {
             delta: delta.to_string(),
             accumulated: accumulated.to_string(),
@@ -51,15 +58,26 @@ impl TurnExecutor for InProcessExecutor {
         host.record(turn_id, effects).await?;
 
         loop {
+            // Checked once per action — between reason/tool steps — so a
+            // cancellation request takes effect at the next natural
+            // boundary rather than mid-call.
+            if host.cancellation.is_cancelled() {
+                let effects = state.on_cancel();
+                host.record(turn_id, effects).await?;
+                return Err(Error::Cancelled);
+            }
+
             match state.next_action() {
                 TurnAction::Reason => {
                     let started = state.on_reason_started(Some(&model.model));
                     host.record(turn_id, started).await?;
 
                     let messages = host.messages.clone();
+                    let cancellation = host.cancellation.clone();
                     let mut sink = RecordingDeltaSink {
                         host: &mut *host,
                         turn_id,
+                        cancellation,
                     };
                     let outcome = atoms::reason_streaming(
                         driver.as_ref(),
@@ -74,6 +92,11 @@ impl TurnExecutor for InProcessExecutor {
                         Ok(response) => {
                             let effects = state.on_reason_completed(&response);
                             host.record(turn_id, effects).await?;
+                        }
+                        Err(Error::Cancelled) => {
+                            let effects = state.on_cancel();
+                            host.record(turn_id, effects).await?;
+                            return Err(Error::Cancelled);
                         }
                         Err(error) => {
                             let effects = state.on_failure(error.to_string());
@@ -106,6 +129,7 @@ impl TurnExecutor for InProcessExecutor {
                             Err(Error::MaxIterations(host.max_iterations))
                         }
                         TurnOutcome::Failed { error } => Err(Error::Other(error)),
+                        TurnOutcome::Cancelled => Err(Error::Cancelled),
                     };
                 }
             }
