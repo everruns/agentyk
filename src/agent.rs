@@ -1,0 +1,200 @@
+//! Agent — a composed value, not a record.
+//!
+//! An [`Agent`] is name + system prompt + model + capabilities, built with
+//! [`AgentBuilder`] entirely from values. There is no id to mint, nothing to
+//! register, and no store to create it in. Sessions are spawned *from* the
+//! agent; ids exist only inside them as correlation handles.
+
+use std::sync::Arc;
+
+use crate::capability::{AdHocTools, Capability};
+use crate::driver::{ChatDriver, DriverRegistry, ModelSpec};
+use crate::error::{Error, Result};
+use crate::event::EventListener;
+use crate::event_log::{EventLog, InMemoryEventLog};
+use crate::id::SessionId;
+use crate::session::{Session, TurnResult};
+use crate::tool::Tool;
+
+pub(crate) struct AgentInner {
+    pub(crate) name: String,
+    pub(crate) system_prompt: String,
+    pub(crate) model: ModelSpec,
+    pub(crate) capabilities: Vec<Arc<dyn Capability>>,
+    pub(crate) drivers: DriverRegistry,
+    pub(crate) listeners: Vec<Arc<dyn EventListener>>,
+    pub(crate) max_iterations: usize,
+}
+
+/// A runnable agent, composed by value. Cheap to clone (shared internals).
+#[derive(Clone)]
+pub struct Agent {
+    pub(crate) inner: Arc<AgentInner>,
+}
+
+impl std::fmt::Debug for Agent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Agent")
+            .field("name", &self.inner.name)
+            .field("model", &self.inner.model)
+            .field("capabilities", &self.inner.capabilities.len())
+            .finish_non_exhaustive()
+    }
+}
+
+impl Agent {
+    pub fn builder() -> AgentBuilder {
+        AgentBuilder::new()
+    }
+
+    pub fn name(&self) -> &str {
+        &self.inner.name
+    }
+
+    /// Start a session with an in-memory event log.
+    pub fn session(&self) -> Session {
+        self.session_with_log(Arc::new(InMemoryEventLog::new()))
+    }
+
+    /// Start a session writing to the given event log.
+    pub fn session_with_log(&self, log: Arc<dyn EventLog>) -> Session {
+        Session::new(self.clone(), log)
+    }
+
+    /// Rebuild a session's message history by replaying its event log.
+    pub async fn resume_session(
+        &self,
+        log: Arc<dyn EventLog>,
+        session_id: SessionId,
+    ) -> Result<Session> {
+        Session::resume(self.clone(), log, session_id).await
+    }
+
+    /// One-shot convenience: run a single turn in a throwaway session.
+    pub async fn run(&self, input: impl Into<String>) -> Result<TurnResult> {
+        self.session().run(input).await
+    }
+}
+
+/// Fluent, by-value agent composition.
+pub struct AgentBuilder {
+    name: String,
+    system_prompt: String,
+    model: Option<ModelSpec>,
+    capabilities: Vec<Arc<dyn Capability>>,
+    tools: Vec<Arc<dyn Tool>>,
+    drivers: DriverRegistry,
+    listeners: Vec<Arc<dyn EventListener>>,
+    max_iterations: usize,
+}
+
+impl AgentBuilder {
+    pub fn new() -> Self {
+        Self {
+            name: "agent".to_string(),
+            system_prompt: String::new(),
+            model: None,
+            capabilities: Vec::new(),
+            tools: Vec::new(),
+            drivers: DriverRegistry::new(),
+            listeners: Vec::new(),
+            max_iterations: 16,
+        }
+    }
+
+    pub fn name(mut self, name: impl Into<String>) -> Self {
+        self.name = name.into();
+        self
+    }
+
+    pub fn system_prompt(mut self, prompt: impl Into<String>) -> Self {
+        self.system_prompt = prompt.into();
+        self
+    }
+
+    /// The model, by value — see [`ModelSpec`]. Required.
+    pub fn model(mut self, model: ModelSpec) -> Self {
+        self.model = Some(model);
+        self
+    }
+
+    /// Attach a capability by object — no registry, no string reference.
+    pub fn capability(mut self, capability: impl Capability + 'static) -> Self {
+        self.capabilities.push(Arc::new(capability));
+        self
+    }
+
+    pub fn capability_arc(mut self, capability: Arc<dyn Capability>) -> Self {
+        self.capabilities.push(capability);
+        self
+    }
+
+    /// Attach a single tool directly (wrapped in an implicit capability).
+    pub fn tool(mut self, tool: impl Tool + 'static) -> Self {
+        self.tools.push(Arc::new(tool));
+        self
+    }
+
+    /// Register an extra or replacement LLM driver.
+    pub fn driver(mut self, driver: impl ChatDriver + 'static) -> Self {
+        self.drivers.register(driver);
+        self
+    }
+
+    pub fn listener(mut self, listener: impl EventListener + 'static) -> Self {
+        self.listeners.push(Arc::new(listener));
+        self
+    }
+
+    /// Ceiling on reason/act iterations within one turn (default 16).
+    pub fn max_iterations(mut self, max_iterations: usize) -> Self {
+        self.max_iterations = max_iterations;
+        self
+    }
+
+    pub fn build(self) -> Result<Agent> {
+        let model = self
+            .model
+            .ok_or_else(|| Error::InvalidAgent("a model is required — call .model(...)".into()))?;
+
+        let mut capabilities = self.capabilities;
+        if !self.tools.is_empty() {
+            capabilities.push(Arc::new(AdHocTools { tools: self.tools }));
+        }
+
+        #[allow(unused_mut)]
+        let mut drivers = self.drivers;
+        #[cfg(feature = "http")]
+        {
+            use crate::driver::DriverId;
+            if !drivers.contains(&DriverId::openai()) {
+                drivers.register(crate::drivers::openai::OpenAiDriver::new());
+            }
+            if !drivers.contains(&DriverId::anthropic()) {
+                drivers.register(crate::drivers::anthropic::AnthropicDriver::new());
+            }
+        }
+
+        if !drivers.contains(&model.driver) {
+            return Err(Error::UnknownDriver(model.driver.to_string()));
+        }
+
+        Ok(Agent {
+            inner: Arc::new(AgentInner {
+                name: self.name,
+                system_prompt: self.system_prompt,
+                model,
+                capabilities,
+                drivers,
+                listeners: self.listeners,
+                max_iterations: self.max_iterations,
+            }),
+        })
+    }
+}
+
+impl Default for AgentBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}

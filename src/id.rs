@@ -1,0 +1,169 @@
+//! Typed identifiers.
+//!
+//! Ids in agentyk are correlation handles, not catalog keys: the library
+//! generates them (UUIDv7) and an author never has to mint, register, or
+//! persist one. They render as `{prefix}_{32-hex}` strings, mirroring the
+//! everruns id schema so hosts that later persist events can keep the format.
+
+use std::fmt;
+use std::hash::{Hash, Hasher};
+use std::marker::PhantomData;
+use std::str::FromStr;
+
+use serde::de::Error as _;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use uuid::Uuid;
+
+/// Marker trait giving each id family its string prefix.
+pub trait IdMarker: Send + Sync + 'static {
+    const PREFIX: &'static str;
+}
+
+/// A UUIDv7-backed identifier tagged with a marker type.
+pub struct TypedId<M: IdMarker> {
+    uuid: Uuid,
+    _marker: PhantomData<M>,
+}
+
+impl<M: IdMarker> TypedId<M> {
+    /// Generate a fresh id (UUIDv7, time-ordered).
+    pub fn new() -> Self {
+        Self {
+            uuid: Uuid::now_v7(),
+            _marker: PhantomData,
+        }
+    }
+
+    pub fn from_uuid(uuid: Uuid) -> Self {
+        Self {
+            uuid,
+            _marker: PhantomData,
+        }
+    }
+
+    pub fn uuid(&self) -> Uuid {
+        self.uuid
+    }
+}
+
+impl<M: IdMarker> Default for TypedId<M> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<M: IdMarker> Clone for TypedId<M> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<M: IdMarker> Copy for TypedId<M> {}
+
+impl<M: IdMarker> PartialEq for TypedId<M> {
+    fn eq(&self, other: &Self) -> bool {
+        self.uuid == other.uuid
+    }
+}
+
+impl<M: IdMarker> Eq for TypedId<M> {}
+
+impl<M: IdMarker> Hash for TypedId<M> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.uuid.hash(state);
+    }
+}
+
+impl<M: IdMarker> PartialOrd for TypedId<M> {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl<M: IdMarker> Ord for TypedId<M> {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.uuid.cmp(&other.uuid)
+    }
+}
+
+impl<M: IdMarker> fmt::Display for TypedId<M> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}_{}", M::PREFIX, self.uuid.simple())
+    }
+}
+
+impl<M: IdMarker> fmt::Debug for TypedId<M> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{self}")
+    }
+}
+
+impl<M: IdMarker> FromStr for TypedId<M> {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let rest = s
+            .strip_prefix(M::PREFIX)
+            .and_then(|r| r.strip_prefix('_'))
+            .ok_or_else(|| format!("expected `{}_<uuid>` id, got `{s}`", M::PREFIX))?;
+        let uuid = Uuid::parse_str(rest).map_err(|e| format!("invalid id `{s}`: {e}"))?;
+        Ok(Self::from_uuid(uuid))
+    }
+}
+
+impl<M: IdMarker> Serialize for TypedId<M> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&self.to_string())
+    }
+}
+
+impl<'de, M: IdMarker> Deserialize<'de> for TypedId<M> {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let s = String::deserialize(deserializer)?;
+        s.parse().map_err(D::Error::custom)
+    }
+}
+
+macro_rules! id_marker {
+    ($marker:ident, $alias:ident, $prefix:literal) => {
+        pub struct $marker;
+
+        impl IdMarker for $marker {
+            const PREFIX: &'static str = $prefix;
+        }
+
+        pub type $alias = TypedId<$marker>;
+    };
+}
+
+id_marker!(SessionMarker, SessionId, "session");
+id_marker!(TurnMarker, TurnId, "turn");
+id_marker!(EventMarker, EventId, "event");
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn display_roundtrip() {
+        let id = SessionId::new();
+        let s = id.to_string();
+        assert!(s.starts_with("session_"));
+        let parsed: SessionId = s.parse().unwrap();
+        assert_eq!(id, parsed);
+    }
+
+    #[test]
+    fn serde_roundtrip() {
+        let id = EventId::new();
+        let json = serde_json::to_string(&id).unwrap();
+        let back: EventId = serde_json::from_str(&json).unwrap();
+        assert_eq!(id, back);
+    }
+
+    #[test]
+    fn rejects_wrong_prefix() {
+        let id = SessionId::new().to_string();
+        assert!(id.parse::<TurnId>().is_err());
+    }
+}
