@@ -13,6 +13,7 @@ use agentyk_core::error::{Error, Result};
 use agentyk_core::event::EventListener;
 use agentyk_core::event_log::{EventLog, InMemoryEventLog};
 use agentyk_core::executor::{TurnExecutor, TurnResult};
+use agentyk_core::hooks::{PostToolExecHook, PreToolUseHook};
 use agentyk_core::id::SessionId;
 use agentyk_core::tool::Tool;
 use async_trait::async_trait;
@@ -29,6 +30,8 @@ pub(crate) struct AgentInner {
     pub(crate) listeners: Vec<Arc<dyn EventListener>>,
     pub(crate) max_iterations: usize,
     pub(crate) executor: Arc<dyn TurnExecutor>,
+    pub(crate) pre_tool_hooks: Vec<Arc<dyn PreToolUseHook>>,
+    pub(crate) post_tool_hooks: Vec<Arc<dyn PostToolExecHook>>,
 }
 
 /// A runnable agent, composed by value. Cheap to clone (shared internals).
@@ -80,6 +83,14 @@ impl Agent {
 
     pub fn max_iterations(&self) -> usize {
         self.inner.max_iterations
+    }
+
+    pub fn pre_tool_hooks(&self) -> &[Arc<dyn PreToolUseHook>] {
+        &self.inner.pre_tool_hooks
+    }
+
+    pub fn post_tool_hooks(&self) -> &[Arc<dyn PostToolExecHook>] {
+        &self.inner.post_tool_hooks
     }
 
     /// Start a session with an in-memory event log.
@@ -139,6 +150,8 @@ pub struct AgentBuilder {
     listeners: Vec<Arc<dyn EventListener>>,
     max_iterations: usize,
     executor: Arc<dyn TurnExecutor>,
+    pre_tool_hooks: Vec<Arc<dyn PreToolUseHook>>,
+    post_tool_hooks: Vec<Arc<dyn PostToolExecHook>>,
 }
 
 impl AgentBuilder {
@@ -153,6 +166,8 @@ impl AgentBuilder {
             listeners: Vec::new(),
             max_iterations: 16,
             executor: Arc::new(InProcessExecutor),
+            pre_tool_hooks: Vec::new(),
+            post_tool_hooks: Vec::new(),
         }
     }
 
@@ -221,6 +236,22 @@ impl AgentBuilder {
         self
     }
 
+    /// Run before each tool call; the first `Deny` wins. What approval
+    /// gating and guardrails are built on — see
+    /// [`agentyk_core::hooks::PreToolUseHook`].
+    pub fn pre_tool_hook(mut self, hook: impl PreToolUseHook + 'static) -> Self {
+        self.pre_tool_hooks.push(Arc::new(hook));
+        self
+    }
+
+    /// Run after each executed (non-denied) tool call, each seeing the
+    /// previous hook's output — see
+    /// [`agentyk_core::hooks::PostToolExecHook`].
+    pub fn post_tool_hook(mut self, hook: impl PostToolExecHook + 'static) -> Self {
+        self.post_tool_hooks.push(Arc::new(hook));
+        self
+    }
+
     pub fn build(self) -> Result<Agent> {
         let model = self
             .model
@@ -258,6 +289,8 @@ impl AgentBuilder {
                 listeners: self.listeners,
                 max_iterations: self.max_iterations,
                 executor: self.executor,
+                pre_tool_hooks: self.pre_tool_hooks,
+                post_tool_hooks: self.post_tool_hooks,
             }),
         })
     }

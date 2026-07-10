@@ -86,6 +86,8 @@ everruns concept must be expressible on top of the agentyk primitive.
 | atoms (`InputAtom`/`ReasonAtom`/`ActAtom`, stateless, own their message I/O) | `atoms::{assemble, reason, act}` (stateless, **no I/O beyond the LLM/tool call itself**) | atoms no longer load/store messages or emit events; recording belongs to the machine's effects |
 | stream reconnect, provider streaming | `atoms::reason_streaming` + `ChatDriver::complete_streaming` + `DeltaSink` | default streams as one full-text delta; OpenAI/Anthropic drivers stream real SSE increments; deltas never touch `TurnState` — `on_reason_started` is the only state transition, purely informational |
 | `RuntimeHostAdapter` + `plan_next_host_turn` (turn strategy) | `executor::TurnExecutor` + `TurnHost` | `InProcessExecutor` default; a durable host maps each `TurnAction` to a retryable activity and checkpoints `TurnState` between them |
+| `PreToolUseHook`/`PostToolExecHook`/`PostActHook`/`ClientSideToolHook` | `hooks::{PreToolUseHook, PostToolExecHook}` on `AgentBuilder` | orchestrated by the executor around `atoms::act`, not inside it; `require-approval`, `PostActHook`, `ClientSideToolHook` not yet ported (see `everruns-adoption.md`) |
+| `tool.denied` (implicit in approval/guardrail flows) | `event_types::TOOL_DENIED` | durable; recorded alongside `tool.started`/`tool.completed` when a pre-hook denies |
 | MCP merge/discovery (runtime `mcp.rs`) | `McpCapability` / `McpClient` / `McpServer` | MCP is just a capability; stdio transport built in |
 | Typed prefixed ids (`session_<hex>`) | `id::TypedId` (`SessionId`, `TurnId`, `EventId`) | same format; only correlation ids remain — no `AgentId`, `ModelId`, `ProviderId` |
 
@@ -133,6 +135,10 @@ server):
 - Error retryability — `LlmErrorKind`, `Error::Driver { kind, message }`,
   `Error::is_retryable()`; both HTTP drivers classify by status code and
   transport-failure kind.
+- Act hooks — `PreToolUseHook` (deny), `PostToolExecHook` (transform),
+  orchestrated by the executor around `atoms::act`. `require-approval`,
+  `PostActHook`, `ClientSideToolHook` deferred — see
+  [`everruns-adoption.md`](everruns-adoption.md#tier-2).
 
 Remaining for Phase 1 completion:
 

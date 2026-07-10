@@ -22,6 +22,7 @@ use crate::driver::{DriverRegistry, ModelSpec, Usage};
 use crate::error::Result;
 use crate::event::{EventData, EventListener, EventRequest};
 use crate::event_log::EventLog;
+use crate::hooks::{PostToolExecHook, PreToolUseHook};
 use crate::id::{EventId, SessionId, TurnId};
 use crate::message::Message;
 use crate::replay::message_from_event_data;
@@ -58,6 +59,12 @@ pub struct TurnHost<'a> {
     /// chunks) so a caller can stop a running turn — see
     /// [`CancellationToken`].
     pub cancellation: CancellationToken,
+    /// Run before each tool call, in order; the first `Deny` wins — see
+    /// [`PreToolUseHook`].
+    pub pre_tool_hooks: &'a [Arc<dyn PreToolUseHook>],
+    /// Run after each executed (non-denied) tool call, in order, each
+    /// seeing the previous hook's output — see [`PostToolExecHook`].
+    pub post_tool_hooks: &'a [Arc<dyn PostToolExecHook>],
 }
 
 impl TurnHost<'_> {

@@ -6,9 +6,10 @@ use agentyk_core::cancellation::CancellationToken;
 use agentyk_core::error::{Error, Result};
 use agentyk_core::event::EventData;
 use agentyk_core::executor::{TurnExecutor, TurnHost, TurnResult};
+use agentyk_core::hooks::PreToolUseDecision;
 use agentyk_core::id::TurnId;
 use agentyk_core::message::Message;
-use agentyk_core::tool::ToolContext;
+use agentyk_core::tool::{ToolContext, ToolOutput};
 use agentyk_core::turn::{TurnAction, TurnOutcome, TurnState};
 use async_trait::async_trait;
 
@@ -112,7 +113,36 @@ impl TurnExecutor for InProcessExecutor {
                         session_id: host.session_id,
                         turn_id,
                     };
-                    let output = atoms::act(&assembled, &call, &context).await;
+
+                    let mut denial: Option<String> = None;
+                    for hook in host.pre_tool_hooks {
+                        if let PreToolUseDecision::Deny { reason } =
+                            hook.before_tool_use(&call, &context).await
+                        {
+                            denial = Some(reason);
+                            break;
+                        }
+                    }
+
+                    let output = if let Some(reason) = &denial {
+                        host.record(
+                            turn_id,
+                            vec![EventData::ToolDenied {
+                                call_id: call.id.clone(),
+                                name: call.name.clone(),
+                                reason: reason.clone(),
+                            }],
+                        )
+                        .await?;
+                        ToolOutput::error(reason.clone())
+                    } else {
+                        let mut output = atoms::act(&assembled, &call, &context).await;
+                        for hook in host.post_tool_hooks {
+                            output = hook.after_tool_exec(&call, output, &context).await;
+                        }
+                        output
+                    };
+
                     let effects = state.on_tool_completed(&output);
                     host.record(turn_id, effects).await?;
                 }

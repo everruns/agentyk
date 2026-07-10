@@ -35,6 +35,7 @@ pub mod event_types {
     pub const OUTPUT_MESSAGE_COMPLETED: &str = "output.message.completed";
     pub const TOOL_STARTED: &str = "tool.started";
     pub const TOOL_COMPLETED: &str = "tool.completed";
+    pub const TOOL_DENIED: &str = "tool.denied";
 }
 
 /// Typed event payloads.
@@ -85,6 +86,15 @@ pub enum EventData {
         output: String,
         is_error: bool,
     },
+    /// A [`crate::hooks::PreToolUseHook`] denied this call before it ran.
+    /// Recorded alongside (not instead of) the usual
+    /// `tool.started`/`tool.completed` pair — the denial reason also
+    /// becomes the (error) `tool.completed` output the model sees.
+    ToolDenied {
+        call_id: String,
+        name: String,
+        reason: String,
+    },
     /// Escape hatch for domain events this crate doesn't know about yet —
     /// a capability or host emitting its own event without forking core.
     /// `event_type` should follow the dot-notation convention (e.g.
@@ -119,6 +129,7 @@ impl EventData {
             EventData::OutputMessageCompleted { .. } => event_types::OUTPUT_MESSAGE_COMPLETED,
             EventData::ToolStarted { .. } => event_types::TOOL_STARTED,
             EventData::ToolCompleted { .. } => event_types::TOOL_COMPLETED,
+            EventData::ToolDenied { .. } => event_types::TOOL_DENIED,
             EventData::Custom { event_type, .. } => event_type,
         }
     }

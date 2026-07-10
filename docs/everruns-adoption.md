@@ -90,13 +90,27 @@ expensive to change the longer we wait.
 
 ## Tier 2 — machine & executor gaps (turn-semantics parity)
 
-7. **Act hooks.** Everruns' act pipeline is extensible: `PreToolUseHook`
-   (allow / deny / require-approval — this is what approval gating and
-   guardrails are built on), `PostToolExecHook`, `PostActHook`,
-   `ClientSideToolHook`. Agentyk executes tools with no interception point.
-   Add hook traits in core and honor them in `atoms::act` / the executor.
-   Without this, yolop's ApprovalCapability and everruns' guardrails cannot
-   port.
+7. ✅ **Act hooks — partly done.** `PreToolUseHook` (`Allow` / `Deny{reason}`)
+   and `PostToolExecHook` (transform the result) are in core
+   (`hooks::{PreToolUseHook, PostToolExecHook, PreToolUseDecision}`),
+   attached via `AgentBuilder::pre_tool_hook`/`.post_tool_hook`, and
+   orchestrated by `InProcessExecutor` around `atoms::act` — **not inside
+   the atom itself**, keeping hooks host/executor policy rather than a
+   third atom. A denial short-circuits execution, emits a durable
+   `tool.denied` event (`call_id`, `name`, `reason`) alongside the usual
+   `tool.started`/`tool.completed` pair, and the reason becomes the
+   (error) result the model sees. `atoms::act`'s signature is unchanged —
+   hooks are an executor concern, so direct-atom callers (e.g. a durable
+   host driving the machine manually) are unaffected unless they choose to
+   run hooks themselves.
+   **Not yet ported:** `require-approval` (a genuine pause-for-human-input
+   decision needs a new `TurnPhase::PendingApproval` in the state machine —
+   a bigger change deferred until a real approval capability needs it),
+   `PostActHook` (turn-level, not per-tool — no use case yet), and
+   `ClientSideToolHook` (client-executed tools — no client/server split
+   exists in agentyk yet). Without `require-approval`, yolop's
+   `ApprovalCapability` cannot fully port, but auto allow/deny guardrails
+   (the more common case) can.
 
 8. **Tool scheduling.** Everruns has a tool scheduler (parallel execution of
    a reason batch); agentyk drains `PendingAct` strictly serially. Generalize
@@ -203,7 +217,8 @@ Phase 1.5 (pre-adoption hardening, in this repo):
 3. ✅ Cancellation + `TurnOutcome::Cancelled`
 4. ✅ `EventData::Custom` escape hatch
 5. ✅ Error retryability classification
-6. Act hooks (pre/post tool) — unlocks approval + guardrails ports
+6. ✅ Act hooks (pre/post tool) — unlocks guardrail ports; approval's
+   require-approval path still needs a `TurnPhase::PendingApproval`
 7. Per-turn `TurnControls`
 8. Sealing (`Sealed(SealReason)`) + budget seam
 9. Parallel-capable `PendingAct` + tool policy types

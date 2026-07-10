@@ -100,6 +100,8 @@ impl Session {
             log: self.log.as_ref(),
             messages: &mut self.messages,
             cancellation: token,
+            pre_tool_hooks: &agent.pre_tool_hooks,
+            post_tool_hooks: &agent.post_tool_hooks,
         };
         executor.run_turn(&mut host, Message::user(input)).await
     }
