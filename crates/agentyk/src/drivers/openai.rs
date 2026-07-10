@@ -6,7 +6,7 @@ use futures_util::StreamExt;
 use serde_json::{Value, json};
 
 use agentyk_core::driver::{ChatDriver, ChatRequest, ChatResponse, DeltaSink, DriverId, Usage};
-use agentyk_core::error::{Error, Result};
+use agentyk_core::error::{Error, LlmErrorKind, Result};
 use agentyk_core::message::{ContentPart, Message, Role, ToolCall};
 
 const DEFAULT_BASE_URL: &str = "https://api.openai.com/v1";
@@ -170,6 +170,31 @@ fn request_builder(
     http
 }
 
+/// Classifies an HTTP error status so a host can decide whether retrying is
+/// worth it — see [`LlmErrorKind`].
+fn classify_status(status: reqwest::StatusCode) -> LlmErrorKind {
+    match status.as_u16() {
+        401 | 403 => LlmErrorKind::Authentication,
+        429 => LlmErrorKind::RateLimited,
+        503 => LlmErrorKind::Overloaded,
+        400 | 404 | 422 => LlmErrorKind::InvalidRequest,
+        500..=599 => LlmErrorKind::ServerError,
+        400..=499 => LlmErrorKind::InvalidRequest,
+        _ => LlmErrorKind::Unknown,
+    }
+}
+
+/// Classifies a transport-level failure (the request never got an HTTP
+/// response at all).
+fn network_error(context: &str, error: &reqwest::Error) -> Error {
+    let kind = if error.is_timeout() {
+        LlmErrorKind::Timeout
+    } else {
+        LlmErrorKind::Network
+    };
+    Error::driver(kind, format!("{context}: {error}"))
+}
+
 fn tool_calls_from_choice(choice: &Value) -> Vec<ToolCall> {
     choice["tool_calls"]
         .as_array()
@@ -291,15 +316,21 @@ impl ChatDriver for OpenAiDriver {
         let response = request_builder(&self.client, &request.model, &body)
             .send()
             .await
-            .map_err(|e| Error::Driver(format!("openai request failed: {e}")))?;
+            .map_err(|e| network_error("openai request failed", &e))?;
         let status = response.status();
-        let payload: Value = response
-            .json()
-            .await
-            .map_err(|e| Error::Driver(format!("openai response decode failed: {e}")))?;
         if !status.is_success() {
-            return Err(Error::Driver(format!("openai http {status}: {payload}")));
+            let payload: Value = response.json().await.unwrap_or(Value::Null);
+            return Err(Error::driver(
+                classify_status(status),
+                format!("openai http {status}: {payload}"),
+            ));
         }
+        let payload: Value = response.json().await.map_err(|e| {
+            Error::driver(
+                LlmErrorKind::Unknown,
+                format!("openai response decode failed: {e}"),
+            )
+        })?;
 
         let choice = &payload["choices"][0]["message"];
         let content = choice["content"].as_str().unwrap_or_default().to_string();
@@ -328,11 +359,14 @@ impl ChatDriver for OpenAiDriver {
         let response = request_builder(&self.client, &request.model, &body)
             .send()
             .await
-            .map_err(|e| Error::Driver(format!("openai request failed: {e}")))?;
+            .map_err(|e| network_error("openai request failed", &e))?;
         let status = response.status();
         if !status.is_success() {
             let payload: Value = response.json().await.unwrap_or(Value::Null);
-            return Err(Error::Driver(format!("openai http {status}: {payload}")));
+            return Err(Error::driver(
+                classify_status(status),
+                format!("openai http {status}: {payload}"),
+            ));
         }
 
         let mut byte_stream = response.bytes_stream();
@@ -341,8 +375,7 @@ impl ChatDriver for OpenAiDriver {
         let mut usage = Usage::default();
 
         while let Some(chunk) = byte_stream.next().await {
-            let chunk =
-                chunk.map_err(|e| Error::Driver(format!("openai stream read failed: {e}")))?;
+            let chunk = chunk.map_err(|e| network_error("openai stream read failed", &e))?;
             buffer.push_str(&String::from_utf8_lossy(&chunk));
             for line in drain_lines(&mut buffer) {
                 let Some(data) = parse_sse_data_line(&line) else {
@@ -376,6 +409,33 @@ impl ChatDriver for OpenAiDriver {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn status_codes_classify_by_retryability() {
+        use reqwest::StatusCode;
+        assert_eq!(
+            classify_status(StatusCode::UNAUTHORIZED),
+            LlmErrorKind::Authentication
+        );
+        assert_eq!(
+            classify_status(StatusCode::TOO_MANY_REQUESTS),
+            LlmErrorKind::RateLimited
+        );
+        assert_eq!(
+            classify_status(StatusCode::SERVICE_UNAVAILABLE),
+            LlmErrorKind::Overloaded
+        );
+        assert_eq!(
+            classify_status(StatusCode::BAD_REQUEST),
+            LlmErrorKind::InvalidRequest
+        );
+        assert_eq!(
+            classify_status(StatusCode::INTERNAL_SERVER_ERROR),
+            LlmErrorKind::ServerError
+        );
+        assert!(classify_status(StatusCode::TOO_MANY_REQUESTS).is_retryable());
+        assert!(!classify_status(StatusCode::UNAUTHORIZED).is_retryable());
+    }
 
     #[test]
     fn arguments_parse_from_string_or_object() {

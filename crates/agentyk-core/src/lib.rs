@@ -41,7 +41,7 @@ pub use capability::{Capability, SystemPromptContext};
 pub use driver::{
     ChatDriver, ChatRequest, ChatResponse, DeltaSink, DriverId, DriverRegistry, ModelSpec, Usage,
 };
-pub use error::{Error, Result};
+pub use error::{Error, LlmErrorKind, Result};
 pub use event::{Event, EventData, EventListener, EventRequest, event_types};
 pub use event_log::{EventLog, InMemoryEventLog};
 pub use executor::{TurnExecutor, TurnHost, TurnResult};

@@ -59,12 +59,17 @@ expensive to change the longer we wait.
      land (compaction events arrive with the compaction seam, budget events
      with the budget seam) — `Custom` is the bridge until each graduates.
 
-4. **Error taxonomy for retries.** Durable execution retries activities, so
-   it must distinguish retryable LLM failures (rate limit, overload,
-   transient network) from terminal ones (auth, invalid request). Everruns
-   has `LlmErrorKind` + user-facing error mapping; agentyk's
-   `Error::Driver(String)` erases this. Add a retryability classification to
-   driver errors in core; drivers populate it.
+4. ✅ **Error taxonomy for retries — done.** `LlmErrorKind` (core, mirrors
+   everruns' type) classifies `RateLimited`/`Overloaded`/`Timeout`/`Network`/
+   `ServerError` (retryable) vs `Authentication`/`InvalidRequest`/`Unknown`
+   (not — a config problem or unexpected shape won't fix itself). `Error`
+   changed from `Driver(String)` to `Driver { kind, message }`, with
+   `Error::is_retryable()` delegating to the kind (every other variant is
+   non-retryable by construction). Both HTTP drivers classify by HTTP status
+   (`classify_status`, including Anthropic's 529 overloaded code) and by
+   transport failure kind (`network_error`: timeout vs. generic network,
+   via `reqwest::Error::is_timeout()`). User-facing error *mapping* (i18n,
+   display strings) is not ported — no UI layer exists yet to need it.
 
 5. ✅ **Cancellation — done.** `cancellation::CancellationToken` (std-only,
    `Arc<AtomicBool>`-backed, no tokio dependency, so it lives in core) is a
@@ -197,7 +202,7 @@ Phase 1.5 (pre-adoption hardening, in this repo):
 2. ✅ Streaming: delta events + ephemeral classification + streaming driver API
 3. ✅ Cancellation + `TurnOutcome::Cancelled`
 4. ✅ `EventData::Custom` escape hatch
-5. Error retryability classification
+5. ✅ Error retryability classification
 6. Act hooks (pre/post tool) — unlocks approval + guardrails ports
 7. Per-turn `TurnControls`
 8. Sealing (`Sealed(SealReason)`) + budget seam

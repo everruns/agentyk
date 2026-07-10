@@ -7,7 +7,7 @@ use futures_util::StreamExt;
 use serde_json::{Value, json};
 
 use agentyk_core::driver::{ChatDriver, ChatRequest, ChatResponse, DeltaSink, DriverId, Usage};
-use agentyk_core::error::{Error, Result};
+use agentyk_core::error::{Error, LlmErrorKind, Result};
 use agentyk_core::message::{ContentPart, Message, Role, ToolCall};
 
 const DEFAULT_BASE_URL: &str = "https://api.anthropic.com";
@@ -144,15 +144,43 @@ fn request_builder(
         .base_url
         .clone()
         .unwrap_or_else(|| DEFAULT_BASE_URL.to_string());
-    let api_key = model
-        .api_key
-        .clone()
-        .ok_or_else(|| Error::Driver("anthropic driver requires an api key".into()))?;
+    let api_key = model.api_key.clone().ok_or_else(|| {
+        Error::driver(
+            LlmErrorKind::Authentication,
+            "anthropic driver requires an api key",
+        )
+    })?;
     Ok(client
         .post(format!("{}/v1/messages", base_url.trim_end_matches('/')))
         .header("x-api-key", api_key)
         .header("anthropic-version", API_VERSION)
         .json(body))
+}
+
+/// Classifies an HTTP error status so a host can decide whether retrying is
+/// worth it — see [`LlmErrorKind`]. Anthropic's 529 is its own "overloaded"
+/// code, in addition to the generic 503.
+fn classify_status(status: reqwest::StatusCode) -> LlmErrorKind {
+    match status.as_u16() {
+        401 | 403 => LlmErrorKind::Authentication,
+        429 => LlmErrorKind::RateLimited,
+        503 | 529 => LlmErrorKind::Overloaded,
+        400 | 404 | 422 => LlmErrorKind::InvalidRequest,
+        500..=599 => LlmErrorKind::ServerError,
+        400..=499 => LlmErrorKind::InvalidRequest,
+        _ => LlmErrorKind::Unknown,
+    }
+}
+
+/// Classifies a transport-level failure (the request never got an HTTP
+/// response at all).
+fn network_error(context: &str, error: &reqwest::Error) -> Error {
+    let kind = if error.is_timeout() {
+        LlmErrorKind::Timeout
+    } else {
+        LlmErrorKind::Network
+    };
+    Error::driver(kind, format!("{context}: {error}"))
 }
 
 /// Extracts the JSON payload from one SSE `data: ...` line. Anthropic also
@@ -288,15 +316,21 @@ impl ChatDriver for AnthropicDriver {
         let response = request_builder(&self.client, &request.model, &body)?
             .send()
             .await
-            .map_err(|e| Error::Driver(format!("anthropic request failed: {e}")))?;
+            .map_err(|e| network_error("anthropic request failed", &e))?;
         let status = response.status();
-        let payload: Value = response
-            .json()
-            .await
-            .map_err(|e| Error::Driver(format!("anthropic response decode failed: {e}")))?;
         if !status.is_success() {
-            return Err(Error::Driver(format!("anthropic http {status}: {payload}")));
+            let payload: Value = response.json().await.unwrap_or(Value::Null);
+            return Err(Error::driver(
+                classify_status(status),
+                format!("anthropic http {status}: {payload}"),
+            ));
         }
+        let payload: Value = response.json().await.map_err(|e| {
+            Error::driver(
+                LlmErrorKind::Unknown,
+                format!("anthropic response decode failed: {e}"),
+            )
+        })?;
 
         let mut text = String::new();
         let mut tool_calls = Vec::new();
@@ -336,11 +370,14 @@ impl ChatDriver for AnthropicDriver {
         let response = request_builder(&self.client, &request.model, &body)?
             .send()
             .await
-            .map_err(|e| Error::Driver(format!("anthropic request failed: {e}")))?;
+            .map_err(|e| network_error("anthropic request failed", &e))?;
         let status = response.status();
         if !status.is_success() {
             let payload: Value = response.json().await.unwrap_or(Value::Null);
-            return Err(Error::Driver(format!("anthropic http {status}: {payload}")));
+            return Err(Error::driver(
+                classify_status(status),
+                format!("anthropic http {status}: {payload}"),
+            ));
         }
 
         let mut byte_stream = response.bytes_stream();
@@ -348,8 +385,7 @@ impl ChatDriver for AnthropicDriver {
         let mut accumulator = StreamAccumulator::default();
 
         while let Some(chunk) = byte_stream.next().await {
-            let chunk =
-                chunk.map_err(|e| Error::Driver(format!("anthropic stream read failed: {e}")))?;
+            let chunk = chunk.map_err(|e| network_error("anthropic stream read failed", &e))?;
             buffer.push_str(&String::from_utf8_lossy(&chunk));
             for line in drain_lines(&mut buffer) {
                 let Some(data) = parse_sse_data_line(&line) else {
@@ -375,6 +411,46 @@ impl ChatDriver for AnthropicDriver {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn status_codes_classify_by_retryability() {
+        use reqwest::StatusCode;
+        assert_eq!(
+            classify_status(StatusCode::UNAUTHORIZED),
+            LlmErrorKind::Authentication
+        );
+        assert_eq!(
+            classify_status(StatusCode::TOO_MANY_REQUESTS),
+            LlmErrorKind::RateLimited
+        );
+        assert_eq!(
+            classify_status(StatusCode::SERVICE_UNAVAILABLE),
+            LlmErrorKind::Overloaded
+        );
+        // Anthropic's own overloaded code.
+        assert_eq!(
+            classify_status(StatusCode::from_u16(529).unwrap()),
+            LlmErrorKind::Overloaded
+        );
+        assert_eq!(
+            classify_status(StatusCode::BAD_REQUEST),
+            LlmErrorKind::InvalidRequest
+        );
+    }
+
+    #[test]
+    fn missing_api_key_is_an_authentication_error() {
+        let model = agentyk_core::driver::ModelSpec::anthropic("claude-x");
+        let error = request_builder(&reqwest::Client::new(), &model, &json!({})).unwrap_err();
+        assert!(!error.is_retryable());
+        assert!(matches!(
+            error,
+            Error::Driver {
+                kind: LlmErrorKind::Authentication,
+                ..
+            }
+        ));
+    }
 
     #[test]
     fn image_content_becomes_an_image_block() {

@@ -67,6 +67,7 @@ everruns concept must be expressible on top of the agentyk primitive.
 | `Event.sequence: Option<i32>`, ephemeral vs durable events | `Event.sequence: Option<u64>`, `EventData::is_ephemeral()` | same split; `None` for ephemeral (never persisted), `Some` for durable |
 | `output.message.started/delta/completed/replaced` | `OutputMessageStarted/Delta/Completed` | `Replaced` (guardrail rewrite) not yet ported — no guardrail capability exists to need it |
 | ~40 `EventData` variants (`Reason*`/`Act*`/`Budget*`/…) | `EventData::Custom { event_type, payload }` | escape hatch; each variant graduates to first-class as its feature lands |
+| `LlmErrorKind` + user-facing error mapping | `error::LlmErrorKind` + `Error::Driver { kind, message }` | same retryable/terminal split; no user-facing i18n mapping (no UI layer yet) |
 | `EventEmitter` + runtime `EventBus` | `EventLog` (append + read) | unified; replay is first-class |
 | `EventListener` / `CompositeEventListener` | `EventListener` (fan-out built into the session) | same trait shape |
 | `Capability` (id, system_prompt_contribution, tools) | `Capability` | same trait shape; **attached by object, not registered + referenced by string id**; `tools()` is async so MCP fits |
@@ -129,6 +130,9 @@ server):
   `Session::run_cancellable`. Checked between actions and per streaming
   chunk.
 - Event extensibility — `EventData::Custom { event_type, payload }`.
+- Error retryability — `LlmErrorKind`, `Error::Driver { kind, message }`,
+  `Error::is_retryable()`; both HTTP drivers classify by status code and
+  transport-failure kind.
 
 Remaining for Phase 1 completion:
 
