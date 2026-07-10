@@ -166,12 +166,18 @@ expensive to change the longer we wait.
     chaining needs a slot in `TurnState` (everruns keeps it in
     `RuntimeTurnState` too).
 
-11. **Context assembly seam.** Agentyk sends the full replayed history every
-    turn. Everruns assembles context (compaction, memory, trimming — with
-    `ContextCompacting/Compacted` events). Add a `ContextAssembler` seam
-    (default: passthrough of full history) between replay and
-    `atoms::reason`; compaction then ports as an implementation, not a
-    rewrite.
+11. ✅ **Context assembly seam — done.** `context::ContextAssembler` sits
+    between replay and `atoms::reason`: `AgentBuilder::context_assembler`
+    (default `PassthroughContextAssembler` — sends history unchanged,
+    today's exact behavior) transforms `host.messages` into what a turn
+    actually sends, without touching the log or the state machine. Proven
+    with a trimming assembler: the model sees only the trimmed view, while
+    `session.messages()` still holds the full untrimmed history — trimming
+    is a per-turn view, not a mutation of what's recorded. **Not ported:**
+    an actual compaction *implementation* (summarizing old turns) or the
+    `context.compacting`/`context.compacted` events — those are for a
+    Phase-2 compaction capability to add as an `ContextAssembler` impl; the
+    seam is what makes that possible without another core change.
 
 ## Tier 3 — capability model gaps (needed to port everruns capabilities)
 
@@ -255,7 +261,7 @@ Phase 1.5 (pre-adoption hardening, in this repo):
 8. ✅ Sealing (`Sealed(SealReason)`) + budget seam
 9. ✅ Parallel-capable `PendingAct` data model + tool policy types —
    concurrent dispatch in `InProcessExecutor` itself is a deferred follow-up
-10. `ContextAssembler` seam
+10. ✅ `ContextAssembler` seam
 11. Capability `commands()` + `mcp_servers()`; `ToolContext` extensions
 12. `FileSystemCapability` (first big bundled capability)
 

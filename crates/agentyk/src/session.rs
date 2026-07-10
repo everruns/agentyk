@@ -152,6 +152,7 @@ impl Session {
             pre_tool_hooks: &agent.pre_tool_hooks,
             post_tool_hooks: &agent.post_tool_hooks,
             budget_checker: agent.budget_checker.clone(),
+            context_assembler: agent.context_assembler.as_ref(),
         };
         executor.run_turn(&mut host, Message::user(input)).await
     }

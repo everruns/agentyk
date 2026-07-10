@@ -80,6 +80,7 @@ everruns concept must be expressible on top of the agentyk primitive.
 | `InProcessRuntime::run_turn(session_id, input)` | `Session::run(input)` | the session holds its own id |
 | `TurnResult` | `TurnResult` | same |
 | `TurnStateMachine` + `RuntimeTurnState` (host-persisted phase state) | `turn::TurnState` (one serializable value: machine + bookkeeping) | **sans-IO**: transitions are pure and return the events to record as data, instead of atoms doing their own load/store/emit |
+| context assembly (compaction, memory, trimming) | `context::ContextAssembler` on `AgentBuilder` | default passthrough (today's behavior); sits between replay and `atoms::reason`, transforms what's sent without touching the log; no compaction/memory implementation ships |
 | `TurnAction` (`ExecuteInput/Reason/Act/Complete`) | `turn::TurnAction` (`Reason` / `ExecuteTool` / `Complete`) | input phase became `TurnState::start` effects (pure); act is per-tool-call for per-call retries |
 | tool scheduler (parallel act batch) | `TurnPhase::PendingAct { calls: Vec<PendingCall> }` + `pending_tool_actions()` | data model supports out-of-order/concurrent completion; `InProcessExecutor` still dispatches sequentially via `next_action()` — concurrent dispatch is a deferred follow-up |
 | `ToolPolicy`/`DeferrablePolicy`/`ToolHints` | `tool::{ToolPolicy, DeferrablePolicy}` | `Deferred` tools stay executable, excluded from `atoms::assemble`'s model-facing definitions; no ToolSearch-style surfacing capability yet, and `ToolHints` not ported |
@@ -155,6 +156,9 @@ server):
   sequentially — concurrent dispatch is a deferred follow-up, not this.
 - Tool policy — `ToolPolicy`/`DeferrablePolicy`; `Deferred` tools stay
   executable but are excluded from what `atoms::assemble` offers the model.
+- Context assembly — `ContextAssembler` on `AgentBuilder`, default
+  passthrough. Sits between replay and `atoms::reason`; no compaction/memory
+  implementation ships, just the seam.
 
 Remaining for Phase 1 completion:
 

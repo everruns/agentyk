@@ -9,6 +9,7 @@ use std::sync::Arc;
 
 use agentyk_core::budget::BudgetChecker;
 use agentyk_core::capability::Capability;
+use agentyk_core::context::{ContextAssembler, PassthroughContextAssembler};
 use agentyk_core::driver::{ChatDriver, DriverRegistry, ModelSpec};
 use agentyk_core::error::{Error, Result};
 use agentyk_core::event::EventListener;
@@ -34,6 +35,7 @@ pub(crate) struct AgentInner {
     pub(crate) pre_tool_hooks: Vec<Arc<dyn PreToolUseHook>>,
     pub(crate) post_tool_hooks: Vec<Arc<dyn PostToolExecHook>>,
     pub(crate) budget_checker: Option<Arc<dyn BudgetChecker>>,
+    pub(crate) context_assembler: Arc<dyn ContextAssembler>,
 }
 
 /// A runnable agent, composed by value. Cheap to clone (shared internals).
@@ -99,6 +101,10 @@ impl Agent {
         self.inner.budget_checker.as_ref()
     }
 
+    pub fn context_assembler(&self) -> &Arc<dyn ContextAssembler> {
+        &self.inner.context_assembler
+    }
+
     /// Start a session with an in-memory event log.
     pub fn session(&self) -> Session {
         self.session_with_log(Arc::new(InMemoryEventLog::new()))
@@ -159,6 +165,7 @@ pub struct AgentBuilder {
     pre_tool_hooks: Vec<Arc<dyn PreToolUseHook>>,
     post_tool_hooks: Vec<Arc<dyn PostToolExecHook>>,
     budget_checker: Option<Arc<dyn BudgetChecker>>,
+    context_assembler: Arc<dyn ContextAssembler>,
 }
 
 impl AgentBuilder {
@@ -176,6 +183,7 @@ impl AgentBuilder {
             pre_tool_hooks: Vec::new(),
             post_tool_hooks: Vec::new(),
             budget_checker: None,
+            context_assembler: Arc::new(PassthroughContextAssembler),
         }
     }
 
@@ -269,6 +277,15 @@ impl AgentBuilder {
         self
     }
 
+    /// Replace how replayed history is turned into what's sent to the model
+    /// each turn (default: send it unchanged) — trimming, compaction, and
+    /// memory injection are implementations of this seam, not changes to
+    /// the turn machine. See [`agentyk_core::context::ContextAssembler`].
+    pub fn context_assembler(mut self, assembler: impl ContextAssembler + 'static) -> Self {
+        self.context_assembler = Arc::new(assembler);
+        self
+    }
+
     pub fn build(self) -> Result<Agent> {
         let model = self
             .model
@@ -309,6 +326,7 @@ impl AgentBuilder {
                 pre_tool_hooks: self.pre_tool_hooks,
                 post_tool_hooks: self.post_tool_hooks,
                 budget_checker: self.budget_checker,
+                context_assembler: self.context_assembler,
             }),
         })
     }

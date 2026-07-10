@@ -19,6 +19,7 @@ use chrono::Utc;
 use crate::budget::BudgetChecker;
 use crate::cancellation::CancellationToken;
 use crate::capability::Capability;
+use crate::context::ContextAssembler;
 use crate::driver::{DriverRegistry, ModelSpec, Usage};
 use crate::error::Result;
 use crate::event::{EventData, EventListener, EventRequest};
@@ -70,6 +71,9 @@ pub struct TurnHost<'a> {
     /// wants to seal a turn on budget exhaustion sets this. `None` (the
     /// default) means no budget policy — see [`BudgetChecker`].
     pub budget_checker: Option<Arc<dyn BudgetChecker>>,
+    /// Transforms replayed history into what's actually sent to the model
+    /// this turn — see [`ContextAssembler`]. Defaults to a passthrough.
+    pub context_assembler: &'a dyn ContextAssembler,
 }
 
 impl TurnHost<'_> {

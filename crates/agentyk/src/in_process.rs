@@ -81,7 +81,10 @@ impl TurnExecutor for InProcessExecutor {
                     let started = state.on_reason_started(Some(&model.model));
                     host.record(turn_id, started).await?;
 
-                    let messages = host.messages.clone();
+                    let messages = host
+                        .context_assembler
+                        .assemble(host.session_id, host.messages)
+                        .await;
                     let cancellation = host.cancellation.clone();
                     let mut sink = RecordingDeltaSink {
                         host: &mut *host,
