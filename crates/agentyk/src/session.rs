@@ -12,6 +12,7 @@
 use std::sync::Arc;
 
 use agentyk_core::cancellation::CancellationToken;
+use agentyk_core::capability::{CommandContext, CommandDescriptor};
 use agentyk_core::controls::TurnControls;
 use agentyk_core::error::Result;
 use agentyk_core::event::Event;
@@ -20,6 +21,7 @@ use agentyk_core::executor::{TurnHost, TurnResult};
 use agentyk_core::id::SessionId;
 use agentyk_core::message::Message;
 use agentyk_core::replay::messages_from_events;
+use agentyk_core::tool::ToolOutput;
 
 use crate::agent::Agent;
 
@@ -81,6 +83,36 @@ impl Session {
     /// All events recorded for this session, ordered by sequence.
     pub async fn events(&self) -> Result<Vec<Event>> {
         self.log.read(self.id).await
+    }
+
+    /// Every slash command the agent's capabilities expose — see
+    /// [`agentyk_core::capability::Capability::commands`].
+    pub fn commands(&self) -> Vec<CommandDescriptor> {
+        self.agent
+            .inner
+            .capabilities
+            .iter()
+            .flat_map(|capability| capability.commands())
+            .collect()
+    }
+
+    /// Run a command directly — bypasses the turn loop entirely (no model
+    /// call, no event log entry): the first capability whose
+    /// [`agentyk_core::capability::Capability::commands`] lists `name` and
+    /// whose `execute_command` returns `Some(..)` wins. Errors with an
+    /// "unknown command" message if none claims it.
+    pub async fn execute_command(&self, name: &str, args: &str) -> Result<ToolOutput> {
+        let context = CommandContext {
+            session_id: self.id,
+        };
+        for capability in &self.agent.inner.capabilities {
+            if capability.commands().iter().any(|c| c.name == name)
+                && let Some(output) = capability.execute_command(name, args, &context).await
+            {
+                return Ok(output);
+            }
+        }
+        Ok(ToolOutput::error(format!("unknown command `/{name}`")))
     }
 
     /// Run one turn: user input in, final assistant text out. Uncancellable
@@ -153,6 +185,7 @@ impl Session {
             post_tool_hooks: &agent.post_tool_hooks,
             budget_checker: agent.budget_checker.clone(),
             context_assembler: agent.context_assembler.as_ref(),
+            extensions: &agent.extensions,
         };
         executor.run_turn(&mut host, Message::user(input)).await
     }

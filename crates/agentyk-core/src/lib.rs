@@ -34,6 +34,7 @@ pub mod error;
 pub mod event;
 pub mod event_log;
 pub mod executor;
+pub mod extensions;
 pub mod hooks;
 pub mod id;
 pub mod message;
@@ -43,7 +44,7 @@ pub mod turn;
 
 pub use budget::{BudgetChecker, BudgetDecision};
 pub use cancellation::CancellationToken;
-pub use capability::{Capability, SystemPromptContext};
+pub use capability::{Capability, CommandContext, CommandDescriptor, SystemPromptContext};
 pub use context::{ContextAssembler, PassthroughContextAssembler};
 pub use controls::TurnControls;
 pub use driver::{
@@ -54,6 +55,7 @@ pub use error::{Error, LlmErrorKind, Result};
 pub use event::{Event, EventData, EventListener, EventRequest, event_types};
 pub use event_log::{EventLog, InMemoryEventLog};
 pub use executor::{TurnExecutor, TurnHost, TurnResult};
+pub use extensions::Extensions;
 pub use hooks::{PostToolExecHook, PreToolUseDecision, PreToolUseHook};
 pub use id::{EventId, SessionId, TurnId};
 pub use message::{ContentPart, ImageContentPart, Message, Role, TextContentPart, ToolCall};

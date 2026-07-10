@@ -95,6 +95,8 @@ everruns concept must be expressible on top of the agentyk primitive.
 | `tool.denied` (implicit in approval/guardrail flows) | `event_types::TOOL_DENIED` | durable; recorded alongside `tool.started`/`tool.completed` when a pre-hook denies |
 | MCP merge/discovery (runtime `mcp.rs`) | `McpCapability` / `McpClient` / `McpServer` | MCP is just a capability; stdio transport built in |
 | Typed prefixed ids (`session_<hex>`) | `id::TypedId` (`SessionId`, `TurnId`, `EventId`) | same format; only correlation ids remain — no `AgentId`, `ModelId`, `ProviderId` |
+| `CommandDescriptor` + capability slash commands | `capability::{CommandDescriptor, CommandContext}`, `Capability::{commands, execute_command}` | `Session::commands()`/`execute_command()` route to the owning capability, bypassing the turn loop entirely (no model call, no event); `mcp_servers()` held back — see `everruns-adoption.md` gap 13 |
+| `ToolContext` service bag (workspace/file/storage/image/credential/utility-LLM) | `extensions::Extensions` (`ToolContext.extensions`) | axum-style `TypeId`-keyed bag instead of enumerated `Option<Arc<dyn …>>` fields; `AgentBuilder::extension(value)` populates it once per agent |
 
 Deliberate omissions from Phase 1 (Phase-2+ territory): org/tenant scoping,
 provider catalog + credential encryption, durable execution, streaming deltas,
@@ -159,6 +161,12 @@ server):
 - Context assembly — `ContextAssembler` on `AgentBuilder`, default
   passthrough. Sits between replay and `atoms::reason`; no compaction/memory
   implementation ships, just the seam.
+- Capability commands + typed `ToolContext` extensions —
+  `Capability::{commands, execute_command}` with `Session::commands()`/
+  `execute_command()` routing outside the turn loop; `ToolContext.extensions`
+  (`extensions::Extensions`, axum-style typed bag) populated via
+  `AgentBuilder::extension(value)`. `mcp_servers()` deferred — see
+  [`everruns-adoption.md`](everruns-adoption.md#tier-3).
 
 Remaining for Phase 1 completion:
 

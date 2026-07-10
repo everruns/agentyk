@@ -11,14 +11,32 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
 
 use crate::error::Result;
 use crate::id::SessionId;
-use crate::tool::Tool;
+use crate::tool::{Tool, ToolOutput};
 
 /// Context available while assembling the system prompt.
 #[derive(Debug, Clone)]
 pub struct SystemPromptContext {
+    pub session_id: SessionId,
+}
+
+/// One slash-command a capability exposes — everruns' `CommandDescriptor`,
+/// pared down to what a host needs to list and invoke it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CommandDescriptor {
+    /// Invoked as `/{name}` (no leading slash here).
+    pub name: String,
+    pub description: String,
+}
+
+/// Context available while executing a command. Commands are host-invoked
+/// directly (e.g. a user typing `/goal set X`) and bypass the turn loop
+/// entirely, so there's no `turn_id` — only a session.
+#[derive(Debug, Clone)]
+pub struct CommandContext {
     pub session_id: SessionId,
 }
 
@@ -44,5 +62,24 @@ pub trait Capability: Send + Sync {
     /// discover tools remotely (MCP) fit the same trait.
     async fn tools(&self) -> Result<Vec<Arc<dyn Tool>>> {
         Ok(Vec::new())
+    }
+
+    /// Slash commands this capability exposes for a host to list and route
+    /// — see `Session::commands`/`Session::execute_command` in the
+    /// framework crate. Default: none.
+    fn commands(&self) -> Vec<CommandDescriptor> {
+        Vec::new()
+    }
+
+    /// Run a command by name. Return `None` if this capability doesn't own
+    /// `name` (the host tries the next capability); `args` is the raw text
+    /// after the command name.
+    async fn execute_command(
+        &self,
+        _name: &str,
+        _args: &str,
+        _context: &CommandContext,
+    ) -> Option<ToolOutput> {
+        None
     }
 }

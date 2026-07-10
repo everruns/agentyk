@@ -123,6 +123,7 @@ impl TurnExecutor for InProcessExecutor {
                     let context = ToolContext {
                         session_id: host.session_id,
                         turn_id,
+                        extensions: host.extensions.clone(),
                     };
 
                     let mut denial: Option<String> = None;

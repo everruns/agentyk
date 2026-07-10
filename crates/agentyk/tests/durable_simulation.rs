@@ -121,6 +121,7 @@ async fn durable_host_drives_turn_across_a_crash() -> Result<()> {
                 let context = ToolContext {
                     session_id: state.session_id,
                     turn_id: state.turn_id,
+                    ..Default::default()
                 };
                 let output = atoms::act(&assembled, &call, &context).await;
                 let effects = state.on_tool_completed(&call.id, &output);
@@ -225,6 +226,7 @@ async fn manual_drive_matches_in_process_executor() -> Result<()> {
                 let context = ToolContext {
                     session_id,
                     turn_id: state.turn_id,
+                    ..Default::default()
                 };
                 let output = atoms::act(&assembled, &call, &context).await;
                 let effects = state.on_tool_completed(&call.id, &output);

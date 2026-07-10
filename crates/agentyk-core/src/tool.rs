@@ -66,10 +66,14 @@ impl ToolOutput {
 }
 
 /// Execution-time context handed to a tool.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct ToolContext {
     pub session_id: SessionId,
     pub turn_id: TurnId,
+    /// Host-injected services a tool can downcast by type — see
+    /// [`crate::extensions::Extensions`]. Empty unless the agent's builder
+    /// set some.
+    pub extensions: crate::extensions::Extensions,
 }
 
 #[async_trait]

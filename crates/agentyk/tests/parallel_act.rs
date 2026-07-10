@@ -73,6 +73,7 @@ fn a_batch_can_be_dispatched_concurrently_and_completed_out_of_order() -> Result
     let _context = ToolContext {
         session_id,
         turn_id: state.turn_id,
+        ..Default::default()
     };
     for call in [&calls[2], &calls[1], &calls[0]] {
         let output = ToolOutput::text(format!("echoed {}", call.id));

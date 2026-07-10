@@ -15,6 +15,7 @@ use agentyk_core::error::{Error, Result};
 use agentyk_core::event::EventListener;
 use agentyk_core::event_log::{EventLog, InMemoryEventLog};
 use agentyk_core::executor::{TurnExecutor, TurnResult};
+use agentyk_core::extensions::Extensions;
 use agentyk_core::hooks::{PostToolExecHook, PreToolUseHook};
 use agentyk_core::id::SessionId;
 use agentyk_core::tool::Tool;
@@ -36,6 +37,7 @@ pub(crate) struct AgentInner {
     pub(crate) post_tool_hooks: Vec<Arc<dyn PostToolExecHook>>,
     pub(crate) budget_checker: Option<Arc<dyn BudgetChecker>>,
     pub(crate) context_assembler: Arc<dyn ContextAssembler>,
+    pub(crate) extensions: Extensions,
 }
 
 /// A runnable agent, composed by value. Cheap to clone (shared internals).
@@ -105,6 +107,10 @@ impl Agent {
         &self.inner.context_assembler
     }
 
+    pub fn extensions(&self) -> &Extensions {
+        &self.inner.extensions
+    }
+
     /// Start a session with an in-memory event log.
     pub fn session(&self) -> Session {
         self.session_with_log(Arc::new(InMemoryEventLog::new()))
@@ -166,6 +172,7 @@ pub struct AgentBuilder {
     post_tool_hooks: Vec<Arc<dyn PostToolExecHook>>,
     budget_checker: Option<Arc<dyn BudgetChecker>>,
     context_assembler: Arc<dyn ContextAssembler>,
+    extensions: Extensions,
 }
 
 impl AgentBuilder {
@@ -184,6 +191,7 @@ impl AgentBuilder {
             post_tool_hooks: Vec::new(),
             budget_checker: None,
             context_assembler: Arc::new(PassthroughContextAssembler),
+            extensions: Extensions::new(),
         }
     }
 
@@ -286,6 +294,15 @@ impl AgentBuilder {
         self
     }
 
+    /// Make a service available to every tool call via
+    /// [`agentyk_core::tool::ToolContext::extensions`] — a credential
+    /// store, a workspace handle, anything a tool needs but core shouldn't
+    /// know the shape of. Replaces any previous value of the same type.
+    pub fn extension<T: Send + Sync + 'static>(mut self, value: T) -> Self {
+        self.extensions.insert(value);
+        self
+    }
+
     pub fn build(self) -> Result<Agent> {
         let model = self
             .model
@@ -327,6 +344,7 @@ impl AgentBuilder {
                 post_tool_hooks: self.post_tool_hooks,
                 budget_checker: self.budget_checker,
                 context_assembler: self.context_assembler,
+                extensions: self.extensions,
             }),
         })
     }

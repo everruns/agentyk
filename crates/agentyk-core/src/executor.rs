@@ -24,6 +24,7 @@ use crate::driver::{DriverRegistry, ModelSpec, Usage};
 use crate::error::Result;
 use crate::event::{EventData, EventListener, EventRequest};
 use crate::event_log::EventLog;
+use crate::extensions::Extensions;
 use crate::hooks::{PostToolExecHook, PreToolUseHook};
 use crate::id::{EventId, SessionId, TurnId};
 use crate::message::Message;
@@ -74,6 +75,9 @@ pub struct TurnHost<'a> {
     /// Transforms replayed history into what's actually sent to the model
     /// this turn — see [`ContextAssembler`]. Defaults to a passthrough.
     pub context_assembler: &'a dyn ContextAssembler,
+    /// Cloned into every [`crate::tool::ToolContext`] a turn constructs —
+    /// see [`Extensions`].
+    pub extensions: &'a Extensions,
 }
 
 impl TurnHost<'_> {

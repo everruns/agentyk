@@ -192,21 +192,37 @@ expensive to change the longer we wait.
     to the core trait; add `config_schema()` only, for hosts that render
     config UIs.
 
-13. **Capability surface extras.** Missing from the trait, in rough priority:
-    `commands()` (slash-command descriptors + an `execute_command` host API —
-    yolop's `/goal`, `/setup` depend on this), `mcp_servers()` (capabilities
-    contributing MCP servers, merged at session level), `dependencies()`,
-    `status()` (enabled/degraded), `aliases()` (rename compatibility).
+13. ✅ **Capability surface extras — `commands()` done, `mcp_servers()` held
+    back.** `Capability::commands() -> Vec<CommandDescriptor>` and
+    `execute_command(name, args, &CommandContext) -> Option<ToolOutput>`
+    (default: none / `None`) are on the trait; `Session::commands()` lists
+    every capability's descriptors and `Session::execute_command()` routes to
+    the first capability that claims the name — entirely outside the turn
+    loop (no model call, no event log entry), matching yolop's `/goal`,
+    `/setup`. `mcp_servers()` is **not** implemented this pass: the config
+    type (`McpServer`) lives in the framework crate behind the `mcp` feature,
+    but `Capability` lives in `agentyk-core`, which cannot depend on the
+    framework crate — porting it needs either a core-side `McpServer` config
+    struct (pure data, no client) or a different seam (e.g. the framework
+    crate composing capabilities' server lists post hoc). Left as a follow-up
+    to resolve if/when an MCP-contributing capability is actually built.
+    `dependencies()`, `status()` (enabled/degraded), `aliases()` (rename
+    compatibility) remain unported — no adopter has needed them yet.
     Metadata like `icon`/`category`/localizations stays host-side.
 
-14. **Richer `ToolContext`.** Everruns' `ToolContext` is a service bag
-    (workspace id, file store, storage store, image store, credential store,
-    utility LLM). Enumerating `Option<Arc<dyn …>>` fields in core would drag
-    every host concern into the contract. Instead: add a typed extensions
-    map (axum-style `Extensions`) to `ToolContext` — hosts inject services;
-    tools downcast what they need; core stays lean. `workspace_id` (session
-    vs shared workspace file keying) is worth first-classing when a
-    filesystem capability lands.
+14. ✅ **Richer `ToolContext` — typed extensions, not a service enum.**
+    Everruns' `ToolContext` is a service bag (workspace id, file store,
+    storage store, image store, credential store, utility LLM). Rather than
+    enumerating `Option<Arc<dyn …>>` fields in core (which would drag every
+    host concern into the contract), `ToolContext` gained
+    `extensions: agentyk_core::extensions::Extensions` — a typed
+    `TypeId`-keyed bag (axum's `Extensions` pattern: `insert::<T>`,
+    `get::<T>() -> Option<Arc<T>>`, `contains::<T>()`). Hosts populate it via
+    `AgentBuilder::extension(value)`, stored once on `Agent` and cloned into
+    every `ToolContext`; tools downcast what they need. `workspace_id`
+    (session vs shared workspace file keying) is still worth first-classing
+    when a filesystem capability lands (gap 15), since every tool needs it,
+    not just some.
 
 15. **Session file system.** Everruns tools assume a `SessionFileSystem`
     (virtual FS, real-disk, write blocklists, mounts). Agentyk has none.
@@ -262,7 +278,8 @@ Phase 1.5 (pre-adoption hardening, in this repo):
 9. ✅ Parallel-capable `PendingAct` data model + tool policy types —
    concurrent dispatch in `InProcessExecutor` itself is a deferred follow-up
 10. ✅ `ContextAssembler` seam
-11. Capability `commands()` + `mcp_servers()`; `ToolContext` extensions
+11. ✅ Capability `commands()` + `ToolContext` extensions —
+    `mcp_servers()` held back (core/framework layering conflict, see gap 13)
 12. `FileSystemCapability` (first big bundled capability)
 
 Items 1–5 are protocol-affecting and should land before anyone persists a
