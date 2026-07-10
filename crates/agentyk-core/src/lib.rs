@@ -56,5 +56,7 @@ pub use hooks::{PostToolExecHook, PreToolUseDecision, PreToolUseHook};
 pub use id::{EventId, SessionId, TurnId};
 pub use message::{ContentPart, ImageContentPart, Message, Role, TextContentPart, ToolCall};
 pub use replay::messages_from_events;
-pub use tool::{FnTool, Tool, ToolContext, ToolDefinition, ToolOutput};
+pub use tool::{
+    DeferrablePolicy, FnTool, Tool, ToolContext, ToolDefinition, ToolOutput, ToolPolicy,
+};
 pub use turn::{SealReason, TurnAction, TurnOutcome, TurnPhase, TurnState};

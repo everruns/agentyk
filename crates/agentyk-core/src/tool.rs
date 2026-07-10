@@ -21,6 +21,27 @@ pub struct ToolDefinition {
     pub parameters: serde_json::Value,
 }
 
+/// Whether a tool's definition is sent to the model up front. Mirrors
+/// everruns' `DeferrablePolicy` (what ToolSearch-style deferred-tool
+/// discovery is built on).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum DeferrablePolicy {
+    /// Always included in the tool list sent to the model.
+    #[default]
+    Never,
+    /// Omitted from `atoms::assemble`'s tool list — a capability can still
+    /// execute it (it stays in the lookup table), it just isn't offered to
+    /// the model by default. Surfacing deferred tools on demand (a
+    /// ToolSearch-style capability) is not implemented; this is the policy
+    /// slot such a capability would read.
+    Deferred,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct ToolPolicy {
+    pub deferrable: DeferrablePolicy,
+}
+
 /// The result of executing a tool.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ToolOutput {
@@ -56,6 +77,11 @@ pub trait Tool: Send + Sync {
     fn definition(&self) -> ToolDefinition;
 
     async fn execute(&self, arguments: serde_json::Value, context: &ToolContext) -> ToolOutput;
+
+    /// Default: always offered to the model — see [`ToolPolicy`].
+    fn policy(&self) -> ToolPolicy {
+        ToolPolicy::default()
+    }
 }
 
 type BoxedToolFuture = Pin<Box<dyn Future<Output = ToolOutput> + Send>>;

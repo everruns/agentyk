@@ -28,14 +28,23 @@
 //!             record(state.on_reason_completed(&response));
 //!         }
 //!         TurnAction::ExecuteTool { call } => {
-//!             record(state.on_tool_started());        // idempotent
+//!             record(state.on_tool_started(&call.id));   // idempotent
 //!             let output = atoms::act(…, &call, …).await;
-//!             record(state.on_tool_completed(&output));
+//!             record(state.on_tool_completed(&call.id, &output));
 //!         }
 //!         TurnAction::Complete(outcome) => break,
 //!     }
 //! }
 //! ```
+//!
+//! `next_action` walks the current batch in order, one call at a time — a
+//! sequential executor (like agentyk's `InProcessExecutor`) can ignore
+//! everything below and just follow that loop. A **parallel-capable**
+//! executor instead calls [`TurnState::pending_tool_actions`] to fan out the
+//! whole not-yet-started batch at once, starting/completing each call by id
+//! (batch order is not completion order); the durable-execution contract
+//! still holds one `TurnAction` == one activity, they just may run
+//! concurrently.
 //!
 //! ## Why this supports durable execution
 //!
@@ -46,7 +55,7 @@
 //!   the agent value and the event log on each step.
 //! - Each [`TurnAction`] is one activity. Re-issuing the current action after
 //!   a crash is safe: `next_action` is a pure read, and `on_tool_started` is
-//!   idempotent.
+//!   idempotent per call id.
 //! - Effects are data, so a host can persist the new state and append its
 //!   events in one transaction — event emission never races execution.
 //! - Message history is a fold over the event log
@@ -97,19 +106,26 @@ pub enum TurnOutcome {
     Sealed(SealReason),
 }
 
-/// Current phase of the turn. `PendingAct` carries the not-yet-executed tool
-/// calls so a resumed host knows exactly what remains.
+/// One tool call within a reason step's batch, tracked independently so a
+/// parallel executor can start/complete calls out of order.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PendingCall {
+    pub call: ToolCall,
+    /// Whether `tool.started` was already recorded for this call — makes
+    /// `on_tool_started` idempotent per call id across crash/retry.
+    pub started: bool,
+    /// Set once the call resolves, whatever ran it.
+    pub output: Option<ToolOutput>,
+}
+
+/// Current phase of the turn. `PendingAct` carries the whole batch from the
+/// triggering reason step so a resumed host — sequential or parallel —
+/// knows exactly what remains.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "phase", rename_all = "snake_case")]
 pub enum TurnPhase {
     PendingReason,
-    PendingAct {
-        /// Tool calls awaiting execution, front first.
-        pending: Vec<ToolCall>,
-        /// Whether `tool.started` was already recorded for the front call —
-        /// makes `on_tool_started` idempotent across crash/retry.
-        started: bool,
-    },
+    PendingAct { calls: Vec<PendingCall> },
     Completed(TurnOutcome),
 }
 
@@ -167,17 +183,41 @@ impl TurnState {
         (state, effects)
     }
 
-    /// Pure peek at the next action. Idempotent — safe to call again after a
-    /// crash without re-recording anything.
+    /// Pure peek at the next action: the first call in the batch that
+    /// hasn't resolved yet, in order. A sequential executor can drive the
+    /// whole turn from this alone — see [`Self::pending_tool_actions`] for
+    /// the parallel-capable alternative. Idempotent — safe to call again
+    /// after a crash without re-recording anything.
     pub fn next_action(&self) -> TurnAction {
         match &self.phase {
             TurnPhase::PendingReason => TurnAction::Reason,
-            TurnPhase::PendingAct { pending, .. } => match pending.first() {
-                Some(call) => TurnAction::ExecuteTool { call: call.clone() },
-                // Unreachable by construction; degrade to another reason step.
-                None => TurnAction::Reason,
-            },
+            TurnPhase::PendingAct { calls } => {
+                match calls.iter().find(|pending| pending.output.is_none()) {
+                    Some(pending) => TurnAction::ExecuteTool {
+                        call: pending.call.clone(),
+                    },
+                    // Unreachable by construction; degrade to another reason step.
+                    None => TurnAction::Reason,
+                }
+            }
             TurnPhase::Completed(outcome) => TurnAction::Complete(outcome.clone()),
+        }
+    }
+
+    /// Every call in the current batch that hasn't been started yet, all at
+    /// once — what a parallel-capable executor fans out concurrently
+    /// instead of following `next_action` one call at a time. Empty outside
+    /// `PendingAct` or once every call has been started.
+    pub fn pending_tool_actions(&self) -> Vec<TurnAction> {
+        match &self.phase {
+            TurnPhase::PendingAct { calls } => calls
+                .iter()
+                .filter(|pending| !pending.started)
+                .map(|pending| TurnAction::ExecuteTool {
+                    call: pending.call.clone(),
+                })
+                .collect(),
+            _ => Vec::new(),
         }
     }
 
@@ -222,47 +262,61 @@ impl TurnState {
             });
             self.phase = TurnPhase::Completed(outcome);
         } else {
-            self.phase = TurnPhase::PendingAct {
-                pending: response.message.tool_calls.clone(),
-                started: false,
-            };
+            let calls = response
+                .message
+                .tool_calls
+                .iter()
+                .map(|call| PendingCall {
+                    call: call.clone(),
+                    started: false,
+                    output: None,
+                })
+                .collect();
+            self.phase = TurnPhase::PendingAct { calls };
         }
         effects
     }
 
-    /// Record that the front tool call is starting. Idempotent: re-running
-    /// after a crash records nothing twice.
-    pub fn on_tool_started(&mut self) -> Vec<EventData> {
-        if let TurnPhase::PendingAct { pending, started } = &mut self.phase
-            && !*started
-            && let Some(call) = pending.first()
-        {
-            let effect = EventData::ToolStarted { call: call.clone() };
-            *started = true;
-            return vec![effect];
+    /// Record that the call with this id is starting. Idempotent per call
+    /// id: re-running after a crash records nothing twice.
+    pub fn on_tool_started(&mut self, call_id: &str) -> Vec<EventData> {
+        let TurnPhase::PendingAct { calls } = &mut self.phase else {
+            return Vec::new();
+        };
+        let Some(pending) = calls.iter_mut().find(|p| p.call.id == call_id) else {
+            return Vec::new();
+        };
+        if pending.started {
+            return Vec::new();
         }
-        Vec::new()
+        pending.started = true;
+        vec![EventData::ToolStarted {
+            call: pending.call.clone(),
+        }]
     }
 
-    /// Apply the front tool call's result. Emits `tool.completed`; when the
-    /// batch is drained, moves back to `PendingReason`.
-    pub fn on_tool_completed(&mut self, output: &ToolOutput) -> Vec<EventData> {
-        let TurnPhase::PendingAct { pending, started } = &mut self.phase else {
+    /// Apply a call's result by id. Emits `tool.completed`; when every call
+    /// in the batch has resolved, moves back to `PendingReason` — the batch
+    /// can complete in any order.
+    pub fn on_tool_completed(&mut self, call_id: &str, output: &ToolOutput) -> Vec<EventData> {
+        let TurnPhase::PendingAct { calls } = &mut self.phase else {
             return Vec::new();
         };
-        let Some(call) = pending.first().cloned() else {
+        let Some(pending) = calls.iter_mut().find(|p| p.call.id == call_id) else {
             return Vec::new();
         };
-        pending.remove(0);
-        *started = false;
+        if pending.output.is_some() {
+            return Vec::new();
+        }
+        pending.output = Some(output.clone());
         self.tool_calls_executed += 1;
         let effects = vec![EventData::ToolCompleted {
-            call_id: call.id,
-            name: call.name,
+            call_id: pending.call.id.clone(),
+            name: pending.call.name.clone(),
             output: output.content.clone(),
             is_error: output.is_error,
         }];
-        if pending.is_empty() {
+        if calls.iter().all(|p| p.output.is_some()) {
             self.phase = TurnPhase::PendingReason;
         }
         effects
@@ -347,16 +401,16 @@ mod tests {
         };
         assert_eq!(call.name, "a");
 
-        assert_eq!(state.on_tool_started().len(), 1);
-        assert_eq!(state.on_tool_started().len(), 0); // idempotent
-        state.on_tool_completed(&ToolOutput::text("ok"));
+        assert_eq!(state.on_tool_started(&call.id).len(), 1);
+        assert_eq!(state.on_tool_started(&call.id).len(), 0); // idempotent
+        state.on_tool_completed(&call.id, &ToolOutput::text("ok"));
 
         let TurnAction::ExecuteTool { call } = state.next_action() else {
             panic!("expected second tool action");
         };
         assert_eq!(call.name, "b");
-        state.on_tool_started();
-        state.on_tool_completed(&ToolOutput::text("ok"));
+        state.on_tool_started(&call.id);
+        state.on_tool_completed(&call.id, &ToolOutput::text("ok"));
 
         assert_eq!(state.next_action(), TurnAction::Reason);
         let effects = state.on_reason_completed(&text_response("done"));
@@ -388,7 +442,10 @@ mod tests {
         let input = Message::user("hi");
         let (mut state, _) = TurnState::start(SessionId::new(), 4, &input);
         state.on_reason_completed(&tool_call_response(&["a"]));
-        state.on_tool_started();
+        let TurnAction::ExecuteTool { call } = state.next_action() else {
+            panic!("expected tool action");
+        };
+        state.on_tool_started(&call.id);
 
         let json = serde_json::to_string(&state).unwrap();
         let mut restored: TurnState = serde_json::from_str(&json).unwrap();
@@ -400,8 +457,58 @@ mod tests {
             restored.next_action(),
             TurnAction::ExecuteTool { .. }
         ));
-        assert_eq!(restored.on_tool_started().len(), 0);
-        restored.on_tool_completed(&ToolOutput::text("ok"));
+        assert_eq!(restored.on_tool_started(&call.id).len(), 0);
+        restored.on_tool_completed(&call.id, &ToolOutput::text("ok"));
         assert_eq!(restored.next_action(), TurnAction::Reason);
+    }
+
+    #[test]
+    fn pending_tool_actions_returns_the_whole_not_started_batch() {
+        let input = Message::user("hi");
+        let (mut state, _) = TurnState::start(SessionId::new(), 4, &input);
+        state.on_reason_completed(&tool_call_response(&["a", "b", "c"]));
+
+        let actions = state.pending_tool_actions();
+        assert_eq!(actions.len(), 3);
+
+        // Starting one call removes only that call from the ready batch.
+        let TurnAction::ExecuteTool { call } = &actions[0] else {
+            panic!("expected tool action");
+        };
+        state.on_tool_started(&call.id);
+        assert_eq!(state.pending_tool_actions().len(), 2);
+    }
+
+    #[test]
+    fn batch_completes_out_of_order() {
+        let input = Message::user("hi");
+        let (mut state, _) = TurnState::start(SessionId::new(), 4, &input);
+        state.on_reason_completed(&tool_call_response(&["a", "b"]));
+
+        let ids: Vec<String> = state
+            .pending_tool_actions()
+            .into_iter()
+            .map(|action| {
+                let TurnAction::ExecuteTool { call } = action else {
+                    unreachable!()
+                };
+                call.id
+            })
+            .collect();
+        for id in &ids {
+            state.on_tool_started(id);
+        }
+
+        // Complete "b" (the second call) before "a" — still ends up back at
+        // PendingReason with both counted, regardless of completion order.
+        state.on_tool_completed(&ids[1], &ToolOutput::text("b done"));
+        let TurnAction::ExecuteTool { call: remaining } = state.next_action() else {
+            panic!("expected the still-incomplete call");
+        };
+        assert_eq!(remaining.id, ids[0]);
+        state.on_tool_completed(&ids[0], &ToolOutput::text("a done"));
+
+        assert_eq!(state.next_action(), TurnAction::Reason);
+        assert_eq!(state.tool_calls_executed, 2);
     }
 }

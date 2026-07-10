@@ -120,12 +120,26 @@ expensive to change the longer we wait.
    `ApprovalCapability` cannot fully port, but auto allow/deny guardrails
    (the more common case) can.
 
-8. **Tool scheduling.** Everruns has a tool scheduler (parallel execution of
-   a reason batch); agentyk drains `PendingAct` strictly serially. Generalize
-   `PendingAct` to track per-call completion so an executor MAY run calls
-   concurrently while the durable host keeps one-activity-per-call. Also
-   missing: `ToolPolicy` / `DeferrablePolicy` / `ToolHints` (deferred tools
-   are what ToolSearch is built on).
+8. ✅ **Tool scheduling — data model done, dispatch stays sequential.**
+   `TurnPhase::PendingAct` is now `{ calls: Vec<PendingCall> }`
+   (`PendingCall { call, started, output }`) instead of a front-only queue
+   — `on_tool_started`/`on_tool_completed` take a `call_id` and act on any
+   call in the batch, so completion order no longer has to match dispatch
+   order. `TurnState::pending_tool_actions()` returns the whole not-yet-started
+   batch at once (vs. `next_action()`'s one-at-a-time walk), which is what a
+   parallel executor fans out concurrently. `InProcessExecutor` deliberately
+   keeps using `next_action()` — it stays sequential; flipping it to
+   concurrent dispatch (`pending_tool_actions()` + spawn + join, replaying
+   results back through `TurnHost::record` sequentially since `record`
+   needs `&mut self`) is real follow-up work, not done here. Also done:
+   `tool::{ToolPolicy, DeferrablePolicy}` — a tool can mark itself
+   `Deferred` to stay executable but be left out of the definitions
+   `atoms::assemble` sends the model; default is `Never` (today's
+   behavior, unchanged for every existing tool). **Not ported:**
+   `ToolHints` (everruns' richer per-tool UI/behavior hints) — no use case
+   yet; and no ToolSearch-style capability that actually *surfaces*
+   deferred tools on demand — `Deferred` today just means "hidden," not
+   "hidden until requested."
 
 9. ✅ **Sealing and budget — done.** `TurnOutcome::Sealed(SealReason)`
    (`NoProgress` | `BudgetExhausted`) + `TurnState::on_seal` (pure
@@ -239,7 +253,8 @@ Phase 1.5 (pre-adoption hardening, in this repo):
    require-approval path still needs a `TurnPhase::PendingApproval`
 7. ✅ Per-turn `TurnControls`
 8. ✅ Sealing (`Sealed(SealReason)`) + budget seam
-9. Parallel-capable `PendingAct` + tool policy types
+9. ✅ Parallel-capable `PendingAct` data model + tool policy types —
+   concurrent dispatch in `InProcessExecutor` itself is a deferred follow-up
 10. `ContextAssembler` seam
 11. Capability `commands()` + `mcp_servers()`; `ToolContext` extensions
 12. `FileSystemCapability` (first big bundled capability)

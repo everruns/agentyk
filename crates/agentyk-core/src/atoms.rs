@@ -42,19 +42,26 @@ impl AssembledTurn {
 
 /// Resolve capabilities into an [`AssembledTurn`]: join the agent's system
 /// prompt with capability contributions and collect capability tools
-/// (discovering dynamically where needed, e.g. MCP).
+/// (discovering dynamically where needed, e.g. MCP). A tool whose
+/// [`crate::tool::ToolPolicy::deferrable`] is `Deferred` stays executable
+/// (it's still in the lookup table) but is left out of the definitions sent
+/// to the model — see [`crate::tool::DeferrablePolicy`].
 pub async fn assemble(
     base_system_prompt: &str,
     capabilities: &[Arc<dyn Capability>],
     session_id: SessionId,
 ) -> Result<AssembledTurn> {
+    use crate::tool::DeferrablePolicy;
+
     let mut tools = HashMap::new();
     let mut tool_definitions = Vec::new();
     for capability in capabilities {
         for tool in capability.tools().await? {
             let definition = tool.definition();
+            if tool.policy().deferrable == DeferrablePolicy::Never {
+                tool_definitions.push(definition.clone());
+            }
             tools.insert(definition.name.clone(), tool);
-            tool_definitions.push(definition);
         }
     }
 
@@ -127,5 +134,102 @@ pub async fn act(assembled: &AssembledTurn, call: &ToolCall, context: &ToolConte
     match assembled.tool(&call.name) {
         Some(tool) => tool.execute(call.arguments.clone(), context).await,
         None => ToolOutput::error(format!("unknown tool `{}`", call.name)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tool::{DeferrablePolicy, ToolPolicy};
+    use serde_json::json;
+
+    /// A minimal, dependency-free executor for these tests — core has no
+    /// async runtime, and the fake `Tool`/`Capability` impls below never
+    /// actually suspend, so a bare poll loop resolves on the first poll.
+    fn block_on<F: std::future::Future>(future: F) -> F::Output {
+        use std::pin::pin;
+        use std::task::{Context, Poll, Waker};
+        let mut future = pin!(future);
+        let waker = Waker::noop();
+        let mut cx = Context::from_waker(waker);
+        loop {
+            if let Poll::Ready(output) = future.as_mut().poll(&mut cx) {
+                return output;
+            }
+        }
+    }
+
+    struct FixedTool {
+        name: &'static str,
+        policy: ToolPolicy,
+    }
+
+    #[async_trait::async_trait]
+    impl Tool for FixedTool {
+        fn definition(&self) -> ToolDefinition {
+            ToolDefinition {
+                name: self.name.to_string(),
+                description: String::new(),
+                parameters: json!({"type": "object"}),
+            }
+        }
+
+        async fn execute(
+            &self,
+            _arguments: serde_json::Value,
+            _context: &ToolContext,
+        ) -> ToolOutput {
+            ToolOutput::text(self.name)
+        }
+
+        fn policy(&self) -> ToolPolicy {
+            self.policy
+        }
+    }
+
+    struct FixedCapability {
+        tools: Vec<Arc<dyn Tool>>,
+    }
+
+    #[async_trait::async_trait]
+    impl Capability for FixedCapability {
+        fn id(&self) -> &str {
+            "fixed"
+        }
+
+        async fn tools(&self) -> Result<Vec<Arc<dyn Tool>>> {
+            Ok(self.tools.clone())
+        }
+    }
+
+    #[test]
+    fn deferred_tools_are_executable_but_not_offered_to_the_model() {
+        let capability: Arc<dyn Capability> = Arc::new(FixedCapability {
+            tools: vec![
+                Arc::new(FixedTool {
+                    name: "visible",
+                    policy: ToolPolicy::default(),
+                }),
+                Arc::new(FixedTool {
+                    name: "hidden",
+                    policy: ToolPolicy {
+                        deferrable: DeferrablePolicy::Deferred,
+                    },
+                }),
+            ],
+        });
+
+        let assembled = block_on(assemble("", &[capability], SessionId::new())).unwrap();
+
+        let offered: Vec<&str> = assembled
+            .tool_definitions
+            .iter()
+            .map(|d| d.name.as_str())
+            .collect();
+        assert_eq!(offered, vec!["visible"]);
+
+        // Still callable directly, e.g. by a future discovery mechanism.
+        assert!(assembled.tool("hidden").is_some());
+        assert!(assembled.tool("visible").is_some());
     }
 }

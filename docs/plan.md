@@ -81,6 +81,8 @@ everruns concept must be expressible on top of the agentyk primitive.
 | `TurnResult` | `TurnResult` | same |
 | `TurnStateMachine` + `RuntimeTurnState` (host-persisted phase state) | `turn::TurnState` (one serializable value: machine + bookkeeping) | **sans-IO**: transitions are pure and return the events to record as data, instead of atoms doing their own load/store/emit |
 | `TurnAction` (`ExecuteInput/Reason/Act/Complete`) | `turn::TurnAction` (`Reason` / `ExecuteTool` / `Complete`) | input phase became `TurnState::start` effects (pure); act is per-tool-call for per-call retries |
+| tool scheduler (parallel act batch) | `TurnPhase::PendingAct { calls: Vec<PendingCall> }` + `pending_tool_actions()` | data model supports out-of-order/concurrent completion; `InProcessExecutor` still dispatches sequentially via `next_action()` — concurrent dispatch is a deferred follow-up |
+| `ToolPolicy`/`DeferrablePolicy`/`ToolHints` | `tool::{ToolPolicy, DeferrablePolicy}` | `Deferred` tools stay executable, excluded from `atoms::assemble`'s model-facing definitions; no ToolSearch-style surfacing capability yet, and `ToolHints` not ported |
 | `TurnOutcome` (Success/Failed/MaxIterations/Sealed) | `turn::TurnOutcome` (Success/Failed/MaxIterations/**Cancelled**) | sealing reasons (no-progress, budget) are Phase-2 host policy; `Cancelled` is agentyk's caller-driven seal |
 | `turn.cancelled`, cancellation plumbing | `event_types::TURN_CANCELLED`, `cancellation::CancellationToken` on `TurnHost` | std-only token (no tokio), checked once per action and once per streaming chunk |
 | atoms (`InputAtom`/`ReasonAtom`/`ActAtom`, stateless, own their message I/O) | `atoms::{assemble, reason, act}` (stateless, **no I/O beyond the LLM/tool call itself**) | atoms no longer load/store messages or emit events; recording belongs to the machine's effects |
@@ -147,6 +149,12 @@ server):
 - Sealing and budget — `TurnOutcome::Sealed(SealReason)`, `on_seal`,
   `budget::BudgetChecker` on `AgentBuilder`. No default policy; `NoProgress`
   is a durable-host concern with nothing to set it yet.
+- Parallel-capable act data model — `PendingAct { calls: Vec<PendingCall> }`,
+  call-id-keyed `on_tool_started`/`on_tool_completed`,
+  `pending_tool_actions()`. `InProcessExecutor` still dispatches
+  sequentially — concurrent dispatch is a deferred follow-up, not this.
+- Tool policy — `ToolPolicy`/`DeferrablePolicy`; `Deferred` tools stay
+  executable but are excluded from what `atoms::assemble` offers the model.
 
 Remaining for Phase 1 completion:
 

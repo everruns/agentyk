@@ -115,7 +115,7 @@ impl TurnExecutor for InProcessExecutor {
                     }
                 }
                 TurnAction::ExecuteTool { call } => {
-                    let effects = state.on_tool_started();
+                    let effects = state.on_tool_started(&call.id);
                     host.record(turn_id, effects).await?;
                     let context = ToolContext {
                         session_id: host.session_id,
@@ -151,7 +151,7 @@ impl TurnExecutor for InProcessExecutor {
                         output
                     };
 
-                    let effects = state.on_tool_completed(&output);
+                    let effects = state.on_tool_completed(&call.id, &output);
                     host.record(turn_id, effects).await?;
                 }
                 TurnAction::Complete(outcome) => {
