@@ -1,0 +1,104 @@
+name: Publish
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # Publish agentyk-core (the contract crate; no internal deps).
+  publish-core:
+    name: Publish agentyk-core
+    runs-on: ubuntu-latest
+    environment: release
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Verify publish source is on main
+        run: |
+          git fetch --no-tags origin main:refs/remotes/origin/main
+          SOURCE_SHA=$(git rev-parse HEAD)
+          if ! git merge-base --is-ancestor "$SOURCE_SHA" origin/main; then
+            echo "Error: publish source $SOURCE_SHA is not reachable from origin/main"
+            exit 1
+          fi
+          echo "Publish source verified on origin/main: $SOURCE_SHA"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Verify version matches tag
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          if [ "$EVENT_NAME" = "release" ]; then
+            TAG_VERSION="$RELEASE_TAG"
+          else
+            if [[ ! "$GITHUB_REF" =~ ^refs/tags/v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "Error: manual publish must run from a stable release tag"
+              exit 1
+            fi
+            TAG_VERSION="${GITHUB_REF#refs/tags/}"
+          fi
+          TAG_VERSION="${TAG_VERSION#v}"
+          CARGO_VERSION=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          if [ "$TAG_VERSION" != "$CARGO_VERSION" ]; then
+            echo "Error: Tag version ($TAG_VERSION) does not match Cargo.toml version ($CARGO_VERSION)"
+            exit 1
+          fi
+          echo "Version verified: $TAG_VERSION"
+
+      - name: Publish agentyk-core to crates.io
+        run: cargo publish -p agentyk-core
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+  # Publish agentyk (the framework crate; depends on agentyk-core).
+  publish-agentyk:
+    name: Publish agentyk
+    runs-on: ubuntu-latest
+    needs: publish-core
+    environment: release
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Wait for crates.io index update
+        run: sleep 30
+
+      - name: Publish agentyk to crates.io
+        run: cargo publish -p agentyk
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+  # Verify both crates are visible at the expected version.
+  verify-publish:
+    name: Verify published versions
+    runs-on: ubuntu-latest
+    needs: [publish-core, publish-agentyk]
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Wait for crates.io propagation
+        run: sleep 60
+
+      - name: Verify crates.io versions
+        run: |
+          EXPECTED=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          echo "Expected version: $EXPECTED"
+          python3 scripts/verify_crates_publish.py --expected "$EXPECTED" agentyk-core agentyk

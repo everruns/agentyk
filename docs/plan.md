@@ -182,8 +182,14 @@ Remaining for Phase 1 completion:
 
 - Live smoke test of the HTTP drivers against real providers (needs keys; the
   drivers are compile- and unit-tested only, including the SSE parsing).
-- CI workflow (fmt, clippy, test on the feature matrix).
-- Publish dry-run (`cargo publish --dry-run`) and crate docs polish.
+- ✅ CI workflow — `.github/workflows/ci.yml` (fmt, clippy all-features +
+  no-default-features, doc, `cargo test --workspace --all-features`).
+- ✅ CI-driven release/publish — `.github/workflows/{release,publish}.yml`
+  publish `agentyk-core` → `agentyk` to crates.io on a
+  `chore(release): prepare vX.Y.Z` merge; see [`specs/release.md`](../specs/release.md).
+  Remaining one-time setup: add `CARGO_REGISTRY_TOKEN` to Actions secrets and
+  create the `release` environment.
+- Crate docs polish (rustdoc landing pages, README examples).
 
 ## Packaging
 
