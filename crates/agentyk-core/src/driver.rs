@@ -103,7 +103,8 @@ impl ModelSpec {
         Self::new(DriverId::anthropic(), model)
     }
 
-    /// The scripted offline simulator (see [`crate::drivers::sim`]).
+    /// The scripted offline simulator (the `SimDriver` in the `agentyk`
+    /// framework crate).
     pub fn llmsim() -> Self {
         Self::new(DriverId::llmsim(), "llmsim")
     }
