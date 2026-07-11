@@ -19,8 +19,6 @@ jobs:
     environment: release
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          persist-credentials: false
 
       - name: Verify publish source is on main
         run: |
@@ -35,27 +33,32 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Verify version matches tag
+      - name: Verify version
         env:
           EVENT_NAME: ${{ github.event_name }}
           RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
-          if [ "$EVENT_NAME" = "release" ]; then
-            TAG_VERSION="$RELEASE_TAG"
-          else
-            if [[ ! "$GITHUB_REF" =~ ^refs/tags/v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-              echo "Error: manual publish must run from a stable release tag"
-              exit 1
-            fi
-            TAG_VERSION="${GITHUB_REF#refs/tags/}"
-          fi
-          TAG_VERSION="${TAG_VERSION#v}"
+          # Publishing runs from a release tag (release event or a manual
+          # dispatch on refs/tags/vX.Y.Z), where the tag must match Cargo.toml;
+          # or from a manual dispatch on main, which publishes whatever version
+          # Cargo.toml carries (the recovery/escape-hatch path). The source is
+          # separately verified to be on main below.
           CARGO_VERSION=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
-          if [ "$TAG_VERSION" != "$CARGO_VERSION" ]; then
-            echo "Error: Tag version ($TAG_VERSION) does not match Cargo.toml version ($CARGO_VERSION)"
+          if [ "$EVENT_NAME" = "release" ]; then
+            TAG_VERSION="${RELEASE_TAG#v}"
+          elif [[ "$GITHUB_REF" =~ ^refs/tags/v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            TAG_VERSION="${GITHUB_REF#refs/tags/v}"
+          elif [ "$GITHUB_REF" = "refs/heads/main" ]; then
+            TAG_VERSION="$CARGO_VERSION"  # dispatched from main: trust Cargo.toml
+          else
+            echo "Error: manual publish must run from main or a stable release tag"
             exit 1
           fi
-          echo "Version verified: $TAG_VERSION"
+          if [ "$TAG_VERSION" != "$CARGO_VERSION" ]; then
+            echo "Error: ref version ($TAG_VERSION) does not match Cargo.toml version ($CARGO_VERSION)"
+            exit 1
+          fi
+          echo "Version verified: $CARGO_VERSION"
 
       - name: Publish agentyk-core to crates.io
         run: cargo publish -p agentyk-core
@@ -70,8 +73,6 @@ jobs:
     environment: release
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          persist-credentials: false
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -91,8 +92,6 @@ jobs:
     needs: [publish-core, publish-agentyk]
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          persist-credentials: false
 
       - name: Wait for crates.io propagation
         run: sleep 60

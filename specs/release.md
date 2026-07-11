@@ -88,11 +88,16 @@ crates.io silently failed.
   version, verifies it matches `Cargo.toml`, verifies the commit is reachable
   from `origin/main`, extracts notes from `CHANGELOG.md`, creates the GitHub
   Release + tag, then dispatches `publish.yml` against the verified tag.
-- **`publish.yml`** (trigger: Release published, or manual dispatch from a
-  stable `vX.Y.Z` tag) — publishes `agentyk-core`, waits for the index, then
-  publishes `agentyk`, each reading `CARGO_REGISTRY_TOKEN` from the `release`
-  environment. A final job verifies both crates report the new version on
-  crates.io.
+- **`publish.yml`** (trigger: Release published, or manual dispatch) —
+  publishes `agentyk-core`, waits for the index, then publishes `agentyk`,
+  each reading `CARGO_REGISTRY_TOKEN` from the `release` environment. A final
+  job verifies both crates report the new version on crates.io. The checkout
+  keeps its git credentials (this is a **private** repo — the "source is on
+  main" check does an authenticated `git fetch`, which a credential-stripped
+  checkout can't do). Manual dispatch may run from a release tag (version must
+  match the tag) or from `main` (publishes whatever version `Cargo.toml`
+  carries — the recovery path if a tag-driven publish fails after the tag was
+  already cut).
 
 ## Authentication (one-time repository setup)
 
