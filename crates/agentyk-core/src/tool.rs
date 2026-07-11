@@ -2,7 +2,7 @@
 //!
 //! Mirrors the everruns `Tool` / `ToolDefinition` vocabulary. Tools reach the
 //! model through capabilities ([`crate::capability::Capability::tools`]) or
-//! directly via [`crate::agent::AgentBuilder::tool`].
+//! directly via `AgentBuilder::tool` in the `agentyk` framework crate.
 
 use std::future::Future;
 use std::pin::Pin;

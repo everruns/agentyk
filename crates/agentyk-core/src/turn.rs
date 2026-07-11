@@ -59,7 +59,7 @@
 //! - Effects are data, so a host can persist the new state and append its
 //!   events in one transaction — event emission never races execution.
 //! - Message history is a fold over the event log
-//!   ([`crate::session::messages_from_events`]), so replay is sufficient to
+//!   ([`crate::replay::messages_from_events`]), so replay is sufficient to
 //!   resume mid-turn.
 
 use serde::{Deserialize, Serialize};

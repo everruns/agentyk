@@ -1,4 +1,5 @@
 //! `FileSystemCapability`: file tools reachable through a full agent turn.
+#![cfg(feature = "fs")]
 
 use agentyk::{Agent, InMemoryFileSystem, ModelSpec, Result, SimDriver, SimTurn};
 use serde_json::json;
