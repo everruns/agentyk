@@ -87,7 +87,19 @@ pub(crate) fn to_wire_messages(messages: &[Message]) -> Vec<Value> {
             }
             Role::Assistant => {
                 flush_tool_results(&mut wire, &mut pending_tool_results);
-                let mut blocks = content_blocks(&message.content);
+                let mut blocks: Vec<Value> = Vec::new();
+                // Extended thinking must be replayed first, with its
+                // signature, or the API rejects the assistant turn.
+                if let (Some(thinking), Some(signature)) =
+                    (&message.thinking, &message.thinking_signature)
+                {
+                    blocks.push(json!({
+                        "type": "thinking",
+                        "thinking": thinking,
+                        "signature": signature,
+                    }));
+                }
+                blocks.extend(content_blocks(&message.content));
                 for call in &message.tool_calls {
                     blocks.push(json!({
                         "type": "tool_use",
@@ -106,14 +118,61 @@ pub(crate) fn to_wire_messages(messages: &[Message]) -> Vec<Value> {
     wire
 }
 
+/// Parse a non-streaming Messages response body into an assistant [`Message`]:
+/// concatenated `text`, `tool_use` blocks, and any extended-thinking block
+/// (kept on `Message::thinking`/`thinking_signature` so it round-trips).
+pub(crate) fn parse_message(payload: &Value) -> Message {
+    let mut text = String::new();
+    let mut thinking: Option<String> = None;
+    let mut signature: Option<String> = None;
+    let mut tool_calls = Vec::new();
+    if let Some(blocks) = payload["content"].as_array() {
+        for block in blocks {
+            match block["type"].as_str() {
+                Some("text") => text.push_str(block["text"].as_str().unwrap_or_default()),
+                Some("thinking") => {
+                    thinking = Some(block["thinking"].as_str().unwrap_or_default().to_string());
+                    signature = block["signature"].as_str().map(str::to_string);
+                }
+                Some("tool_use") => tool_calls.push(ToolCall {
+                    id: block["id"].as_str().unwrap_or_default().to_string(),
+                    name: block["name"].as_str().unwrap_or_default().to_string(),
+                    arguments: block["input"].clone(),
+                }),
+                _ => {}
+            }
+        }
+    }
+    let message = Message::assistant_with_calls(text, tool_calls);
+    match thinking {
+        Some(thinking) => message.with_thinking(thinking, signature),
+        None => message,
+    }
+}
+
 /// The Messages API request body shared by `complete` and
 /// `complete_streaming`; the caller sets `"stream"` afterward.
 fn build_body(request: &ChatRequest, max_tokens: u64) -> Value {
+    // Extended thinking is enabled per-request with a token budget; the API
+    // requires max_tokens to exceed the budget, so grow it if needed.
+    let thinking_budget = request
+        .model
+        .reasoning
+        .as_ref()
+        .and_then(|r| r.budget_tokens);
+    let effective_max_tokens = match thinking_budget {
+        Some(budget) if u64::from(budget) >= max_tokens => u64::from(budget) + max_tokens,
+        _ => max_tokens,
+    };
+
     let mut body = json!({
         "model": request.model.model,
-        "max_tokens": max_tokens,
+        "max_tokens": effective_max_tokens,
         "messages": to_wire_messages(&request.messages),
     });
+    if let Some(budget) = thinking_budget {
+        body["thinking"] = json!({"type": "enabled", "budget_tokens": budget});
+    }
     if let Some(system) = &request.system_prompt {
         body["system"] = json!(system);
     }
@@ -217,6 +276,11 @@ struct PartialBlock {
 #[derive(Default)]
 struct StreamAccumulator {
     text: String,
+    /// Extended-thinking text + signature, accumulated separately from the
+    /// answer text and never forwarded to the delta sink (it's reasoning, not
+    /// the response).
+    thinking: String,
+    thinking_signature: Option<String>,
     blocks: HashMap<u64, PartialBlock>,
     usage: Usage,
 }
@@ -267,6 +331,18 @@ impl StreamAccumulator {
                             .push_str(fragment);
                         None
                     }
+                    // Reasoning: accumulate, but don't surface as answer text.
+                    Some("thinking_delta") => {
+                        self.thinking
+                            .push_str(payload["delta"]["thinking"].as_str().unwrap_or_default());
+                        None
+                    }
+                    Some("signature_delta") => {
+                        if let Some(sig) = payload["delta"]["signature"].as_str() {
+                            self.thinking_signature = Some(sig.to_string());
+                        }
+                        None
+                    }
                     _ => None,
                 }
             }
@@ -297,10 +373,15 @@ impl StreamAccumulator {
                 },
             })
             .collect();
-        if tool_calls.is_empty() {
+        let message = if tool_calls.is_empty() {
             Message::assistant(self.text)
         } else {
             Message::assistant_with_calls(self.text, tool_calls)
+        };
+        if self.thinking.is_empty() {
+            message
+        } else {
+            message.with_thinking(self.thinking, self.thinking_signature)
         }
     }
 }
@@ -332,29 +413,13 @@ impl ChatDriver for AnthropicDriver {
             )
         })?;
 
-        let mut text = String::new();
-        let mut tool_calls = Vec::new();
-        if let Some(blocks) = payload["content"].as_array() {
-            for block in blocks {
-                match block["type"].as_str() {
-                    Some("text") => text.push_str(block["text"].as_str().unwrap_or_default()),
-                    Some("tool_use") => tool_calls.push(ToolCall {
-                        id: block["id"].as_str().unwrap_or_default().to_string(),
-                        name: block["name"].as_str().unwrap_or_default().to_string(),
-                        arguments: block["input"].clone(),
-                    }),
-                    _ => {}
-                }
-            }
-        }
-
         let usage = Usage {
             input_tokens: payload["usage"]["input_tokens"].as_u64().unwrap_or(0),
             output_tokens: payload["usage"]["output_tokens"].as_u64().unwrap_or(0),
         };
 
         Ok(ChatResponse {
-            message: Message::assistant_with_calls(text, tool_calls),
+            message: parse_message(&payload),
             usage,
         })
     }
@@ -492,6 +557,106 @@ mod tests {
         assert_eq!(wire[2]["role"], "user");
         assert_eq!(wire[2]["content"].as_array().unwrap().len(), 2);
         assert_eq!(wire[2]["content"][0]["type"], "tool_result");
+    }
+
+    #[test]
+    fn thinking_budget_enables_thinking_and_grows_max_tokens() {
+        let model = agentyk_core::driver::ModelSpec::anthropic("claude-x").thinking_budget(12000);
+        let request = ChatRequest {
+            model,
+            system_prompt: None,
+            messages: vec![Message::user("hi")],
+            tools: Vec::new(),
+        };
+        let body = build_body(&request, DEFAULT_MAX_TOKENS);
+        assert_eq!(body["thinking"]["type"], "enabled");
+        assert_eq!(body["thinking"]["budget_tokens"], 12000);
+        // max_tokens must exceed the budget.
+        assert!(body["max_tokens"].as_u64().unwrap() > 12000);
+    }
+
+    #[test]
+    fn no_thinking_param_without_a_budget() {
+        let request = ChatRequest {
+            model: agentyk_core::driver::ModelSpec::anthropic("claude-x"),
+            system_prompt: None,
+            messages: vec![Message::user("hi")],
+            tools: Vec::new(),
+        };
+        let body = build_body(&request, DEFAULT_MAX_TOKENS);
+        assert!(body.get("thinking").is_none());
+        assert_eq!(body["max_tokens"], DEFAULT_MAX_TOKENS);
+    }
+
+    #[test]
+    fn assistant_thinking_replays_as_a_leading_block() {
+        let messages = vec![
+            Message::assistant("the answer is 4").with_thinking("2+2…", Some("sig-xyz".into())),
+        ];
+        let wire = to_wire_messages(&messages);
+        // Thinking block first, with its signature, then the text.
+        assert_eq!(wire[0]["content"][0]["type"], "thinking");
+        assert_eq!(wire[0]["content"][0]["thinking"], "2+2…");
+        assert_eq!(wire[0]["content"][0]["signature"], "sig-xyz");
+        assert_eq!(wire[0]["content"][1]["type"], "text");
+    }
+
+    #[test]
+    fn assistant_without_signature_omits_the_thinking_block() {
+        // A thinking block can't be replayed without its signature.
+        let messages = vec![Message::assistant("hi").with_thinking("…", None)];
+        let wire = to_wire_messages(&messages);
+        assert_eq!(wire[0]["content"][0]["type"], "text");
+    }
+
+    #[test]
+    fn parse_message_extracts_thinking_text_and_calls() {
+        let payload = json!({
+            "content": [
+                {"type": "thinking", "thinking": "let me see", "signature": "sig-1"},
+                {"type": "text", "text": "done"},
+                {"type": "tool_use", "id": "t1", "name": "add", "input": {"a": 1}},
+            ]
+        });
+        let message = parse_message(&payload);
+        assert_eq!(message.text(), "done");
+        assert_eq!(message.thinking.as_deref(), Some("let me see"));
+        assert_eq!(message.thinking_signature.as_deref(), Some("sig-1"));
+        assert_eq!(message.tool_calls.len(), 1);
+    }
+
+    #[test]
+    fn stream_accumulator_collects_thinking_without_polluting_the_answer() {
+        let mut acc = StreamAccumulator::default();
+        acc.apply_event(&json!({
+            "type": "content_block_start", "index": 0,
+            "content_block": {"type": "thinking", "thinking": ""}
+        }));
+        // Thinking deltas accumulate but are NOT surfaced to the sink...
+        assert_eq!(
+            acc.apply_event(&json!({
+                "type": "content_block_delta", "index": 0,
+                "delta": {"type": "thinking_delta", "thinking": "hmm"}
+            })),
+            None
+        );
+        acc.apply_event(&json!({
+            "type": "content_block_delta", "index": 0,
+            "delta": {"type": "signature_delta", "signature": "sig-stream"}
+        }));
+        // ...while the answer text streams normally.
+        assert_eq!(
+            acc.apply_event(&json!({
+                "type": "content_block_delta", "index": 1,
+                "delta": {"type": "text_delta", "text": "answer"}
+            })),
+            Some("answer".to_string())
+        );
+
+        let message = acc.into_message();
+        assert_eq!(message.text(), "answer");
+        assert_eq!(message.thinking.as_deref(), Some("hmm"));
+        assert_eq!(message.thinking_signature.as_deref(), Some("sig-stream"));
     }
 
     #[test]

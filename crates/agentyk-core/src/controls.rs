@@ -35,9 +35,18 @@ impl TurnControls {
     }
 
     pub fn reasoning_effort(mut self, effort: impl Into<String>) -> Self {
-        self.reasoning = Some(ReasoningConfig {
-            effort: Some(effort.into()),
-        });
+        let mut reasoning = self.reasoning.unwrap_or_default();
+        reasoning.effort = Some(effort.into());
+        self.reasoning = Some(reasoning);
+        self
+    }
+
+    /// Enable extended thinking with a token budget for this turn — see
+    /// [`ModelSpec::thinking_budget`](crate::driver::ModelSpec::thinking_budget).
+    pub fn thinking_budget(mut self, budget_tokens: u32) -> Self {
+        let mut reasoning = self.reasoning.unwrap_or_default();
+        reasoning.budget_tokens = Some(budget_tokens);
+        self.reasoning = Some(reasoning);
         self
     }
 

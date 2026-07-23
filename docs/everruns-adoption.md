@@ -93,14 +93,18 @@ expensive to change the longer we wait.
    so bumping effort doesn't require also overriding the model. `ModelSpec`
    gained `reasoning: Option<ReasoningConfig>` (+ `.reasoning_effort(...)`
    builder method); the OpenAI driver forwards it as `reasoning_effort` in
-   the request body. **Not wired for Anthropic** — extended thinking needs a
-   `budget_tokens` integer, not an effort string, and no clean 1:1 mapping
-   exists; left as a documented gap rather than guessing a mapping.
-   **Reasoning round-trip (0.1.1):** the *data* side is now in place —
-   `Message.thinking` + `Message.thinking_signature` (typed, because
-   reasoning blocks must round-trip back to the provider and the driver only
-   sees a `Message`). Wiring an Anthropic driver to populate/replay them is
-   the remaining work; the protocol no longer drops thinking blocks.
+   the request body. **Anthropic extended thinking (0.1.1) — done.**
+   `ReasoningConfig` gained `budget_tokens: Option<u32>` (+
+   `ModelSpec::thinking_budget(n)` / `TurnControls::thinking_budget(n)`),
+   since Anthropic enables thinking with an integer budget, not an effort
+   string. The Anthropic driver now: sends `thinking: { type: "enabled",
+   budget_tokens }` (growing `max_tokens` past the budget as the API
+   requires); parses `thinking` content blocks from responses into
+   `Message.thinking` / `thinking_signature` (non-streaming and streaming —
+   `thinking_delta`/`signature_delta` accumulate separately and are **not**
+   surfaced as answer text); and replays them as a leading `thinking` block
+   (with signature) on the next turn. Unit-tested against synthetic payloads,
+   matching the driver testing bar (no live key).
    `Session::run_with_options(input, RunOptions { cancellation, controls })`
    is the general form; `run`/`run_cancellable`/`run_controlled` are thin
    wrappers over it.
