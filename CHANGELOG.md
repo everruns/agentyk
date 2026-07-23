@@ -27,6 +27,12 @@ serialize as before and pre-0.1.1 logs still load. Behavior (mutating/approval
 hooks, parallel dispatch) is deliberately left to a satellite `TurnExecutor` —
 see [`docs/extensibility.md`](docs/extensibility.md).
 
+- **`agentyk-everruns` prototype** (`crates/agentyk-everruns`, `publish = false`)
+  — a proof that the extensibility boundary holds: a custom `TurnExecutor` with
+  hint-based tool approval and a `ToolHints` taxonomy in the `metadata` hatch,
+  built over `agentyk-core`'s public seams with no core change. Its library
+  depends on core alone (no framework, no tokio).
+
 ### Changed
 
 - `TurnState::on_reason_started` now takes `&mut self` (allocates the reason
