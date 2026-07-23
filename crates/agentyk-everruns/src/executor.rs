@@ -8,8 +8,11 @@
 //! `user_message` — a richer decision than core's `PreToolUseDecision`, owned
 //! here rather than forced into the contract.
 //!
-//! It is intentionally minimal (non-streaming, no budget seam) — enough to
-//! demonstrate the seam, not a full re-implementation of `InProcessExecutor`.
+//! It also **dispatches a tool batch concurrently** (via
+//! [`TurnState::pending_tool_actions`](agentyk_core::turn::TurnState::pending_tool_actions)),
+//! which the built-in `InProcessExecutor` deliberately doesn't — closing
+//! agentyk's item-9 "concurrent dispatch is a deferred follow-up" note in a
+//! satellite. It stays otherwise minimal (non-streaming, no budget seam).
 
 use agentyk_core::atoms;
 use agentyk_core::error::{Error, Result};
@@ -19,9 +22,18 @@ use agentyk_core::message::{Message, ToolCall};
 use agentyk_core::tool::{ToolContext, ToolOutput};
 use agentyk_core::turn::{TurnAction, TurnOutcome, TurnState};
 use async_trait::async_trait;
+use futures_util::future::join_all;
 use std::sync::Arc;
 
 use crate::hints::ToolHints;
+
+/// How one tool call in a batch resolved during the concurrent act phase —
+/// carried back so the (sequential) recording phase can emit `tool.denied`
+/// for the blocked ones.
+enum Resolved {
+    Ran(ToolOutput),
+    Denied(String),
+}
 
 /// What an [`Approver`] decides for a risky tool call. `Deny` carries a
 /// `user_message` distinct from any internal reason — the shape everruns
@@ -113,30 +125,70 @@ impl TurnExecutor for EverrunsExecutor {
                         }
                     }
                 }
-                TurnAction::ExecuteTool { call } => {
-                    let effects = state.on_tool_started(&call.id);
-                    host.record(turn_id, effects).await?;
+                TurnAction::ExecuteTool { .. } => {
+                    // Parallel dispatch: fan out the whole not-yet-started
+                    // batch at once (agentyk's item-9 follow-up) instead of one
+                    // call at a time. The data model already supports this via
+                    // `pending_tool_actions`; this is a satellite executor
+                    // proving it end-to-end.
+                    let calls: Vec<ToolCall> = state
+                        .pending_tool_actions()
+                        .into_iter()
+                        .filter_map(|action| match action {
+                            TurnAction::ExecuteTool { call } => Some(call),
+                            _ => None,
+                        })
+                        .collect();
+
+                    // Record all starts sequentially — `record` needs `&mut host`.
+                    for call in &calls {
+                        let effects = state.on_tool_started(&call.id);
+                        host.record(turn_id, effects).await?;
+                    }
+
                     let context = ToolContext {
                         session_id: host.session_id,
                         turn_id,
                         extensions: host.extensions.clone(),
                     };
 
-                    // The satellite behavior: classify the tool by its hints
-                    // (from the metadata hatch) and gate the risky ones.
-                    let hints = assembled
-                        .tool(&call.name)
-                        .map(|tool| tool.definition())
-                        .as_ref()
-                        .and_then(ToolHints::from_definition)
-                        .unwrap_or_default();
-
-                    let output = if hints.needs_approval() {
-                        match self.approver.approve(&call, &hints).await {
-                            ApprovalDecision::Allow => {
-                                atoms::act(&assembled, &call, &context).await
+                    // Run the batch concurrently. Each future is self-contained
+                    // (reads hints, consults the approver, then acts or resolves
+                    // to a denial) — no `&mut host` inside, so they compose
+                    // under `join_all`.
+                    let assembled = &assembled;
+                    let context = &context;
+                    let resolved = join_all(calls.iter().map(|call| {
+                        let approver = self.approver.clone();
+                        let hints = assembled
+                            .tool(&call.name)
+                            .map(|tool| tool.definition())
+                            .as_ref()
+                            .and_then(ToolHints::from_definition)
+                            .unwrap_or_default();
+                        async move {
+                            if hints.needs_approval() {
+                                match approver.approve(call, &hints).await {
+                                    ApprovalDecision::Allow => {
+                                        Resolved::Ran(atoms::act(assembled, call, context).await)
+                                    }
+                                    ApprovalDecision::Deny { user_message } => {
+                                        Resolved::Denied(user_message)
+                                    }
+                                }
+                            } else {
+                                Resolved::Ran(atoms::act(assembled, call, context).await)
                             }
-                            ApprovalDecision::Deny { user_message } => {
+                        }
+                    }))
+                    .await;
+
+                    // Record completions (and any denials) sequentially, in
+                    // batch order.
+                    for (call, outcome) in calls.iter().zip(resolved) {
+                        let output = match outcome {
+                            Resolved::Ran(output) => output,
+                            Resolved::Denied(user_message) => {
                                 host.record(
                                     turn_id,
                                     vec![EventData::ToolDenied {
@@ -148,13 +200,10 @@ impl TurnExecutor for EverrunsExecutor {
                                 .await?;
                                 ToolOutput::error(user_message)
                             }
-                        }
-                    } else {
-                        atoms::act(&assembled, &call, &context).await
-                    };
-
-                    let effects = state.on_tool_completed(&call.id, &output);
-                    host.record(turn_id, effects).await?;
+                        };
+                        let effects = state.on_tool_completed(&call.id, &output);
+                        host.record(turn_id, effects).await?;
+                    }
                 }
                 TurnAction::Complete(outcome) => {
                     return match outcome {

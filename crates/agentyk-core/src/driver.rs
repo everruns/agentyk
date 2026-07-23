@@ -63,8 +63,14 @@ impl From<&str> for DriverId {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct ReasoningConfig {
     /// Provider-defined effort level, e.g. `"low"` / `"medium"` / `"high"`.
+    /// Honored by OpenAI-shaped drivers as `reasoning_effort`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub effort: Option<String>,
+    /// Token budget for extended thinking. Anthropic's thinking is enabled
+    /// per-request with an integer budget (not an effort string), so it takes
+    /// this rather than `effort`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub budget_tokens: Option<u32>,
 }
 
 /// A model, by value (everruns: `ResolvedModel`): wire model name, the driver
@@ -118,9 +124,19 @@ impl ModelSpec {
     /// it (currently honored by [`crate::driver::DriverId::openai`]-shaped
     /// drivers via `reasoning_effort`).
     pub fn reasoning_effort(mut self, effort: impl Into<String>) -> Self {
-        self.reasoning = Some(ReasoningConfig {
-            effort: Some(effort.into()),
-        });
+        let mut reasoning = self.reasoning.unwrap_or_default();
+        reasoning.effort = Some(effort.into());
+        self.reasoning = Some(reasoning);
+        self
+    }
+
+    /// Enable extended thinking with a token budget, where the driver supports
+    /// it (currently the Anthropic driver, which sends
+    /// `thinking: { budget_tokens }`).
+    pub fn thinking_budget(mut self, budget_tokens: u32) -> Self {
+        let mut reasoning = self.reasoning.unwrap_or_default();
+        reasoning.budget_tokens = Some(budget_tokens);
+        self.reasoning = Some(reasoning);
         self
     }
 
