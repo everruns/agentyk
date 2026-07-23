@@ -37,6 +37,7 @@ dependencies = [
  "agentyk",
  "agentyk-core",
  "async-trait",
+ "futures-util",
  "serde",
  "serde_json",
  "tokio",

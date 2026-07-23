@@ -98,16 +98,25 @@ framework, no tokio, no HTTP (`cargo tree -p agentyk-everruns --edges normal`
 shows just core + async-trait/serde). It ships:
 
 - `EverrunsExecutor` — a custom [`TurnExecutor`] over `atoms` + [`TurnState`]
-  that adds **hint-based tool approval**, with an `ApprovalDecision::Deny {
-  user_message }` richer than core's `PreToolUseDecision`. This is gap 4
-  living in the executor layer, exactly as claimed.
+  that adds **hint-based tool approval** (with an `ApprovalDecision::Deny {
+  user_message }` richer than core's `PreToolUseDecision` — gap 4 in the
+  executor layer) **and dispatches a tool batch concurrently** via
+  `TurnState::pending_tool_actions`, closing agentyk's item-9 "concurrent
+  dispatch is a deferred follow-up" note without touching core.
 - `ToolHints` (`readonly`/`destructive`/`open_world`) carried in
   `ToolDefinition.metadata` under a `"hints"` key — the metadata hatch driving
   real behavior, with core none the wiser.
+- `NarrationListener` — an `EventListener` that renders the event stream into
+  transcript lines, showing everruns' largest UI surface (`tool_narration`) is
+  a pure observer, not a turn-loop concern.
 
 Its tests drive a real agent (framework harness in dev-deps) and assert a
 destructive tool is blocked with the approver's message, an approved one runs,
-and a readonly one bypasses approval — all with **zero changes to core**.
+a readonly one bypasses approval, a two-tool batch is fanned out and gated
+per-call, and the narration reads back as a transcript — all with **zero
+changes to core**. (The library does pull one lightweight combinator,
+`futures-util`, for `join_all` — a utility, not a runtime; still no tokio, no
+HTTP, no framework.)
 
 [`EventData::Custom`]: https://docs.rs/agentyk-core/latest/agentyk_core/event/enum.EventData.html
 [`TurnExecutor`]: https://docs.rs/agentyk-core/latest/agentyk_core/executor/trait.TurnExecutor.html

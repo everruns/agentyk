@@ -148,10 +148,12 @@ expensive to change the longer we wait.
    order. `TurnState::pending_tool_actions()` returns the whole not-yet-started
    batch at once (vs. `next_action()`'s one-at-a-time walk), which is what a
    parallel executor fans out concurrently. `InProcessExecutor` deliberately
-   keeps using `next_action()` — it stays sequential; flipping it to
-   concurrent dispatch (`pending_tool_actions()` + spawn + join, replaying
-   results back through `TurnHost::record` sequentially since `record`
-   needs `&mut self`) is real follow-up work, not done here. Also done:
+   keeps using `next_action()` — it stays sequential. **Concurrent dispatch is
+   now proven in the satellite** (`agentyk-everruns`'s `EverrunsExecutor`):
+   it drains `pending_tool_actions()`, runs the batch under `join_all`, and
+   replays results back through `TurnHost::record` sequentially (since
+   `record` needs `&mut self`) — exactly the shape this note sketched, and
+   with no core change. Also done:
    `tool::{ToolPolicy, DeferrablePolicy}` — a tool can mark itself
    `Deferred` to stay executable but be left out of the definitions
    `atoms::assemble` sends the model; default is `Never` (today's

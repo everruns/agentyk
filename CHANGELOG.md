@@ -38,6 +38,11 @@ see [`docs/extensibility.md`](docs/extensibility.md).
   responses into `Message.thinking`/`thinking_signature` (streaming included),
   and replays them with their signature on the next turn — completing the
   reasoning round-trip.
+- **`agentyk-everruns` extensions** (prototype): the satellite `EverrunsExecutor`
+  now **dispatches a tool batch concurrently** (`pending_tool_actions` +
+  `join_all`), closing agentyk's item-9 "concurrent dispatch" follow-up outside
+  core; plus a `NarrationListener` showing the transcript surface is a pure
+  `EventListener`.
 
 ### Changed
 

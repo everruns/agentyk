@@ -18,6 +18,9 @@ agentyk-core = { workspace = true }
 async-trait = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+# A concurrency combinator (join_all) for parallel tool dispatch — a
+# runtime-agnostic utility, NOT a runtime: no tokio, no threads of its own.
+futures-util = { version = "0.3", default-features = false, features = ["alloc"] }
 
 [dev-dependencies]
 agentyk = { path = "../agentyk" }
