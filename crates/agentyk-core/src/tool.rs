@@ -13,12 +13,41 @@ use serde::{Deserialize, Serialize};
 use crate::id::{SessionId, TurnId};
 
 /// What the model sees: name, description, and a JSON-schema for arguments.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct ToolDefinition {
     pub name: String,
     pub description: String,
     /// JSON schema for the arguments object.
     pub parameters: serde_json::Value,
+    /// Generic, serializable extension hatch — the tool-definition analogue
+    /// of [`crate::event::EventData::Custom`]. Host-side, everruns-flavored
+    /// metadata a satellite crate owns (a risk/hint taxonomy like
+    /// `readonly`/`destructive`/`open_world`, categories, MCP annotations)
+    /// rides here rather than growing typed core fields; it is **not** sent
+    /// to the model. `Null` for the common case.
+    #[serde(default, skip_serializing_if = "serde_json::Value::is_null")]
+    pub metadata: serde_json::Value,
+}
+
+impl ToolDefinition {
+    pub fn new(
+        name: impl Into<String>,
+        description: impl Into<String>,
+        parameters: serde_json::Value,
+    ) -> Self {
+        Self {
+            name: name.into(),
+            description: description.into(),
+            parameters,
+            metadata: serde_json::Value::Null,
+        }
+    }
+
+    /// Attach host-side extension metadata — see [`ToolDefinition::metadata`].
+    pub fn with_metadata(mut self, metadata: serde_json::Value) -> Self {
+        self.metadata = metadata;
+        self
+    }
 }
 
 /// Whether a tool's definition is sent to the model up front. Mirrors
@@ -130,11 +159,7 @@ impl FnTool {
         Fut: Future<Output = ToolOutput> + Send + 'static,
     {
         Self {
-            definition: ToolDefinition {
-                name: name.into(),
-                description: description.into(),
-                parameters,
-            },
+            definition: ToolDefinition::new(name, description, parameters),
             handler: Box::new(move |args| Box::pin(handler(args))),
         }
     }
@@ -148,5 +173,24 @@ impl Tool for FnTool {
 
     async fn execute(&self, arguments: serde_json::Value, _context: &ToolContext) -> ToolOutput {
         (self.handler)(arguments).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn metadata_hatch_round_trips_and_is_omitted_when_null() {
+        let plain = ToolDefinition::new("read", "Read a file.", json!({"type": "object"}));
+        let plain_json = serde_json::to_string(&plain).unwrap();
+        assert!(!plain_json.contains("metadata"));
+
+        let hinted = plain.with_metadata(json!({"hints": {"risk": "readonly"}}));
+        let back: ToolDefinition =
+            serde_json::from_str(&serde_json::to_string(&hinted).unwrap()).unwrap();
+        assert_eq!(back, hinted);
+        assert_eq!(back.metadata["hints"]["risk"], "readonly");
     }
 }

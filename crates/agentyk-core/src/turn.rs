@@ -66,7 +66,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::driver::{ChatResponse, Usage};
 use crate::event::EventData;
-use crate::id::{SessionId, TurnId};
+use crate::id::{MessageId, SessionId, TurnId};
 use crate::message::{Message, ToolCall};
 use crate::tool::ToolOutput;
 
@@ -155,6 +155,13 @@ pub struct TurnState {
     /// Executed tool calls.
     pub tool_calls_executed: usize,
     pub usage: Usage,
+    /// The id of the assistant message currently being generated, set by
+    /// [`Self::on_reason_started`] and read by the executor (to tag streaming
+    /// deltas) and [`Self::on_reason_completed`], so all three
+    /// `output.message.*` events of one reason step share a `message_id`.
+    /// `None` between reason steps.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub current_message_id: Option<MessageId>,
 }
 
 impl TurnState {
@@ -173,6 +180,7 @@ impl TurnState {
             iterations: 0,
             tool_calls_executed: 0,
             usage: Usage::default(),
+            current_message_id: None,
         };
         let effects = vec![
             EventData::TurnStarted,
@@ -221,13 +229,18 @@ impl TurnState {
         }
     }
 
-    /// About to run the reason atom for the upcoming iteration. Emits
-    /// `output.message.started`. Doesn't mutate `phase` — purely
-    /// informational, so it's safe to call again after a crash without
-    /// double-counting iterations (unlike `on_reason_completed`, which does
-    /// advance `self.iterations`).
-    pub fn on_reason_started(&self, model: Option<&str>) -> Vec<EventData> {
+    /// About to run the reason atom for the upcoming iteration. Allocates the
+    /// `message_id` for this assistant message (stored in
+    /// [`Self::current_message_id`] for the deltas and the completed event to
+    /// share) and emits `output.message.started`. Doesn't touch `phase` or
+    /// `iterations`, so it's safe to call again after a crash without
+    /// double-counting (a retry simply mints a fresh correlation id for the
+    /// re-attempted stream).
+    pub fn on_reason_started(&mut self, model: Option<&str>) -> Vec<EventData> {
+        let message_id = MessageId::new();
+        self.current_message_id = Some(message_id);
         vec![EventData::OutputMessageStarted {
+            message_id,
             model: model.map(str::to_string),
             iteration: Some(self.iterations as u32 + 1),
         }]
@@ -240,7 +253,11 @@ impl TurnState {
     pub fn on_reason_completed(&mut self, response: &ChatResponse) -> Vec<EventData> {
         self.iterations += 1;
         self.usage.add(response.usage);
+        // Same id as the started event (fresh one if started wasn't run, e.g.
+        // a non-streaming host driving the machine directly).
+        let message_id = self.current_message_id.take().unwrap_or_default();
         let mut effects = vec![EventData::OutputMessageCompleted {
+            message_id,
             message: response.message.clone(),
         }];
 
@@ -426,6 +443,34 @@ mod tests {
         );
         assert_eq!(state.iterations, 2);
         assert_eq!(state.tool_calls_executed, 2);
+    }
+
+    #[test]
+    fn reason_started_and_completed_share_a_message_id() {
+        let input = Message::user("hi");
+        let (mut state, _) = TurnState::start(SessionId::new(), 4, &input);
+
+        let started = state.on_reason_started(Some("m"));
+        let EventData::OutputMessageStarted {
+            message_id: start_id,
+            ..
+        } = started[0]
+        else {
+            panic!("expected output.message.started");
+        };
+        assert_eq!(state.current_message_id, Some(start_id));
+
+        let completed = state.on_reason_completed(&text_response("done"));
+        let EventData::OutputMessageCompleted {
+            message_id: done_id,
+            ..
+        } = completed[0]
+        else {
+            panic!("expected output.message.completed");
+        };
+        assert_eq!(start_id, done_id, "started/completed must correlate");
+        // Cleared once the message is complete.
+        assert_eq!(state.current_message_id, None);
     }
 
     #[test]

@@ -9,6 +9,30 @@ release — every release bumps the patch component (`0.1.z`). See
 
 ## [Unreleased]
 
+### Added — protocol extensibility (from an audit against everruns 0.17.16)
+
+- **Reasoning round-trip**: `Message.thinking` and `Message.thinking_signature`
+  carry provider "extended thinking" so it round-trips back to the model on
+  later turns (typed, because the driver only ever sees a `Message`).
+- **Streaming correlation**: a `MessageId` on `output.message.started` /
+  `delta` / `completed` ties one streaming assistant message together (held on
+  `TurnState::current_message_id`).
+- **Generic metadata hatches** for everruns-flavored richness a satellite crate
+  owns (tool risk/hint taxonomy, capability status/category, message phase):
+  `ToolDefinition.metadata`, `Message.metadata`, and `Capability::metadata()` —
+  the data analogue of `EventData::Custom`.
+
+All fields are additive and serde-optional, so plain messages/tools/events
+serialize as before and pre-0.1.1 logs still load. Behavior (mutating/approval
+hooks, parallel dispatch) is deliberately left to a satellite `TurnExecutor` —
+see [`docs/extensibility.md`](docs/extensibility.md).
+
+### Changed
+
+- `TurnState::on_reason_started` now takes `&mut self` (allocates the reason
+  step's `message_id`); the `output.message.*` event variants gained a
+  `message_id` field. Internal — the `run`/executor API is unchanged.
+
 ## [0.1.0] - 2026-07-11
 
 First published release. Two crates, versioned in lockstep:

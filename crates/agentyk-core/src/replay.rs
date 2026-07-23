@@ -13,7 +13,7 @@ use crate::message::Message;
 /// message does, so replay is identical whether or not deltas were emitted.
 pub fn message_from_event_data(data: &EventData) -> Option<Message> {
     match data {
-        EventData::InputMessage { message } | EventData::OutputMessageCompleted { message } => {
+        EventData::InputMessage { message } | EventData::OutputMessageCompleted { message, .. } => {
             Some(message.clone())
         }
         EventData::ToolCompleted {

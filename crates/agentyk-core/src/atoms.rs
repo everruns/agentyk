@@ -167,11 +167,7 @@ mod tests {
     #[async_trait::async_trait]
     impl Tool for FixedTool {
         fn definition(&self) -> ToolDefinition {
-            ToolDefinition {
-                name: self.name.to_string(),
-                description: String::new(),
-                parameters: json!({"type": "object"}),
-            }
+            ToolDefinition::new(self.name, "", json!({"type": "object"}))
         }
 
         async fn execute(
