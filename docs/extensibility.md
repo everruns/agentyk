@@ -90,6 +90,25 @@ own layer. When core *does* need to change, the test is the rule above: is the
 new thing universal, correctness-load-bearing protocol data? If not, it belongs
 in a `metadata` hatch or the executor, not in core.
 
+## Proven end-to-end
+
+`crates/agentyk-everruns` is a working proof of this boundary (a prototype,
+`publish = false`). Its **library depends on `agentyk-core` only** — no
+framework, no tokio, no HTTP (`cargo tree -p agentyk-everruns --edges normal`
+shows just core + async-trait/serde). It ships:
+
+- `EverrunsExecutor` — a custom [`TurnExecutor`] over `atoms` + [`TurnState`]
+  that adds **hint-based tool approval**, with an `ApprovalDecision::Deny {
+  user_message }` richer than core's `PreToolUseDecision`. This is gap 4
+  living in the executor layer, exactly as claimed.
+- `ToolHints` (`readonly`/`destructive`/`open_world`) carried in
+  `ToolDefinition.metadata` under a `"hints"` key — the metadata hatch driving
+  real behavior, with core none the wiser.
+
+Its tests drive a real agent (framework harness in dev-deps) and assert a
+destructive tool is blocked with the approver's message, an approved one runs,
+and a readonly one bypasses approval — all with **zero changes to core**.
+
 [`EventData::Custom`]: https://docs.rs/agentyk-core/latest/agentyk_core/event/enum.EventData.html
 [`TurnExecutor`]: https://docs.rs/agentyk-core/latest/agentyk_core/executor/trait.TurnExecutor.html
 [`TurnState`]: https://docs.rs/agentyk-core/latest/agentyk_core/turn/struct.TurnState.html
