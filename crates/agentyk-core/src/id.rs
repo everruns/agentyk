@@ -139,6 +139,7 @@ macro_rules! id_marker {
 id_marker!(SessionMarker, SessionId, "session");
 id_marker!(TurnMarker, TurnId, "turn");
 id_marker!(EventMarker, EventId, "event");
+id_marker!(MessageMarker, MessageId, "msg");
 
 #[cfg(test)]
 mod tests {

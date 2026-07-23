@@ -98,6 +98,10 @@ everruns concept must be expressible on top of the agentyk primitive.
 | `CommandDescriptor` + capability slash commands | `capability::{CommandDescriptor, CommandContext}`, `Capability::{commands, execute_command}` | `Session::commands()`/`execute_command()` route to the owning capability, bypassing the turn loop entirely (no model call, no event); `mcp_servers()` held back — see `everruns-adoption.md` gap 13 |
 | `ToolContext` service bag (workspace/file/storage/image/credential/utility-LLM) | `extensions::Extensions` (`ToolContext.extensions`) | axum-style `TypeId`-keyed bag instead of enumerated `Option<Arc<dyn …>>` fields; `AgentBuilder::extension(value)` populates it once per agent |
 | `SessionFileSystem` + `RealDiskFileStore`/`InMemorySessionFileStore`/`WriteBlocklistFileStore`, `FileSystemCapability` (7 tools) | `filesystem::{FileSystem, RealDiskFileSystem, InMemoryFileSystem, WriteBlocklistFileSystem}`, `FileSystemCapability` (4 tools) | no `session_id`/`workspace_id` param — one store is one workspace; `edit_file`/`grep_files`/`stat_file`, symlink rejection, and `MountFs` not ported |
+| `Message.thinking` / `thinking_signature` (extended thinking round-trip) | same field names on `message::Message` | typed (universal reasoning, must round-trip to the provider); populated by a driver, not yet wired for Anthropic |
+| `MessageId` on `output.message.*` (streaming lifecycle correlation) | `id::MessageId` on `OutputMessage{Started,Delta,Completed}`, held on `TurnState::current_message_id` | typed; allocated in `on_reason_started`, `#[serde(default)]` so pre-0.1.1 logs still load |
+| `ToolHints`, capability `status`/`category`/`icon`, `Message.phase`, narration hints | generic `metadata` hatches: `ToolDefinition.metadata`, `Capability::metadata()`, `Message.metadata` | everruns-flavored richness rides an opaque `serde_json::Value` (the data analogue of `EventData::Custom`); a satellite owns the schema — see [`extensibility.md`](extensibility.md) |
+| guardrail mutation / approval / capability-contributed hooks, parallel dispatch | a satellite `executor::TurnExecutor` over `atoms` + `TurnState` | **behavior, not core** — the executor seam owns the act loop; agentyk's built-in `PreToolUseHook` stays denial-only |
 
 Deliberate omissions from Phase 1 (Phase-2+ territory): org/tenant scoping,
 provider catalog + credential encryption, durable execution, streaming deltas,
@@ -177,6 +181,16 @@ server):
   [`everruns-adoption.md`](everruns-adoption.md#tier-3) for what didn't port
   (`edit_file` CAS, `grep_files`, `stat_file`, symlink rejection, mounts,
   per-session workspace keying).
+
+- Protocol extensibility (0.1.1, from the everruns 0.17.16 audit) — typed
+  `Message.thinking`/`thinking_signature` and a `message_id` correlating the
+  `output.message.*` streaming events; generic `metadata` hatches on
+  `Message`/`ToolDefinition`/`Capability` for everruns-flavored richness
+  (`ToolHints`, status/category, phase). All behavior (mutating/approval
+  hooks, parallel dispatch) is left to a satellite `TurnExecutor`, never core.
+  The strategy — first-class typed fields only for universal correctness data,
+  generic hatches for the rest, behavior in satellites — is
+  [`extensibility.md`](../docs/extensibility.md).
 
 Remaining for Phase 1 completion:
 

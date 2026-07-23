@@ -16,6 +16,7 @@ impl agentyk::Tool for Greeter {
             name: "greet".to_string(),
             description: "Greet using the configured prefix.".to_string(),
             parameters: json!({"type": "object", "properties": {"name": {"type": "string"}}}),
+            ..Default::default()
         }
     }
 

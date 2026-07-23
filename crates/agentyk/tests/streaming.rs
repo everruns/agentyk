@@ -44,7 +44,10 @@ async fn deltas_reach_listeners_but_never_the_log() -> Result<()> {
         deltas[0].sequence, None,
         "ephemeral events carry no sequence"
     );
-    if let EventData::OutputMessageDelta { delta, accumulated } = &deltas[0].data {
+    if let EventData::OutputMessageDelta {
+        delta, accumulated, ..
+    } = &deltas[0].data
+    {
         assert_eq!(delta, "hello there");
         assert_eq!(accumulated, "hello there");
     }
@@ -88,9 +91,9 @@ async fn started_event_carries_model_and_increasing_iteration() -> Result<()> {
         .unwrap()
         .iter()
         .filter_map(|e| match &e.data {
-            EventData::OutputMessageStarted { model, iteration } => {
-                Some((model.clone(), *iteration))
-            }
+            EventData::OutputMessageStarted {
+                model, iteration, ..
+            } => Some((model.clone(), *iteration)),
             _ => None,
         })
         .collect();
@@ -101,6 +104,40 @@ async fn started_event_carries_model_and_increasing_iteration() -> Result<()> {
             (Some("llmsim".to_string()), Some(1)),
             (Some("llmsim".to_string()), Some(2)),
         ]
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn output_message_events_correlate_by_message_id() -> Result<()> {
+    use agentyk::MessageId;
+
+    let listener: Arc<CollectingListener> = Arc::default();
+    let agent = Agent::builder()
+        .model(ModelSpec::llmsim())
+        .driver(SimDriver::new([SimTurn::text("hello there")]))
+        .listener_arc(listener.clone())
+        .build()?;
+
+    agent.run("hi").await?;
+
+    // One reason step → one started, one delta, one completed, all sharing a
+    // single message_id (the streaming-lifecycle correlation, gap 1).
+    let seen = listener.events.lock().unwrap().clone();
+    let ids: Vec<MessageId> = seen
+        .iter()
+        .filter_map(|e| match &e.data {
+            EventData::OutputMessageStarted { message_id, .. }
+            | EventData::OutputMessageDelta { message_id, .. }
+            | EventData::OutputMessageCompleted { message_id, .. } => Some(*message_id),
+            _ => None,
+        })
+        .collect();
+
+    assert_eq!(ids.len(), 3, "started + delta + completed");
+    assert!(
+        ids.iter().all(|id| *id == ids[0]),
+        "all output.message.* events of one reason step share a message_id: {ids:?}"
     );
     Ok(())
 }

@@ -57,7 +57,7 @@ pub use event_log::{EventLog, InMemoryEventLog};
 pub use executor::{TurnExecutor, TurnHost, TurnResult};
 pub use extensions::Extensions;
 pub use hooks::{PostToolExecHook, PreToolUseDecision, PreToolUseHook};
-pub use id::{EventId, SessionId, TurnId};
+pub use id::{EventId, MessageId, SessionId, TurnId};
 pub use message::{ContentPart, ImageContentPart, Message, Role, TextContentPart, ToolCall};
 pub use replay::messages_from_events;
 pub use tool::{

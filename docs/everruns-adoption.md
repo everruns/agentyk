@@ -18,7 +18,11 @@ expensive to change the longer we wait.
 1. ✅ **Streaming — done.** `EventData` now has `OutputMessageStarted` /
    `OutputMessageDelta` / `OutputMessageCompleted` (`Replaced` and
    `ReasonThinking*` are not yet ported — no guardrail-replacement or
-   extended-thinking capability exists to need them). `EventData::is_ephemeral()`
+   extended-thinking capability exists to need them). **Correlation (0.1.1):**
+   all three carry a `message_id` (a typed `MessageId`) tying one streaming
+   assistant message together — allocated in `on_reason_started`, held on
+   `TurnState::current_message_id`, stamped onto the deltas and the completed
+   event. `EventData::is_ephemeral()`
    classifies `OutputMessageDelta`; `Event.sequence` became `Option<u64>`
    (`None` for ephemeral, mirroring everruns exactly). `TurnHost::record`
    branches per-event: ephemeral events skip the `EventLog` entirely
@@ -92,6 +96,11 @@ expensive to change the longer we wait.
    the request body. **Not wired for Anthropic** — extended thinking needs a
    `budget_tokens` integer, not an effort string, and no clean 1:1 mapping
    exists; left as a documented gap rather than guessing a mapping.
+   **Reasoning round-trip (0.1.1):** the *data* side is now in place —
+   `Message.thinking` + `Message.thinking_signature` (typed, because
+   reasoning blocks must round-trip back to the provider and the driver only
+   sees a `Message`). Wiring an Anthropic driver to populate/replay them is
+   the remaining work; the protocol no longer drops thinking blocks.
    `Session::run_with_options(input, RunOptions { cancellation, controls })`
    is the general form; `run`/`run_cancellable`/`run_controlled` are thin
    wrappers over it.
@@ -111,14 +120,21 @@ expensive to change the longer we wait.
    hooks are an executor concern, so direct-atom callers (e.g. a durable
    host driving the machine manually) are unaffected unless they choose to
    run hooks themselves.
-   **Not yet ported:** `require-approval` (a genuine pause-for-human-input
-   decision needs a new `TurnPhase::PendingApproval` in the state machine —
-   a bigger change deferred until a real approval capability needs it),
-   `PostActHook` (turn-level, not per-tool — no use case yet), and
-   `ClientSideToolHook` (client-executed tools — no client/server split
-   exists in agentyk yet). Without `require-approval`, yolop's
-   `ApprovalCapability` cannot fully port, but auto allow/deny guardrails
-   (the more common case) can.
+   **Correction (was over-claimed):** the built-in `PreToolUseHook` is
+   `Allow | Deny{reason}` and is attached on `AgentBuilder`, so *only*
+   denial-only, builder-attached guardrails port to it. everruns guardrails
+   that **mutate/redact** a call, surface a distinct user-facing message, or
+   are **contributed by a capability** — and human **approval** pauses — do
+   **not** fit this hook, and (contra an earlier claim) approval does **not**
+   need a `TurnPhase::PendingApproval`: everruns itself has no approval phase
+   (its `TurnPhase` is still PendingInput/Reason/Act/Completed), it gates via
+   the hook plus a human-intent capability. The intended home for all of
+   this is a **satellite [`TurnExecutor`]** that owns the act loop — it can
+   mutate/deny calls, await an approver, consult capability-contributed
+   hooks, and fan out in parallel — **without** a core change. See
+   [`extensibility.md`](extensibility.md). `PostActHook` (turn-level) and
+   `ClientSideToolHook` (client/server split) remain unported — no use case
+   yet.
 
 8. ✅ **Tool scheduling — data model done, dispatch stays sequential.**
    `TurnPhase::PendingAct` is now `{ calls: Vec<PendingCall> }`
@@ -135,11 +151,13 @@ expensive to change the longer we wait.
    `tool::{ToolPolicy, DeferrablePolicy}` — a tool can mark itself
    `Deferred` to stay executable but be left out of the definitions
    `atoms::assemble` sends the model; default is `Never` (today's
-   behavior, unchanged for every existing tool). **Not ported:**
-   `ToolHints` (everruns' richer per-tool UI/behavior hints) — no use case
-   yet; and no ToolSearch-style capability that actually *surfaces*
-   deferred tools on demand — `Deferred` today just means "hidden," not
-   "hidden until requested."
+   behavior, unchanged for every existing tool). **`ToolHints` (0.1.1):**
+   everruns' per-tool risk/UI taxonomy (`readonly`/`destructive`/`open_world`,
+   etc.) is **not** a typed core field — it rides in the generic
+   `ToolDefinition.metadata` hatch, and a satellite executor reads it for
+   approval/risk gating (see [`extensibility.md`](extensibility.md)). Still no
+   ToolSearch-style capability that *surfaces* deferred tools on demand —
+   `Deferred` today just means "hidden," not "hidden until requested."
 
 9. ✅ **Sealing and budget — done.** `TurnOutcome::Sealed(SealReason)`
    (`NoProgress` | `BudgetExhausted`) + `TurnState::on_seal` (pure
@@ -299,8 +317,10 @@ Phase 1.5 (pre-adoption hardening, in this repo):
 3. ✅ Cancellation + `TurnOutcome::Cancelled`
 4. ✅ `EventData::Custom` escape hatch
 5. ✅ Error retryability classification
-6. ✅ Act hooks (pre/post tool) — unlocks guardrail ports; approval's
-   require-approval path still needs a `TurnPhase::PendingApproval`
+6. ✅ Act hooks (pre/post tool) — denial-only, builder-attached guardrails.
+   Mutating/approval/capability-contributed guardrails are satellite-executor
+   work, **not** a core hook or approval phase (corrected above; see
+   [`extensibility.md`](extensibility.md))
 7. ✅ Per-turn `TurnControls`
 8. ✅ Sealing (`Sealed(SealReason)`) + budget seam
 9. ✅ Parallel-capable `PendingAct` data model + tool policy types —
@@ -312,6 +332,16 @@ Phase 1.5 (pre-adoption hardening, in this repo):
 
 All twelve Phase 1.5 items are now done (with the scoping notes above); see
 [`docs/plan.md`](plan.md#phase-1-status) for the full status list.
+
+Phase 1.6 (protocol extensibility, 0.1.1) — from an audit against everruns
+0.17.16 (see [`extensibility.md`](extensibility.md) for the strategy):
+
+1. ✅ `message_id` correlating the `output.message.*` streaming events (typed).
+2. ✅ `Message.thinking` + `thinking_signature` (typed reasoning round-trip).
+3. ✅ Generic `metadata` hatches — `Message.metadata`,
+   `ToolDefinition.metadata` (home for `ToolHints`), `Capability::metadata()`.
+4. Hook mutation / approval / capability-contributed guardrails →
+   **satellite `TurnExecutor`**, not a core change (over-claim corrected).
 
 Items 1–5 are protocol-affecting and should land before anyone persists a
 long-lived event log; 6–12 can land incrementally alongside early adoption

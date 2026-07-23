@@ -8,7 +8,7 @@ use agentyk_core::error::{Error, Result};
 use agentyk_core::event::EventData;
 use agentyk_core::executor::{TurnExecutor, TurnHost, TurnResult};
 use agentyk_core::hooks::PreToolUseDecision;
-use agentyk_core::id::TurnId;
+use agentyk_core::id::{MessageId, TurnId};
 use agentyk_core::message::Message;
 use agentyk_core::tool::{ToolContext, ToolOutput};
 use agentyk_core::turn::{SealReason, TurnAction, TurnOutcome, TurnState};
@@ -21,6 +21,9 @@ use async_trait::async_trait;
 struct RecordingDeltaSink<'h, 'a> {
     host: &'h mut TurnHost<'a>,
     turn_id: TurnId,
+    /// Correlates deltas with the started/completed events of the same
+    /// assistant message — set from `TurnState::current_message_id`.
+    message_id: MessageId,
     cancellation: CancellationToken,
 }
 
@@ -31,6 +34,7 @@ impl agentyk_core::driver::DeltaSink for RecordingDeltaSink<'_, '_> {
             return Err(Error::Cancelled);
         }
         let effects = vec![EventData::OutputMessageDelta {
+            message_id: self.message_id,
             delta: delta.to_string(),
             accumulated: accumulated.to_string(),
         }];
@@ -80,6 +84,9 @@ impl TurnExecutor for InProcessExecutor {
                 TurnAction::Reason => {
                     let started = state.on_reason_started(Some(&model.model));
                     host.record(turn_id, started).await?;
+                    // `on_reason_started` just set this; reuse it so deltas
+                    // and the completed event share the started event's id.
+                    let message_id = state.current_message_id.unwrap_or_default();
 
                     let messages = host
                         .context_assembler
@@ -89,6 +96,7 @@ impl TurnExecutor for InProcessExecutor {
                     let mut sink = RecordingDeltaSink {
                         host: &mut *host,
                         turn_id,
+                        message_id,
                         cancellation,
                     };
                     let outcome = atoms::reason_streaming(

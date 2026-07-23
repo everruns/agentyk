@@ -319,6 +319,7 @@ impl Tool for ReadFileTool {
                 },
                 "required": ["path"],
             }),
+            ..Default::default()
         }
     }
 
@@ -351,6 +352,7 @@ impl Tool for WriteFileTool {
                 },
                 "required": ["path", "content"],
             }),
+            ..Default::default()
         }
     }
 
@@ -384,6 +386,7 @@ impl Tool for ListDirectoryTool {
                     "path": {"type": "string", "description": "Path relative to the workspace root. Defaults to the root."},
                 },
             }),
+            ..Default::default()
         }
     }
 
@@ -430,6 +433,7 @@ impl Tool for DeleteFileTool {
                 },
                 "required": ["path"],
             }),
+            ..Default::default()
         }
     }
 

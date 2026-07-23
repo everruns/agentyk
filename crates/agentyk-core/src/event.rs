@@ -20,7 +20,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::id::{EventId, SessionId, TurnId};
+use crate::id::{EventId, MessageId, SessionId, TurnId};
 use crate::message::{Message, ToolCall};
 
 /// Dot-notation event type strings.
@@ -64,8 +64,15 @@ pub enum EventData {
     },
     /// The model started generating a response for this reason step. UIs can
     /// show a "thinking" indicator until a delta or the completed event
-    /// arrives.
+    /// arrives. `message_id` correlates this event with the deltas and the
+    /// completed event of the same logical assistant message (mirrors
+    /// everruns' streaming lifecycle correlation).
     OutputMessageStarted {
+        /// Stable id shared by the started/delta/completed events of one
+        /// assistant message. `#[serde(default)]` so pre-0.1.1 logs (which
+        /// lack it) still deserialize, gaining a fresh id.
+        #[serde(default)]
+        message_id: MessageId,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         model: Option<String>,
         /// 1-based iteration within the turn.
@@ -73,14 +80,20 @@ pub enum EventData {
         iteration: Option<u32>,
     },
     /// Incremental text update during generation. **Ephemeral** — delivered
-    /// to listeners, never persisted.
+    /// to listeners, never persisted. Carries the same `message_id` as its
+    /// started/completed siblings.
     OutputMessageDelta {
+        #[serde(default)]
+        message_id: MessageId,
         delta: String,
         accumulated: String,
     },
     /// The reason step finished; `message` is the fully materialized
-    /// assistant message (text and/or tool calls).
+    /// assistant message (text and/or tool calls). Same `message_id` as the
+    /// started event.
     OutputMessageCompleted {
+        #[serde(default)]
+        message_id: MessageId,
         message: Message,
     },
     ToolStarted {
@@ -262,6 +275,7 @@ mod tests {
         let request = EventRequest::new(
             SessionId::new(),
             EventData::OutputMessageDelta {
+                message_id: MessageId::new(),
                 delta: "hi".into(),
                 accumulated: "hi".into(),
             },
@@ -276,6 +290,7 @@ mod tests {
         assert!(!EventData::TurnStarted.is_ephemeral());
         assert!(
             !EventData::OutputMessageStarted {
+                message_id: MessageId::new(),
                 model: None,
                 iteration: None
             }
@@ -283,6 +298,7 @@ mod tests {
         );
         assert!(
             !EventData::OutputMessageCompleted {
+                message_id: MessageId::new(),
                 message: Message::assistant("hi"),
             }
             .is_ephemeral()

@@ -104,6 +104,25 @@ pub struct Message {
     /// For `Role::Tool` messages: the call this result answers.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tool_call_id: Option<String>,
+    /// Provider reasoning ("extended thinking") text, when the model emitted
+    /// a reasoning block. First-class because it is **not** everruns-specific
+    /// (OpenAI reasoning, Anthropic thinking) and it must round-trip back to
+    /// the provider on subsequent turns for the exchange to stay valid —
+    /// which an out-of-band store can't guarantee (the driver only ever sees
+    /// `Message`). Empty for the common no-reasoning case.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thinking: Option<String>,
+    /// Opaque signature the provider requires to accept a replayed thinking
+    /// block (e.g. Anthropic's `signature`). Paired with [`Message::thinking`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thinking_signature: Option<String>,
+    /// Generic, serializable extension hatch — the message analogue of
+    /// [`crate::event::EventData::Custom`]. Everruns-flavored richness a
+    /// satellite crate owns (execution `phase`, narration hints, provider
+    /// extras) rides here instead of growing typed core fields. `Null` for
+    /// the common case.
+    #[serde(default, skip_serializing_if = "serde_json::Value::is_null")]
+    pub metadata: serde_json::Value,
 }
 
 impl Message {
@@ -116,50 +135,56 @@ impl Message {
         }
     }
 
-    pub fn user(text: impl Into<String>) -> Self {
+    fn new(role: Role, content: Vec<ContentPart>) -> Self {
         Self {
-            role: Role::User,
-            content: Self::text_content(text),
+            role,
+            content,
             tool_calls: Vec::new(),
             tool_call_id: None,
+            thinking: None,
+            thinking_signature: None,
+            metadata: serde_json::Value::Null,
         }
+    }
+
+    pub fn user(text: impl Into<String>) -> Self {
+        Self::new(Role::User, Self::text_content(text))
     }
 
     /// A user message with arbitrary content parts (text, images).
     pub fn user_multimodal(content: Vec<ContentPart>) -> Self {
-        Self {
-            role: Role::User,
-            content,
-            tool_calls: Vec::new(),
-            tool_call_id: None,
-        }
+        Self::new(Role::User, content)
     }
 
     pub fn assistant(text: impl Into<String>) -> Self {
-        Self {
-            role: Role::Assistant,
-            content: Self::text_content(text),
-            tool_calls: Vec::new(),
-            tool_call_id: None,
-        }
+        Self::new(Role::Assistant, Self::text_content(text))
     }
 
     pub fn assistant_with_calls(text: impl Into<String>, tool_calls: Vec<ToolCall>) -> Self {
         Self {
-            role: Role::Assistant,
-            content: Self::text_content(text),
             tool_calls,
-            tool_call_id: None,
+            ..Self::new(Role::Assistant, Self::text_content(text))
         }
     }
 
     pub fn tool_result(call_id: impl Into<String>, text: impl Into<String>) -> Self {
         Self {
-            role: Role::Tool,
-            content: Self::text_content(text),
-            tool_calls: Vec::new(),
             tool_call_id: Some(call_id.into()),
+            ..Self::new(Role::Tool, Self::text_content(text))
         }
+    }
+
+    /// Attach provider reasoning to this message — see [`Message::thinking`].
+    pub fn with_thinking(mut self, thinking: impl Into<String>, signature: Option<String>) -> Self {
+        self.thinking = Some(thinking.into());
+        self.thinking_signature = signature;
+        self
+    }
+
+    /// Attach extension metadata — see [`Message::metadata`].
+    pub fn with_metadata(mut self, metadata: serde_json::Value) -> Self {
+        self.metadata = metadata;
+        self
     }
 
     /// The concatenation of every text part, in order. Empty if the message
@@ -213,5 +238,31 @@ mod tests {
         let json = serde_json::to_string(&message).unwrap();
         let back: Message = serde_json::from_str(&json).unwrap();
         assert_eq!(message, back);
+    }
+
+    #[test]
+    fn thinking_and_metadata_round_trip() {
+        let message = Message::assistant("done")
+            .with_thinking("let me consider…", Some("sig-abc".into()))
+            .with_metadata(serde_json::json!({"phase": "final"}));
+        let json = serde_json::to_string(&message).unwrap();
+        let back: Message = serde_json::from_str(&json).unwrap();
+        assert_eq!(message, back);
+        assert_eq!(back.thinking.as_deref(), Some("let me consider…"));
+        assert_eq!(back.thinking_signature.as_deref(), Some("sig-abc"));
+        assert_eq!(back.metadata["phase"], "final");
+    }
+
+    #[test]
+    fn plain_messages_omit_the_new_fields_from_json() {
+        // Back-compat: a message with no reasoning/metadata serializes exactly
+        // as before, and pre-0.1.1 JSON (without these keys) still loads.
+        let json = serde_json::to_string(&Message::user("hi")).unwrap();
+        assert!(!json.contains("thinking"));
+        assert!(!json.contains("metadata"));
+        let back: Message =
+            serde_json::from_str(r#"{"role":"user","content":[{"type":"text","text":"hi"}]}"#)
+                .unwrap();
+        assert_eq!(back, Message::user("hi"));
     }
 }

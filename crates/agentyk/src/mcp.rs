@@ -247,6 +247,7 @@ pub(crate) fn parse_tool_list(result: &Value) -> Vec<ToolDefinition> {
                         } else {
                             json!({"type": "object"})
                         },
+                        ..Default::default()
                     })
                 })
                 .collect()
