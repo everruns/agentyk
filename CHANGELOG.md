@@ -53,6 +53,12 @@ see [`specs/extensibility.md`](specs/extensibility.md).
   every turn and can cap replayed history (`keep_last`), showing everruns-style
   memory + compaction shape *what the turn sends* over the existing seam while
   the untrimmed history stays in the event log. No core change.
+- **`agentyk-everruns-poc` richer narration**: the `EverrunsExecutor` now emits
+  its tool risk hints and pre-run redactions as `EventData::Custom` events
+  (`tool.hint` / `tool.rewritten`), and `NarrationListener` renders them
+  (`🔎`/`⚠`/`✎`) plus provider extended thinking (`💭`, from `Message.thinking`)
+  — the everruns transcript's richer signal, still a pure event observer with no
+  core variant. The `transcript` example shows the upgraded output.
 
 ### Changed
 

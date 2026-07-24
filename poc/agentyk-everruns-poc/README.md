@@ -27,7 +27,11 @@ example harness.
   under a `"hints"` key — core never learns the schema.
 - **The transcript surface is a pure observer.** `NarrationListener` renders
   the event stream into readable lines — an `EventListener`, not a turn-loop
-  concern.
+  concern. It also surfaces the everruns-flavored richness the executor emits as
+  `EventData::Custom` events — a tool's **risk hint** (`🔎 readonly` / `⚠
+  destructive`) and pre-run **redaction** (`✎ … redacted before it ran`) — plus
+  provider **extended thinking** (`💭 …`, the typed `Message::thinking` field),
+  all without core learning any new variant.
 
 ## Run the demo
 
@@ -42,17 +46,24 @@ secret) and prints a transcript built entirely from events:
 ── transcript ─────────────────────────────
 • turn started
 › search for cats, delete everything, and save a note
+🔎 search — readonly
 ⚙ search(…)
+⚠ delete_all — destructive
 ⚙ delete_all(…)
 ✓ search
 ⛔ delete_all denied — `delete_all` needs approval — blocked for the demo
 ✗ delete_all
 ⚙ save_note(…)
+✎ save_note — redacted before it ran
 ✓ save_note
 ‹ All done — one search ran, the delete was blocked, and the secret never reached the tool.
 • turn completed
 ───────────────────────────────────────────
 ```
+
+The `🔎`/`⚠` hint lines and the `✎` redaction line come from `tool.hint` /
+`tool.rewritten` `EventData::Custom` events the executor emits; a real run
+against a thinking-capable driver would also show `💭` lines.
 
 ## The satellite boundary
 
