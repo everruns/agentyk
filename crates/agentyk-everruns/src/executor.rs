@@ -1,18 +1,22 @@
-//! A satellite [`TurnExecutor`] that adds everruns-style **hint-based tool
-//! approval** — behavior agentyk-core's built-in executor doesn't have, built
-//! entirely over core's public seams (`atoms` + [`TurnState`] + [`TurnHost`]).
+//! A satellite [`TurnExecutor`] proving everruns-style act-loop behavior lives
+//! in the executor layer, not in agentyk-core's hook trait. Built entirely
+//! over core's public seams (`atoms` + [`TurnState`] + [`TurnHost`]).
 //!
-//! This is the proof for `docs/extensibility.md`: gap 4 (mutating / approval /
-//! capability-contributed guardrails) lives in the executor layer, not in
-//! core's hook trait. Note in particular [`ApprovalDecision::Deny`] carries a
-//! `user_message` — a richer decision than core's `PreToolUseDecision`, owned
-//! here rather than forced into the contract.
+//! It shows the three shapes of adoption "gap 4" that core's
+//! `PreToolUseHook`/`PreToolUseDecision` can't express, all in a satellite:
+//!
+//! - **Deny with a user-facing message** — [`ApprovalDecision::Deny`] /
+//!   [`GuardOutcome::Deny`] carry a `user_message`.
+//! - **Mutate a call before it runs** — [`GuardOutcome::Rewrite`] (e.g. a
+//!   guard that redacts a secret argument).
+//! - **Capability-contributed guards** — a satellite capability bundles a tool
+//!   *and* the [`PreToolGuard`] that governs it; the host attaches the tool as
+//!   a `Capability` and the guard to the executor.
 //!
 //! It also **dispatches a tool batch concurrently** (via
 //! [`TurnState::pending_tool_actions`](agentyk_core::turn::TurnState::pending_tool_actions)),
-//! which the built-in `InProcessExecutor` deliberately doesn't — closing
-//! agentyk's item-9 "concurrent dispatch is a deferred follow-up" note in a
-//! satellite. It stays otherwise minimal (non-streaming, no budget seam).
+//! which the built-in `InProcessExecutor` deliberately doesn't. Otherwise
+//! minimal (non-streaming, no budget seam).
 
 use agentyk_core::atoms;
 use agentyk_core::error::{Error, Result};
@@ -35,9 +39,38 @@ enum Resolved {
     Denied(String),
 }
 
-/// What an [`Approver`] decides for a risky tool call. `Deny` carries a
-/// `user_message` distinct from any internal reason — the shape everruns
-/// guardrails want and core's `PreToolUseDecision` lacks.
+/// What a [`PreToolGuard`] decides for a call. Richer than core's
+/// `PreToolUseDecision` (`Allow | Deny`): a guard can also **rewrite** the
+/// call — the everruns redaction/mutation shape — and a denial carries a
+/// user-facing message.
+#[derive(Debug, Clone, PartialEq)]
+pub enum GuardOutcome {
+    Allow,
+    /// Proceed, but with this (mutated) call — e.g. a redacted argument. The
+    /// call keeps its id (the batch is keyed by it); rewrite name/arguments.
+    Rewrite(ToolCall),
+    Deny {
+        user_message: String,
+    },
+}
+
+/// Runs before each tool call in [`EverrunsExecutor`]'s act loop; guards run
+/// in order, a `Rewrite` feeds the next guard and the execution, and the first
+/// `Deny` short-circuits. This is where a satellite puts mutating / approval /
+/// capability-contributed guardrails.
+#[async_trait]
+pub trait PreToolGuard: Send + Sync {
+    async fn inspect(
+        &self,
+        call: &ToolCall,
+        hints: &ToolHints,
+        context: &ToolContext,
+    ) -> GuardOutcome;
+}
+
+/// What an [`Approver`] decides for a risky tool call — the simple
+/// allow/deny-with-message case, wrapped into a [`PreToolGuard`] by
+/// [`EverrunsExecutor::new`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ApprovalDecision {
     Allow,
@@ -62,18 +95,53 @@ impl Approver for AllowAll {
     }
 }
 
-/// A [`TurnExecutor`] that gates destructive/open-world tools through an
-/// [`Approver`], reading each tool's risk from the `ToolDefinition.metadata`
-/// hints hatch. Everything else follows the standard reason/act loop.
+/// Adapts an [`Approver`] into a [`PreToolGuard`] that only consults it for
+/// tools whose hints say they [`need approval`](ToolHints::needs_approval).
+struct ApprovalGuard(Arc<dyn Approver>);
+
+#[async_trait]
+impl PreToolGuard for ApprovalGuard {
+    async fn inspect(
+        &self,
+        call: &ToolCall,
+        hints: &ToolHints,
+        _context: &ToolContext,
+    ) -> GuardOutcome {
+        if !hints.needs_approval() {
+            return GuardOutcome::Allow;
+        }
+        match self.0.approve(call, hints).await {
+            ApprovalDecision::Allow => GuardOutcome::Allow,
+            ApprovalDecision::Deny { user_message } => GuardOutcome::Deny { user_message },
+        }
+    }
+}
+
+/// A [`TurnExecutor`] that runs a chain of [`PreToolGuard`]s before each tool
+/// call, reading each tool's risk from the `ToolDefinition.metadata` hints
+/// hatch. Everything else follows the standard reason/act loop.
 pub struct EverrunsExecutor {
-    approver: Arc<dyn Approver>,
+    guards: Vec<Arc<dyn PreToolGuard>>,
 }
 
 impl EverrunsExecutor {
+    /// An executor whose only guard is hint-based approval via `approver`.
     pub fn new(approver: impl Approver + 'static) -> Self {
         Self {
-            approver: Arc::new(approver),
+            guards: vec![Arc::new(ApprovalGuard(Arc::new(approver)))],
         }
+    }
+
+    /// An executor with an explicit guard chain (approval, redaction,
+    /// capability-contributed guards — in order).
+    pub fn with_guards(guards: Vec<Arc<dyn PreToolGuard>>) -> Self {
+        Self { guards }
+    }
+
+    /// Append a guard (runs after existing ones).
+    pub fn guard(mut self, guard: impl PreToolGuard + 'static) -> Self {
+        self.guards.push(Arc::new(guard));
+        self
     }
 }
 
@@ -128,9 +196,7 @@ impl TurnExecutor for EverrunsExecutor {
                 TurnAction::ExecuteTool { .. } => {
                     // Parallel dispatch: fan out the whole not-yet-started
                     // batch at once (agentyk's item-9 follow-up) instead of one
-                    // call at a time. The data model already supports this via
-                    // `pending_tool_actions`; this is a satellite executor
-                    // proving it end-to-end.
+                    // call at a time.
                     let calls: Vec<ToolCall> = state
                         .pending_tool_actions()
                         .into_iter()
@@ -152,14 +218,14 @@ impl TurnExecutor for EverrunsExecutor {
                         extensions: host.extensions.clone(),
                     };
 
-                    // Run the batch concurrently. Each future is self-contained
-                    // (reads hints, consults the approver, then acts or resolves
-                    // to a denial) — no `&mut host` inside, so they compose
-                    // under `join_all`.
+                    // Run the batch concurrently. Each future runs the guard
+                    // chain for its call (rewrites feed the next guard and the
+                    // execution; the first deny short-circuits), then acts —
+                    // no `&mut host` inside, so they compose under `join_all`.
                     let assembled = &assembled;
                     let context = &context;
+                    let guards = &self.guards;
                     let resolved = join_all(calls.iter().map(|call| {
-                        let approver = self.approver.clone();
                         let hints = assembled
                             .tool(&call.name)
                             .map(|tool| tool.definition())
@@ -167,24 +233,23 @@ impl TurnExecutor for EverrunsExecutor {
                             .and_then(ToolHints::from_definition)
                             .unwrap_or_default();
                         async move {
-                            if hints.needs_approval() {
-                                match approver.approve(call, &hints).await {
-                                    ApprovalDecision::Allow => {
-                                        Resolved::Ran(atoms::act(assembled, call, context).await)
-                                    }
-                                    ApprovalDecision::Deny { user_message } => {
-                                        Resolved::Denied(user_message)
+                            let mut effective = call.clone();
+                            for guard in guards {
+                                match guard.inspect(&effective, &hints, context).await {
+                                    GuardOutcome::Allow => {}
+                                    GuardOutcome::Rewrite(next) => effective = next,
+                                    GuardOutcome::Deny { user_message } => {
+                                        return Resolved::Denied(user_message);
                                     }
                                 }
-                            } else {
-                                Resolved::Ran(atoms::act(assembled, call, context).await)
                             }
+                            Resolved::Ran(atoms::act(assembled, &effective, context).await)
                         }
                     }))
                     .await;
 
                     // Record completions (and any denials) sequentially, in
-                    // batch order.
+                    // batch order — by each call's original id.
                     for (call, outcome) in calls.iter().zip(resolved) {
                         let output = match outcome {
                             Resolved::Ran(output) => output,

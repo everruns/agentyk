@@ -98,9 +98,12 @@ framework, no tokio, no HTTP (`cargo tree -p agentyk-everruns --edges normal`
 shows just core + async-trait/serde). It ships:
 
 - `EverrunsExecutor` — a custom [`TurnExecutor`] over `atoms` + [`TurnState`]
-  that adds **hint-based tool approval** (with an `ApprovalDecision::Deny {
-  user_message }` richer than core's `PreToolUseDecision` — gap 4 in the
-  executor layer) **and dispatches a tool batch concurrently** via
+  that runs a chain of `PreToolGuard`s before each call, demonstrating **all
+  three shapes of gap 4** that core's `PreToolUseHook`/`PreToolUseDecision`
+  can't express: **deny with a user-facing message**, **rewrite a call before
+  it runs** (`GuardOutcome::Rewrite`, e.g. redacting a secret argument), and
+  **capability-contributed guards** (a satellite capability bundles a tool and
+  the guard governing it). It **also dispatches a tool batch concurrently** via
   `TurnState::pending_tool_actions`, closing agentyk's item-9 "concurrent
   dispatch is a deferred follow-up" note without touching core.
 - `ToolHints` (`readonly`/`destructive`/`open_world`) carried in
@@ -113,7 +116,9 @@ shows just core + async-trait/serde). It ships:
 Its tests drive a real agent (framework harness in dev-deps) and assert a
 destructive tool is blocked with the approver's message, an approved one runs,
 a readonly one bypasses approval, a two-tool batch is fanned out and gated
-per-call, and the narration reads back as a transcript — all with **zero
+per-call, a guard **redacts** a secret argument before the tool sees it, guards
+**compose** (first-deny-wins), a capability **contributes** the guard that gates
+its own tool, and the narration reads back as a transcript — all with **zero
 changes to core**. (The library does pull one lightweight combinator,
 `futures-util`, for `join_all` — a utility, not a runtime; still no tokio, no
 HTTP, no framework.)
