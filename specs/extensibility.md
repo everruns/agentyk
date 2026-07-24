@@ -1,3 +1,11 @@
+---
+type: Design
+title: Extending agentyk without changing core
+description: The rule for what earns a first-class core field versus a metadata hatch — behavior is external, data extensibility is core.
+tags: [extensibility, core, metadata, design]
+timestamp: 2026-07-24
+---
+
 # Extending agentyk without changing core
 
 Agentyk-core is a **contract crate**: traits, the event protocol, and the

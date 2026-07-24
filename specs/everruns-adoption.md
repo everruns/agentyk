@@ -1,3 +1,11 @@
+---
+type: Analysis
+title: Everruns adoption — gap analysis
+description: What agentyk still lacks before everruns-core/runtime can be rebuilt on top, tiered by where each gap must land.
+tags: [everruns, adoption, gaps, protocol]
+timestamp: 2026-07-24
+---
+
 # Everruns adoption — gap analysis
 
 What agentyk is still missing before `everruns-core`/`everruns-runtime` can be
@@ -340,7 +348,7 @@ Phase 1.5 (pre-adoption hardening, in this repo):
 12. ✅ `FileSystemCapability` (first big bundled capability) — see gap 15
 
 All twelve Phase 1.5 items are now done (with the scoping notes above); see
-[`docs/plan.md`](plan.md#phase-1-status) for the full status list.
+[`plan.md`](plan.md#phase-1-status) for the full status list.
 
 Phase 1.6 (protocol extensibility, 0.1.1) — from an audit against everruns
 0.17.16 (see [`extensibility.md`](extensibility.md) for the strategy):
