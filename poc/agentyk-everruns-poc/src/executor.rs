@@ -33,9 +33,9 @@ use crate::hints::ToolHints;
 
 /// How one tool call in a batch resolved during the concurrent act phase —
 /// carried back so the (sequential) recording phase can emit `tool.denied`
-/// for the blocked ones.
+/// for the blocked ones and `tool.rewritten` for the redacted ones.
 enum Resolved {
-    Ran(ToolOutput),
+    Ran { output: ToolOutput, rewritten: bool },
     Denied(String),
 }
 
@@ -207,7 +207,27 @@ impl TurnExecutor for EverrunsExecutor {
                         .collect();
 
                     // Record all starts sequentially — `record` needs `&mut host`.
+                    // A tool's risk hint (from the `metadata` hatch) rides the
+                    // event stream as a `tool.hint` custom event — everruns'
+                    // richer observability with no core variant, so a pure
+                    // observer like `NarrationListener` can surface it.
                     for call in &calls {
+                        if let Some(label) = assembled
+                            .tool(&call.name)
+                            .map(|tool| tool.definition())
+                            .as_ref()
+                            .and_then(ToolHints::from_definition)
+                            .and_then(|hints| hints.label())
+                        {
+                            host.record(
+                                turn_id,
+                                vec![EventData::custom(
+                                    "tool.hint",
+                                    serde_json::json!({ "name": call.name, "risk": label }),
+                                )],
+                            )
+                            .await?;
+                        }
                         let effects = state.on_tool_started(&call.id);
                         host.record(turn_id, effects).await?;
                     }
@@ -234,16 +254,23 @@ impl TurnExecutor for EverrunsExecutor {
                             .unwrap_or_default();
                         async move {
                             let mut effective = call.clone();
+                            let mut rewritten = false;
                             for guard in guards {
                                 match guard.inspect(&effective, &hints, context).await {
                                     GuardOutcome::Allow => {}
-                                    GuardOutcome::Rewrite(next) => effective = next,
+                                    GuardOutcome::Rewrite(next) => {
+                                        effective = next;
+                                        rewritten = true;
+                                    }
                                     GuardOutcome::Deny { user_message } => {
                                         return Resolved::Denied(user_message);
                                     }
                                 }
                             }
-                            Resolved::Ran(atoms::act(assembled, &effective, context).await)
+                            Resolved::Ran {
+                                output: atoms::act(assembled, &effective, context).await,
+                                rewritten,
+                            }
                         }
                     }))
                     .await;
@@ -252,7 +279,22 @@ impl TurnExecutor for EverrunsExecutor {
                     // batch order — by each call's original id.
                     for (call, outcome) in calls.iter().zip(resolved) {
                         let output = match outcome {
-                            Resolved::Ran(output) => output,
+                            Resolved::Ran { output, rewritten } => {
+                                // A guard mutated the call before it ran (e.g.
+                                // redaction) — announce it on the event stream
+                                // so observers can show the redaction happened.
+                                if rewritten {
+                                    host.record(
+                                        turn_id,
+                                        vec![EventData::custom(
+                                            "tool.rewritten",
+                                            serde_json::json!({ "name": call.name }),
+                                        )],
+                                    )
+                                    .await?;
+                                }
+                                output
+                            }
                             Resolved::Denied(user_message) => {
                                 host.record(
                                     turn_id,

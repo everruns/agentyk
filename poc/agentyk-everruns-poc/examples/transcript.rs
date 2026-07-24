@@ -1,7 +1,9 @@
 //! A runnable end-to-end demo of the satellite: a `EverrunsExecutor` with a
 //! guard chain (redaction + hint-based approval) and a `NarrationListener`,
 //! driven offline by the scripted `SimDriver`. It prints a transcript rendered
-//! entirely from the event stream — no core changes, no API keys.
+//! entirely from the event stream — including the tool risk-hint (`🔎`/`⚠`) and
+//! redaction (`✎`) lines the executor emits as `EventData::Custom` — with no
+//! core changes and no API keys.
 //!
 //! Run it:
 //!
