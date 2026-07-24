@@ -10,7 +10,7 @@ use agentyk::{
 };
 use agentyk_core::message::ToolCall;
 use agentyk_core::tool::ToolContext;
-use agentyk_everruns::{
+use agentyk_everruns_poc::{
     ApprovalDecision, Approver, EverrunsExecutor, GuardOutcome, HintedTool, PreToolGuard, ToolHints,
 };
 use async_trait::async_trait;

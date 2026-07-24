@@ -7,7 +7,7 @@ use std::sync::Arc;
 use agentyk::{
     Agent, ChatDriver, ChatRequest, ChatResponse, DriverId, ModelSpec, Result, SimDriver, SimTurn,
 };
-use agentyk_everruns::MemoryAssembler;
+use agentyk_everruns_poc::MemoryAssembler;
 use async_trait::async_trait;
 
 /// Wraps an `Arc<SimDriver>` so the test keeps a handle to inspect what was

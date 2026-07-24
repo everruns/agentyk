@@ -1,4 +1,4 @@
-# agentyk-everruns (prototype)
+# agentyk-everruns-poc (prototype)
 
 A **proof that the extensibility boundary holds**: everruns-flavored behavior
 built as a satellite over [`agentyk-core`](https://crates.io/crates/agentyk-core)'s
@@ -32,7 +32,7 @@ example harness.
 ## Run the demo
 
 ```sh
-cargo run -p agentyk-everruns --example transcript
+cargo run -p agentyk-everruns-poc --example transcript
 ```
 
 It scripts a small offline session (a search + delete batch, then a note with a
@@ -56,7 +56,7 @@ secret) and prints a transcript built entirely from events:
 
 ## The satellite boundary
 
-> `agentyk-everruns` (or a rebuilt everruns-core) = a custom `TurnExecutor`
+> `agentyk-everruns-poc` (or a rebuilt everruns-core) = a custom `TurnExecutor`
 > (act/hook/approval/parallel semantics) + capabilities + drivers + `metadata`
 > conventions. `agentyk-core` stays frozen and lean.
 
