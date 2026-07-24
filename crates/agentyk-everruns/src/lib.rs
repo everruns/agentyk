@@ -5,7 +5,9 @@
 //! change to core. See `docs/extensibility.md` in the agentyk repo.
 //!
 //! The library depends on `agentyk-core` **only** — no framework, no tokio, no
-//! HTTP. It shows two of the design's claims end-to-end.
+//! HTTP. It shows the design's claims end-to-end: behavior in a custom
+//! executor, everruns data on the `metadata` hatch, and memory/compaction over
+//! the context-assembly seam.
 //!
 //! **Behavior lives in a custom [`TurnExecutor`](agentyk_core::executor::TurnExecutor).**
 //! [`EverrunsExecutor`] drives the same [`TurnState`](agentyk_core::turn::TurnState)
@@ -33,10 +35,12 @@
 
 mod executor;
 mod hints;
+mod memory;
 mod narration;
 
 pub use executor::{
     AllowAll, ApprovalDecision, Approver, EverrunsExecutor, GuardOutcome, PreToolGuard,
 };
 pub use hints::{HintedTool, ToolHints};
+pub use memory::MemoryAssembler;
 pub use narration::NarrationListener;
