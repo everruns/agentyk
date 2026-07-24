@@ -45,7 +45,8 @@ see [`docs/extensibility.md`](docs/extensibility.md).
   `EventListener`; and a `PreToolGuard` chain (`GuardOutcome::{Allow, Rewrite,
   Deny}`) proving the remaining gap-4 shapes — **rewrite a call before it runs**
   (redaction), guard composition, and a **capability that contributes the guard
-  gating its own tool**.
+  gating its own tool**. Plus a runnable `transcript` example
+  (`cargo run -p agentyk-everruns --example transcript`) and a crate README.
 
 ### Changed
 
