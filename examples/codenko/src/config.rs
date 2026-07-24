@@ -18,6 +18,9 @@ Options:
       --model <id>       Model id (default: per provider, see below)
       --base-url <url>   Override the provider endpoint (compatible servers,
                          gateways, local runtimes)
+      --reasoning-effort <level>
+                         Reasoning effort, where the driver supports it
+                         (openai: none | low | medium | high)
       --log <path>       Append the session's JSONL event log here
   -h, --help             Show this message
 
@@ -87,6 +90,7 @@ pub struct Args {
     pub provider: Option<Provider>,
     pub model: Option<String>,
     pub base_url: Option<String>,
+    pub reasoning_effort: Option<String>,
     pub log: Option<PathBuf>,
     pub help: bool,
 }
@@ -110,6 +114,7 @@ impl Args {
                 "--provider" => args.provider = Some(Provider::parse(&value()?)?),
                 "--model" => args.model = Some(value()?),
                 "--base-url" => args.base_url = Some(value()?),
+                "--reasoning-effort" => args.reasoning_effort = Some(value()?),
                 "--log" => args.log = Some(PathBuf::from(value()?)),
                 other => return Err(format!("unknown argument `{other}`")),
             }
@@ -160,6 +165,13 @@ impl Config {
         let mut model = ModelSpec::new(provider.driver(), &model_id).api_key(api_key);
         if let Some(url) = args.base_url.or_else(|| lookup(provider.base_url_var())) {
             model = model.base_url(url);
+        }
+        // Passed through verbatim — the provider validates the level, and its
+        // rejection is more informative than anything guessed here. `none`
+        // matters on OpenAI's gpt-5.6 family, which refuses function tools on
+        // chat completions at any other level.
+        if let Some(effort) = args.reasoning_effort {
+            model = model.reasoning_effort(effort);
         }
 
         let dir = args.dir.unwrap_or_else(|| PathBuf::from("."));
@@ -254,6 +266,35 @@ mod tests {
             from_flag.model.base_url.as_deref(),
             Some("http://localhost:11434")
         );
+    }
+
+    #[test]
+    fn reasoning_effort_reaches_the_model_spec() {
+        let config = Config::resolve(
+            Args {
+                provider: Some(Provider::OpenAi),
+                model: Some("gpt-5.6-terra".into()),
+                reasoning_effort: Some("none".into()),
+                ..Args::default()
+            },
+            |_| Some("sk-test".to_string()),
+        )
+        .unwrap();
+        assert_eq!(
+            config
+                .model
+                .reasoning
+                .as_ref()
+                .and_then(|reasoning| reasoning.effort.as_deref()),
+            Some("none")
+        );
+        assert!(config.banner.contains("gpt-5.6-terra"));
+    }
+
+    #[test]
+    fn reasoning_is_unset_unless_asked_for() {
+        let config = Config::resolve(Args::default(), |_| Some("k".to_string())).unwrap();
+        assert!(config.model.reasoning.is_none());
     }
 
     #[test]

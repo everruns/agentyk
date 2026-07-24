@@ -32,6 +32,9 @@ Options:
       --model <id>       Model id (default: per provider, see below)
       --base-url <url>   Override the provider endpoint (compatible servers,
                          gateways, local runtimes)
+      --reasoning-effort <level>
+                         Reasoning effort, where the driver supports it
+                         (openai: none | low | medium | high)
       --log <path>       Append the session's JSONL event log here
   -h, --help             Show this message
 
@@ -41,6 +44,25 @@ Environment:
   ANTHROPIC_BASE_URL     Default for --base-url on --provider anthropic
   OPENAI_BASE_URL        Default for --base-url on --provider openai
 ```
+
+### Providers
+
+Either driver works; the whole difference is a `ModelSpec`, so switching is a
+flag rather than a code path:
+
+```sh
+codenko --provider anthropic --model claude-opus-5
+codenko --provider openai    --model gpt-5.5
+codenko --provider openai    --model gpt-5.6-terra --reasoning-effort none
+```
+
+`--reasoning-effort none` is required on that last one, and it is worth knowing
+why: OpenAI's `gpt-5.6` family refuses function tools on chat completions at any
+other effort level, and codenko is nothing but function tools. Leave the flag
+off and the first turn ends in a `turn failed` notice quoting the API's own
+explanation — the driver surfaces the response body rather than swallowing it.
+
+![codenko on gpt-5.6-terra](docs/demo-openai.gif)
 
 ### Keys
 
@@ -140,18 +162,22 @@ message history, which is what `Agent::resume_session` does.
 
 ## Re-recording the demo
 
-The GIF is a real run against a real model, recorded with
+Both GIFs are real runs against real models, recorded with
 [vhs](https://github.com/charmbracelet/vhs):
 
 ```sh
 cargo build --release -p codenko
-PATH="$PWD/target/release:$PATH" ANTHROPIC_API_KEY=... vhs examples/codenko/demo.tape
+export PATH="$PWD/target/release:$PATH"
+
+ANTHROPIC_API_KEY=... vhs examples/codenko/demo.tape          # docs/demo.gif
+OPENAI_API_KEY=...    vhs examples/codenko/demo-openai.tape   # docs/demo-openai.gif
 ```
 
-[`demo.tape`](demo.tape) creates a scratch workspace with a small bug, asks
-about it, then asks for the fix — so the recording exercises reading, writing,
-approval, and a verification command. Model wording varies between takes; the
-sleeps are sized for the slowest step.
+Both tapes run the same scenario — a scratch workspace with a small bug, a
+question about it, then the fix — so the recordings exercise reading, writing,
+approval, and a verification command, and are directly comparable across
+providers. Model wording varies between takes; the sleeps are sized for the
+slowest step.
 
 ## Deliberate omissions
 

@@ -32,8 +32,10 @@ see [`docs/extensibility.md`](docs/extensibility.md).
   `run_command` shell tool, a `PreToolUseHook` that turns mutating calls into an
   in-TUI approval prompt, per-turn `CancellationToken`, and a transcript folded
   entirely from the event stream (so the display is tested with `SimDriver`, no
-  terminal and no network). UI is [`tuika`](https://crates.io/crates/tuika);
-  `examples/codenko/demo.tape` records the README GIF with `vhs`.
+  terminal and no network). UI is [`tuika`](https://crates.io/crates/tuika).
+  Runs on either driver — `--reasoning-effort` covers OpenAI's `gpt-5.6` family,
+  which refuses function tools on chat completions unless the level is `none`.
+  `demo.tape` / `demo-openai.tape` record the README GIFs with `vhs`.
 
 - **`agentyk-everruns-poc` proof of concept** (`poc/agentyk-everruns-poc`,
   `publish = false`)
