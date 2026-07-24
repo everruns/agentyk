@@ -1,3 +1,11 @@
+---
+type: Process
+title: Release process
+description: The CI-driven publishing flow — a chore(release) commit tags, releases, and publishes agentyk-core then agentyk to crates.io.
+tags: [release, ci, crates-io, publishing]
+timestamp: 2026-07-24
+---
+
 # Release process
 
 ## Status
