@@ -47,6 +47,11 @@ see [`docs/extensibility.md`](docs/extensibility.md).
   (redaction), guard composition, and a **capability that contributes the guard
   gating its own tool**. Plus a runnable `transcript` example
   (`cargo run -p agentyk-everruns --example transcript`) and a crate README.
+- **`agentyk-everruns` memory/compaction** (prototype): a `MemoryAssembler`
+  implementing core's `ContextAssembler` — injects a persistent memory note into
+  every turn and can cap replayed history (`keep_last`), showing everruns-style
+  memory + compaction shape *what the turn sends* over the existing seam while
+  the untrimmed history stays in the event log. No core change.
 
 ### Changed
 

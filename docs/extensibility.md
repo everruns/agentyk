@@ -112,14 +112,19 @@ shows just core + async-trait/serde). It ships:
 - `NarrationListener` — an `EventListener` that renders the event stream into
   transcript lines, showing everruns' largest UI surface (`tool_narration`) is
   a pure observer, not a turn-loop concern.
+- `MemoryAssembler` — a `ContextAssembler` that injects a persistent memory
+  note into every turn and can cap replayed history (`keep_last`), showing
+  everruns-style **memory + compaction** shape *what the turn sends* over the
+  existing context-assembly seam, while the untrimmed history stays in the log.
 
 Its tests drive a real agent (framework harness in dev-deps) and assert a
 destructive tool is blocked with the approver's message, an approved one runs,
 a readonly one bypasses approval, a two-tool batch is fanned out and gated
 per-call, a guard **redacts** a secret argument before the tool sees it, guards
 **compose** (first-deny-wins), a capability **contributes** the guard that gates
-its own tool, and the narration reads back as a transcript — all with **zero
-changes to core**. (The library does pull one lightweight combinator,
+its own tool, the narration reads back as a transcript, and a `MemoryAssembler`
+**injects a memory note and compacts history** in what the driver receives while
+the log stays whole — all with **zero changes to core**. (The library does pull one lightweight combinator,
 `futures-util`, for `join_all` — a utility, not a runtime; still no tokio, no
 HTTP, no framework.)
 
