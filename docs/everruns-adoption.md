@@ -135,7 +135,10 @@ expensive to change the longer we wait.
    the hook plus a human-intent capability. The intended home for all of
    this is a **satellite [`TurnExecutor`]** that owns the act loop — it can
    mutate/deny calls, await an approver, consult capability-contributed
-   hooks, and fan out in parallel — **without** a core change. See
+   hooks, and fan out in parallel — **without** a core change. **Now proven**
+   in `agentyk-everruns`'s `EverrunsExecutor` (a `PreToolGuard` chain: deny
+   with a user message, `Rewrite` a call before it runs, and a capability that
+   contributes the guard gating its own tool). See
    [`extensibility.md`](extensibility.md). `PostActHook` (turn-level) and
    `ClientSideToolHook` (client/server split) remain unported — no use case
    yet.

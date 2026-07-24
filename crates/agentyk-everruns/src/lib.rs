@@ -35,6 +35,8 @@ mod executor;
 mod hints;
 mod narration;
 
-pub use executor::{AllowAll, ApprovalDecision, Approver, EverrunsExecutor};
+pub use executor::{
+    AllowAll, ApprovalDecision, Approver, EverrunsExecutor, GuardOutcome, PreToolGuard,
+};
 pub use hints::{HintedTool, ToolHints};
 pub use narration::NarrationListener;

@@ -41,8 +41,11 @@ see [`docs/extensibility.md`](docs/extensibility.md).
 - **`agentyk-everruns` extensions** (prototype): the satellite `EverrunsExecutor`
   now **dispatches a tool batch concurrently** (`pending_tool_actions` +
   `join_all`), closing agentyk's item-9 "concurrent dispatch" follow-up outside
-  core; plus a `NarrationListener` showing the transcript surface is a pure
-  `EventListener`.
+  core; a `NarrationListener` showing the transcript surface is a pure
+  `EventListener`; and a `PreToolGuard` chain (`GuardOutcome::{Allow, Rewrite,
+  Deny}`) proving the remaining gap-4 shapes — **rewrite a call before it runs**
+  (redaction), guard composition, and a **capability that contributes the guard
+  gating its own tool**.
 
 ### Changed
 
