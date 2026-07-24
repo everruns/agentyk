@@ -6,7 +6,7 @@
 //! Run it:
 //!
 //! ```text
-//! cargo run -p agentyk-everruns --example transcript
+//! cargo run -p agentyk-everruns-poc --example transcript
 //! ```
 
 use std::sync::Arc;
@@ -14,7 +14,7 @@ use std::sync::Arc;
 use agentyk::{Agent, FnTool, ModelSpec, Result, SimDriver, SimToolCall, SimTurn, ToolOutput};
 use agentyk_core::message::ToolCall;
 use agentyk_core::tool::ToolContext;
-use agentyk_everruns::{
+use agentyk_everruns_poc::{
     ApprovalDecision, Approver, EverrunsExecutor, GuardOutcome, HintedTool, NarrationListener,
     PreToolGuard, ToolHints,
 };

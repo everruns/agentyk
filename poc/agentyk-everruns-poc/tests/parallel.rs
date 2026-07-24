@@ -6,7 +6,7 @@ use agentyk::{
     Agent, EventData, FnTool, ModelSpec, Result, SimDriver, SimToolCall, SimTurn, ToolOutput,
 };
 use agentyk_core::message::ToolCall;
-use agentyk_everruns::{ApprovalDecision, Approver, EverrunsExecutor, HintedTool, ToolHints};
+use agentyk_everruns_poc::{ApprovalDecision, Approver, EverrunsExecutor, HintedTool, ToolHints};
 use async_trait::async_trait;
 use serde_json::json;
 

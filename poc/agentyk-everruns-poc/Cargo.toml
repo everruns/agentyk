@@ -1,6 +1,6 @@
 [package]
-name = "agentyk-everruns"
-description = "Prototype: everruns-flavored behavior as a satellite over agentyk-core's seams — proof that the extensibility boundary holds with no core change."
+name = "agentyk-everruns-poc"
+description = "Proof of concept: everruns-flavored behavior as a satellite over agentyk-core's seams — proof that the extensibility boundary holds with no core change."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -24,5 +24,5 @@ serde_json = { workspace = true }
 futures-util = { version = "0.3", default-features = false, features = ["alloc"] }
 
 [dev-dependencies]
-agentyk = { path = "../agentyk" }
+agentyk = { path = "../../crates/agentyk" }
 tokio = { workspace = true, features = ["macros", "rt"] }

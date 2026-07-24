@@ -2,7 +2,7 @@
 
 Agentyk-core is a **contract crate**: traits, the event protocol, and the
 sans-IO turn machine. The goal is that a downstream project — the eventual
-everruns-core rebuild, a `agentyk-everruns` compat layer, or any adopter —
+everruns-core rebuild, a `agentyk-everruns-poc` compat layer, or any adopter —
 can reproduce everruns-grade behavior **as a library composed over agentyk's
 seams**, without patches to core. This note is the map for doing that: what is
 already external, the one thing that genuinely needs core, and the rule we use
@@ -78,7 +78,7 @@ still deserialize.
 
 ## The satellite boundary
 
-> `agentyk-everruns` (or the rebuilt everruns-core) =
+> `agentyk-everruns-poc` (or the rebuilt everruns-core) =
 > a custom [`TurnExecutor`] (everruns act/hook/approval/parallel semantics)
 > + capabilities (mcp-merge, narration listener, compaction assembler, facts,
 > filesystem depth)
@@ -92,9 +92,9 @@ in a `metadata` hatch or the executor, not in core.
 
 ## Proven end-to-end
 
-`crates/agentyk-everruns` is a working proof of this boundary (a prototype,
-`publish = false`). Its **library depends on `agentyk-core` only** — no
-framework, no tokio, no HTTP (`cargo tree -p agentyk-everruns --edges normal`
+`poc/agentyk-everruns-poc` is a working proof of this boundary (a proof of
+concept, `publish = false`). Its **library depends on `agentyk-core` only** — no
+framework, no tokio, no HTTP (`cargo tree -p agentyk-everruns-poc --edges normal`
 shows just core + async-trait/serde). It ships:
 
 - `EverrunsExecutor` — a custom [`TurnExecutor`] over `atoms` + [`TurnState`]

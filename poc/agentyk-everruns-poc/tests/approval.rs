@@ -4,7 +4,7 @@
 
 use agentyk::{Agent, EventData, FnTool, ModelSpec, Result, SimDriver, SimTurn, ToolOutput};
 use agentyk_core::message::ToolCall;
-use agentyk_everruns::{ApprovalDecision, Approver, EverrunsExecutor, HintedTool, ToolHints};
+use agentyk_everruns_poc::{ApprovalDecision, Approver, EverrunsExecutor, HintedTool, ToolHints};
 use async_trait::async_trait;
 use serde_json::json;
 
@@ -86,7 +86,7 @@ async fn destructive_tool_is_blocked_by_the_approver() -> Result<()> {
 
 #[tokio::test]
 async fn approved_destructive_tool_runs() -> Result<()> {
-    let agent = agent_with(agentyk_everruns::AllowAll, ToolHints::destructive())?;
+    let agent = agent_with(agentyk_everruns_poc::AllowAll, ToolHints::destructive())?;
     let mut session = agent.session();
     session.run("delete it").await?;
 

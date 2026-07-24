@@ -27,7 +27,8 @@ serialize as before and pre-0.1.1 logs still load. Behavior (mutating/approval
 hooks, parallel dispatch) is deliberately left to a satellite `TurnExecutor` —
 see [`docs/extensibility.md`](docs/extensibility.md).
 
-- **`agentyk-everruns` prototype** (`crates/agentyk-everruns`, `publish = false`)
+- **`agentyk-everruns-poc` proof of concept** (`poc/agentyk-everruns-poc`,
+  `publish = false`)
   — a proof that the extensibility boundary holds: a custom `TurnExecutor` with
   hint-based tool approval and a `ToolHints` taxonomy in the `metadata` hatch,
   built over `agentyk-core`'s public seams with no core change. Its library
@@ -38,7 +39,7 @@ see [`docs/extensibility.md`](docs/extensibility.md).
   responses into `Message.thinking`/`thinking_signature` (streaming included),
   and replays them with their signature on the next turn — completing the
   reasoning round-trip.
-- **`agentyk-everruns` extensions** (prototype): the satellite `EverrunsExecutor`
+- **`agentyk-everruns-poc` extensions**: the satellite `EverrunsExecutor`
   now **dispatches a tool batch concurrently** (`pending_tool_actions` +
   `join_all`), closing agentyk's item-9 "concurrent dispatch" follow-up outside
   core; a `NarrationListener` showing the transcript surface is a pure
@@ -46,8 +47,8 @@ see [`docs/extensibility.md`](docs/extensibility.md).
   Deny}`) proving the remaining gap-4 shapes — **rewrite a call before it runs**
   (redaction), guard composition, and a **capability that contributes the guard
   gating its own tool**. Plus a runnable `transcript` example
-  (`cargo run -p agentyk-everruns --example transcript`) and a crate README.
-- **`agentyk-everruns` memory/compaction** (prototype): a `MemoryAssembler`
+  (`cargo run -p agentyk-everruns-poc --example transcript`) and a crate README.
+- **`agentyk-everruns-poc` memory/compaction**: a `MemoryAssembler`
   implementing core's `ContextAssembler` — injects a persistent memory note into
   every turn and can cap replayed history (`keep_last`), showing everruns-style
   memory + compaction shape *what the turn sends* over the existing seam while

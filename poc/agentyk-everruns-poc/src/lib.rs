@@ -1,4 +1,4 @@
-//! # agentyk-everruns (prototype)
+//! # agentyk-everruns-poc (prototype)
 //!
 //! A **proof of the extensibility boundary**: everruns-flavored behavior built
 //! as a satellite over [`agentyk-core`](agentyk_core)'s public seams, with no
@@ -22,7 +22,7 @@
 //! under a `"hints"` key — core never learns the schema; this crate owns it.
 //!
 //! ```no_run
-//! use agentyk_everruns::{EverrunsExecutor, HintedTool, ToolHints, Approver, ApprovalDecision};
+//! use agentyk_everruns_poc::{EverrunsExecutor, HintedTool, ToolHints, Approver, ApprovalDecision};
 //! # use agentyk_core::message::ToolCall;
 //! # async fn demo(deny_all: impl Approver + 'static) {
 //! // Attach a custom executor that gates risky tools:

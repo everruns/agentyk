@@ -4,7 +4,7 @@
 use std::sync::Arc;
 
 use agentyk::{Agent, FnTool, ModelSpec, Result, SimDriver, SimTurn, ToolOutput};
-use agentyk_everruns::NarrationListener;
+use agentyk_everruns_poc::NarrationListener;
 use serde_json::json;
 
 #[tokio::test]

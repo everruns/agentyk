@@ -136,7 +136,7 @@ expensive to change the longer we wait.
    this is a **satellite [`TurnExecutor`]** that owns the act loop — it can
    mutate/deny calls, await an approver, consult capability-contributed
    hooks, and fan out in parallel — **without** a core change. **Now proven**
-   in `agentyk-everruns`'s `EverrunsExecutor` (a `PreToolGuard` chain: deny
+   in `agentyk-everruns-poc`'s `EverrunsExecutor` (a `PreToolGuard` chain: deny
    with a user message, `Rewrite` a call before it runs, and a capability that
    contributes the guard gating its own tool). See
    [`extensibility.md`](extensibility.md). `PostActHook` (turn-level) and
@@ -152,7 +152,7 @@ expensive to change the longer we wait.
    batch at once (vs. `next_action()`'s one-at-a-time walk), which is what a
    parallel executor fans out concurrently. `InProcessExecutor` deliberately
    keeps using `next_action()` — it stays sequential. **Concurrent dispatch is
-   now proven in the satellite** (`agentyk-everruns`'s `EverrunsExecutor`):
+   now proven in the satellite** (`agentyk-everruns-poc`'s `EverrunsExecutor`):
    it drains `pending_tool_actions()`, runs the batch under `join_all`, and
    replays results back through `TurnHost::record` sequentially (since
    `record` needs `&mut self`) — exactly the shape this note sketched, and
