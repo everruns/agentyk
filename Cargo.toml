@@ -1,6 +1,11 @@
 [workspace]
 resolver = "2"
-members = ["crates/agentyk-core", "crates/agentyk", "poc/agentyk-everruns-poc"]
+members = [
+    "crates/agentyk-core",
+    "crates/agentyk",
+    "examples/codenko",
+    "poc/agentyk-everruns-poc",
+]
 
 [workspace.package]
 version = "0.1.0"

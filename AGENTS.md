@@ -27,6 +27,10 @@ Cargo workspace, lockstep versions:
   `JsonlEventLog`, bundled drivers (features `http`), MCP (feature `mcp`).
   Re-exports all of core; applications depend only on `agentyk`.
 
+- `examples/<name>` — runnable applications (`publish = false`). Workspace
+  members so they build and test in CI, but never a dependency of the crates.
+  Free to take deps the library would not (a TUI toolkit, an argument parser).
+
 New drivers/capabilities start as feature-gated modules in `agentyk` and
 graduate to `agentyk-<name>` satellite crates (depending only on core) when
 they grow a heavy dependency. Do not add tokio/reqwest/process deps to core.

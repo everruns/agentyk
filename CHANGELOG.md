@@ -27,6 +27,14 @@ serialize as before and pre-0.1.1 logs still load. Behavior (mutating/approval
 hooks, parallel dispatch) is deliberately left to a satellite `TurnExecutor` —
 see [`docs/extensibility.md`](docs/extensibility.md).
 
+- **`codenko` example** (`examples/codenko`, `publish = false`): a terminal
+  coding agent built on the public contract — `FileSystemCapability` plus a
+  `run_command` shell tool, a `PreToolUseHook` that turns mutating calls into an
+  in-TUI approval prompt, per-turn `CancellationToken`, and a transcript folded
+  entirely from the event stream (so the display is tested with `SimDriver`, no
+  terminal and no network). UI is [`tuika`](https://crates.io/crates/tuika);
+  `examples/codenko/demo.tape` records the README GIF with `vhs`.
+
 - **`agentyk-everruns-poc` proof of concept** (`poc/agentyk-everruns-poc`,
   `publish = false`)
   — a proof that the extensibility boundary holds: a custom `TurnExecutor` with
