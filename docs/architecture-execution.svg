@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 470" fill="none" role="img" aria-labelledby="title desc">
+  <title id="title">Canonical engine execution cycle</title>
+  <desc id="desc">An execution host loads durable events, asks TurnEngine to replay and advance the turn, appends emitted events with optimistic concurrency, and executes or durably schedules the prepared operation.</desc>
+  <style>
+    text { font-family: 'Geist', 'Inter', system-ui, sans-serif; }
+    .label { font-size: 13px; fill: #0A0A0A; font-weight: 600; }
+    .sublabel { font-size: 11px; fill: #404040; font-weight: 400; }
+    .header-text { font-size: 11px; fill: #A0A0A0; font-weight: 400; letter-spacing: 0.08em; }
+    .mono { font-family: 'Geist Mono', 'SF Mono', monospace; font-size: 10px; fill: #404040; }
+    .step-num { font-size: 10px; fill: #FFFFFF; font-weight: 600; }
+    .arrow-label { font-size: 10px; fill: #0A1636; font-weight: 500; }
+  </style>
+  <rect width="800" height="470" fill="#FFFFFF"/>
+
+  <text x="125" y="40" text-anchor="middle" class="header-text">PERSISTENCE</text>
+  <rect x="40" y="55" width="170" height="70" fill="#F5F5F5" stroke="#0A0A0A" stroke-width="1"/>
+  <text x="125" y="86" text-anchor="middle" class="label">Event store</text>
+  <text x="125" y="107" text-anchor="middle" class="mono">authoritative events</text>
+
+  <text x="400" y="40" text-anchor="middle" class="header-text">SCHEDULING</text>
+  <rect x="315" y="55" width="170" height="70" fill="#F5F5F5" stroke="#0A0A0A" stroke-width="1"/>
+  <text x="400" y="86" text-anchor="middle" class="label">Execution host</text>
+  <text x="400" y="107" text-anchor="middle" class="mono">in-process or durable</text>
+
+  <text x="675" y="40" text-anchor="middle" class="header-text">SEMANTICS</text>
+  <rect x="590" y="55" width="170" height="70" fill="#F5F5F5" stroke="#0A0A0A" stroke-width="1"/>
+  <text x="675" y="86" text-anchor="middle" class="label">TurnEngine</text>
+  <text x="675" y="107" text-anchor="middle" class="mono">one interpretation</text>
+
+  <line x1="125" y1="125" x2="125" y2="435" stroke="#A0A0A0" stroke-width="1" stroke-dasharray="3 3"/>
+  <line x1="400" y1="125" x2="400" y2="435" stroke="#A0A0A0" stroke-width="1" stroke-dasharray="3 3"/>
+  <line x1="675" y1="125" x2="675" y2="435" stroke="#A0A0A0" stroke-width="1" stroke-dasharray="3 3"/>
+
+  <rect x="20" y="150" width="760" height="285" fill="#FFFFFF" stroke="#404040" stroke-width="1" stroke-dasharray="4 3"/>
+  <rect x="20" y="150" width="162" height="24" fill="#FFFFFF"/>
+  <text x="32" y="166" class="header-text">REPEAT UNTIL FINISHED</text>
+
+  <line x1="390" y1="205" x2="135" y2="205" stroke="#0A1636" stroke-width="1.5"/>
+  <polygon points="135,200 125,205 135,210" fill="#0A1636"/>
+  <rect x="246" y="182" width="18" height="18" fill="#0A1636"/>
+  <text x="255" y="195" text-anchor="middle" class="step-num">1</text>
+  <text x="271" y="195" class="arrow-label">Load events</text>
+
+  <line x1="410" y1="255" x2="665" y2="255" stroke="#0A1636" stroke-width="1.5"/>
+  <polygon points="665,250 675,255 665,260" fill="#0A1636"/>
+  <rect x="500" y="232" width="18" height="18" fill="#0A1636"/>
+  <text x="509" y="245" text-anchor="middle" class="step-num">2</text>
+  <text x="525" y="245" class="arrow-label">Replay; prepare or apply</text>
+
+  <line x1="665" y1="305" x2="410" y2="305" stroke="#0A1636" stroke-width="1.5" stroke-dasharray="3 3"/>
+  <polygon points="410,300 400,305 410,310" fill="#0A1636"/>
+  <rect x="500" y="282" width="18" height="18" fill="#0A1636"/>
+  <text x="509" y="295" text-anchor="middle" class="step-num">3</text>
+  <text x="525" y="295" class="arrow-label">Events + operation or outcome</text>
+
+  <line x1="390" y1="355" x2="135" y2="355" stroke="#0A1636" stroke-width="1.5"/>
+  <polygon points="135,350 125,355 135,360" fill="#0A1636"/>
+  <rect x="226" y="332" width="18" height="18" fill="#0A1636"/>
+  <text x="235" y="345" text-anchor="middle" class="step-num">4</text>
+  <text x="251" y="345" class="arrow-label">Append with expected version</text>
+
+  <path d="M 410 405 H 485 V 425 H 410" stroke="#0A1636" stroke-width="1.5" fill="none"/>
+  <polygon points="410,420 400,425 410,430" fill="#0A1636"/>
+  <rect x="438" y="382" width="18" height="18" fill="#0A1636"/>
+  <text x="447" y="395" text-anchor="middle" class="step-num">5</text>
+  <text x="462" y="395" class="arrow-label">Execute now or schedule durably</text>
+</svg>

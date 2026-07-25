@@ -15,6 +15,8 @@ not here — nothing in this bundle is a user-facing product doc.
 
 - [architecture](architecture.md) (`Design`) — crate boundaries, the
   single canonical step engine, execution hosts, and event-sourced durability.
+- [diagrams](diagrams.md) (`Design`) — Mermaid/SVG source pairing, placement,
+  visual language, accessible color use, and required raster review.
 - [plan](plan.md) (`Plan`) — direction and the phased roadmap: build agentyk
   value-first, harden for adoption, then rebuild everruns-core/runtime on top.
 - [everruns-adoption](everruns-adoption.md) (`Analysis`) — gap analysis of what
