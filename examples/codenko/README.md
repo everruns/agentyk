@@ -21,30 +21,28 @@ cargo run --release -p codenko -- --dir path/to/project
 ```
 
 With no flags it works in the current directory and picks whichever provider's
-key is set:
+key is set. `codenko --help`:
 
 ```
-codenko — a small terminal coding agent
+A small terminal coding agent.
 
-Usage: codenko [options]
+Usage: codenko [OPTIONS]
 
 Options:
-  -C, --dir <path>       Workspace directory the agent works in (default: .)
-      --provider <name>  anthropic | openai (default: whichever key is set)
-      --model <id>       Model id (default: per provider, see below)
-      --base-url <url>   Override the provider endpoint (compatible servers,
-                         gateways, local runtimes)
-      --reasoning-effort <level>
-                         Reasoning effort, where the driver supports it
-                         (openai: none | low | medium | high)
-      --log <path>       Append the session's JSONL event log here
-  -h, --help             Show this message
+  -C, --dir <PATH>                Workspace directory the agent works in [default: .]
+      --provider <NAME>           Provider to talk to [default: whichever API key is set] [possible values: anthropic, openai]
+      --model <ID>                Model id [default: per provider]
+      --base-url <URL>            Override the provider endpoint (compatible servers, gateways, local runtimes)
+      --reasoning-effort <LEVEL>  Reasoning effort, where the driver supports it (openai: none | low | medium | high)
+      --log <PATH>                Append the session's JSONL event log here
+  -h, --help                      Print help
+  -V, --version                   Print version
 
 Environment:
-  ANTHROPIC_API_KEY      Enables --provider anthropic (default claude-sonnet-5)
-  OPENAI_API_KEY         Enables --provider openai (default gpt-5.5)
-  ANTHROPIC_BASE_URL     Default for --base-url on --provider anthropic
-  OPENAI_BASE_URL        Default for --base-url on --provider openai
+  ANTHROPIC_API_KEY   Enables --provider anthropic (default claude-sonnet-5)
+  OPENAI_API_KEY      Enables --provider openai (default gpt-5.5)
+  ANTHROPIC_BASE_URL  Default for --base-url on --provider anthropic
+  OPENAI_BASE_URL     Default for --base-url on --provider openai
 ```
 
 ### Providers

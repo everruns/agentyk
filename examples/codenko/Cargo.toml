@@ -23,6 +23,10 @@ ratatui-core = { version = "0.1", features = ["std"] }
 crossterm = "0.29"
 # Word wrapping for the transcript.
 textwrap = "0.16"
+# Argument parsing. The library would not take this, but an example is free to:
+# hand-rolling means hand-rolling the conventions too (`--flag=value`, `--`,
+# suggestions on a typo), and getting those wrong is worse than a dependency.
+clap = { version = "4", features = ["derive"] }
 
 [dev-dependencies]
 chrono = { workspace = true }
