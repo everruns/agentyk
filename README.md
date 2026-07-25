@@ -62,6 +62,18 @@ cargo run -p agentyk --example hello
 cargo test --workspace --all-features
 ```
 
+## A real application
+
+[`examples/codenko`](examples/codenko) is a small terminal coding agent —
+filesystem tools, a shell tool behind an approval prompt, streaming output,
+cancellable turns — in about 1,450 lines. It is the short version of what
+building on agentyk looks like: the whole UI is a fold over the event stream,
+so it is tested without a terminal or a network.
+
+```sh
+ANTHROPIC_API_KEY=... cargo run --release -p codenko -- --dir path/to/project
+```
+
 ## Relationship to everruns
 
 The domain language — events protocol, capabilities, drivers, the turn
