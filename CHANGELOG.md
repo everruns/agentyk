@@ -5,9 +5,16 @@ on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 Versioning: agentyk is pre-1.0 and stays strictly on `0.1.x` until a public
 release — every release bumps the patch component (`0.1.z`). See
-[`specs/release.md`](specs/release.md).
+[`knowledge/release.md`](knowledge/release.md).
 
 ## [Unreleased]
+
+### Changed
+
+- Migrated the repository’s durable design specs into `knowledge/`, an OKF
+  bundle explicitly maintained as persistent repository memory. Agent guidance,
+  shipping checks, and the definition of done now require integrating durable
+  decisions and stale-claim cleanup with each change.
 
 ### Documentation
 
@@ -251,7 +258,7 @@ release — every release bumps the patch component (`0.1.z`). See
 All fields are additive and serde-optional, so plain messages/tools/events
 serialize as before and pre-0.1.1 logs still load. Behavior (mutating/approval
 hooks, parallel dispatch) is deliberately left to a satellite `TurnExecutor` —
-see [`specs/extensibility.md`](specs/extensibility.md).
+see [`knowledge/extensibility.md`](knowledge/extensibility.md).
 
 - **`codenko` example** (`examples/codenko`, `publish = false`): a terminal
   coding agent built on the public contract — `FileSystemCapability` plus a

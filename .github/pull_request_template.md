@@ -15,4 +15,4 @@ say so.
 - [ ] Tests added or updated (offline, via `SimDriver` — no keys/network)
 - [ ] `cargo fmt --all --check`, `cargo clippy --workspace --all-targets --all-features -- -D warnings`
 - [ ] `agentyk-core` still free of tokio/reqwest in its normal dep tree (`cargo tree -p agentyk-core --edges normal`)
-- [ ] Specs updated if behavior changed
+- [ ] Knowledge reviewed and updated if durable behavior or design intent changed
