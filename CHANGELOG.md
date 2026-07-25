@@ -9,6 +9,16 @@ release — every release bumps the patch component (`0.1.z`). See
 
 ## [Unreleased]
 
+### Fixed
+
+- **A log written by a newer agentyk is readable by an older one.**
+  `EventData` is internally tagged, so an unrecognized `kind` aborted
+  deserialization of the line — and `JsonlEventLog::read` turned that into a
+  failed read of the *whole session*, making it unresumable. `Event` now
+  deserializes tolerantly: an unknown kind degrades to `EventData::Custom`
+  carrying the original payload. Replay stays sufficient to resume a session
+  across versions, which is the point of the persistence seam.
+
 ### Changed — packaging and API-stability guardrails
 
 - **`agentyk` defaults to no features.** `tokio` is now an optional dependency

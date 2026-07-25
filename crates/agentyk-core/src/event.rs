@@ -166,7 +166,12 @@ impl EventData {
 /// A fully-recorded event. `id` and `ts` are always assigned on emission;
 /// `sequence` is `Some` (contiguous per session, starting at 1) for durable
 /// events and `None` for ephemeral ones — see [`EventData::is_ephemeral`].
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+///
+/// Deserialization is **forward compatible**: an event whose `kind` this
+/// version doesn't know degrades to [`EventData::Custom`] carrying the
+/// original payload, rather than failing the read — see the custom
+/// [`Deserialize`] impl below.
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Event {
     pub id: EventId,
     #[serde(rename = "type")]
@@ -178,6 +183,53 @@ pub struct Event {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sequence: Option<u64>,
     pub data: EventData,
+}
+
+/// Mirrors [`Event`] with the payload left undecoded, so an unknown `kind`
+/// can be caught and degraded instead of failing the whole read.
+#[derive(Deserialize)]
+struct EventRepr {
+    id: EventId,
+    #[serde(rename = "type")]
+    event_type: String,
+    ts: DateTime<Utc>,
+    session_id: SessionId,
+    #[serde(default)]
+    turn_id: Option<TurnId>,
+    #[serde(default)]
+    sequence: Option<u64>,
+    data: serde_json::Value,
+}
+
+// Replay is the persistence contract: a log must stay readable, and an older
+// binary must not choke on a log a newer one wrote. `EventData` is internally
+// tagged, so an unrecognized `kind` would otherwise abort deserialization of
+// the whole line — and `JsonlEventLog::read` turns that into a failed read of
+// the entire session. Degrading to `Custom` keeps the event type and its full
+// payload, which is exactly what that variant exists for; nothing is lost but
+// the static type.
+//
+// This intentionally routes through `serde_json::Value`: the event log is a
+// JSON format by construction, and a self-describing intermediate is what
+// makes the fallback possible at all.
+impl<'de> Deserialize<'de> for Event {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let repr = EventRepr::deserialize(deserializer)?;
+        let data =
+            serde_json::from_value::<EventData>(repr.data.clone()).unwrap_or(EventData::Custom {
+                event_type: repr.event_type.clone(),
+                payload: repr.data,
+            });
+        Ok(Event {
+            id: repr.id,
+            event_type: repr.event_type,
+            ts: repr.ts,
+            session_id: repr.session_id,
+            turn_id: repr.turn_id,
+            sequence: repr.sequence,
+            data,
+        })
+    }
 }
 
 /// An event about to be emitted — same shape as [`Event`] minus the fields
@@ -303,6 +355,57 @@ mod tests {
             }
             .is_ephemeral()
         );
+    }
+
+    #[test]
+    fn an_unknown_event_kind_degrades_to_custom_instead_of_failing() {
+        // A line written by a future version: `turn.compacted` is not a kind
+        // this build knows. Reading it must not fail — replay is the
+        // persistence contract, and one unreadable line fails a whole session
+        // read in `JsonlEventLog`.
+        let line = serde_json::json!({
+            "id": EventId::new(),
+            "type": "turn.compacted",
+            "ts": Utc::now(),
+            "session_id": SessionId::new(),
+            "sequence": 7,
+            "data": {"kind": "turn_compacted", "removed": 12, "note": "from a newer agentyk"},
+        })
+        .to_string();
+
+        let event: Event = serde_json::from_str(&line).expect("unknown kinds must stay readable");
+        assert_eq!(event.event_type, "turn.compacted");
+        assert_eq!(event.sequence, Some(7));
+
+        // The payload survives intact, so a host can still inspect or forward
+        // what it can't statically understand.
+        let EventData::Custom {
+            event_type,
+            ref payload,
+        } = event.data
+        else {
+            panic!("expected an unknown kind to degrade to Custom");
+        };
+        assert_eq!(event_type, "turn.compacted");
+        assert_eq!(payload["removed"], 12);
+        assert_eq!(payload["kind"], "turn_compacted");
+    }
+
+    #[test]
+    fn known_event_kinds_still_deserialize_to_their_typed_variant() {
+        let request = EventRequest::new(
+            SessionId::new(),
+            EventData::ToolCompleted {
+                call_id: "call_0".into(),
+                name: "read_file".into(),
+                output: "hi".into(),
+                is_error: false,
+            },
+        );
+        let event = request.into_event(EventId::new(), Utc::now(), 3);
+        let back: Event = serde_json::from_str(&serde_json::to_string(&event).unwrap()).unwrap();
+        assert_eq!(back, event);
+        assert!(matches!(back.data, EventData::ToolCompleted { .. }));
     }
 
     #[test]

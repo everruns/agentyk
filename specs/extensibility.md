@@ -48,6 +48,16 @@ Therefore:
 | Host services reaching tools | `ToolContext.extensions` (typed, `TypeId`-keyed bag) |
 | A domain event core lacks | `EventData::Custom { event_type, payload }` |
 
+`Custom` also carries a second, load-bearing job: it is the **forward
+compatibility floor for the event log**. `EventData` is internally tagged, so
+an unrecognized `kind` would abort deserialization of the line — and, through
+`JsonlEventLog::read`, of the entire session. `Event` therefore deserializes
+tolerantly: an unknown kind degrades to `Custom` carrying the original
+payload, so a log written by a newer agentyk stays readable *and resumable* by
+an older one. This is what keeps "replay is sufficient to resume a session"
+true across versions, and it is why new event types may be added freely while
+existing ones may not change shape.
+
 The **[`TurnExecutor`] seam is the lever** that makes hooks/approval/parallel
 external. Because the machine is sans-IO — pure [`TurnState`] transitions plus
 stateless `atoms` — a satellite `EverrunsExecutor` can run its own act loop:
