@@ -58,6 +58,8 @@ they grow a heavy dependency. Do not add tokio/reqwest/process deps to core.
   there — those are specs.
 - Validate the bundle with yolop's zero-dependency checker when editing specs:
   `python3 <yolop>/src/bundled/system-skills/okf/scripts/validate_okf.py specs --strict`.
+- `.claude/skills/` holds workflows requestable by name: `/ship` lands a change
+  (bar in [`specs/shipping.md`](specs/shipping.md), workflow in the skill).
 
 ## Local dev and tests
 
