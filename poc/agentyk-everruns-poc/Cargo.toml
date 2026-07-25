@@ -1,6 +1,6 @@
 [package]
 name = "agentyk-everruns-poc"
-description = "Proof of concept: everruns-flavored behavior as a satellite over agentyk-core's seams — proof that the extensibility boundary holds with no core change."
+description = "Proof of concept: Everruns-flavored policy and metadata composed with Agentyk's canonical engine."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -14,18 +14,13 @@ publish = false
 [lints]
 workspace = true
 
-# The library depends ONLY on the contract crate — the whole point: a satellite
-# reproduces everruns behavior over agentyk-core's public seams, no framework,
-# no tokio, no HTTP. The framework (`agentyk`) appears only as a dev-dependency,
-# as the test harness.
+# The library contains host-neutral policy and metadata over core contracts.
+# The facade appears only as a dev-dependency for end-to-end tests.
 [dependencies]
 agentyk-core = { workspace = true }
 async-trait = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-# A concurrency combinator (join_all) for parallel tool dispatch — a
-# runtime-agnostic utility, NOT a runtime: no tokio, no threads of its own.
-futures-util = { version = "0.3", default-features = false, features = ["alloc"] }
 
 [dev-dependencies]
 agentyk = { path = "../../crates/agentyk" }

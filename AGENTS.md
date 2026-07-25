@@ -21,24 +21,27 @@ the long-term plan is to rebuild everruns-core/runtime on top of it. Read
 Cargo workspace, lockstep versions:
 
 - `crates/agentyk-core` — the contract: traits, event protocol, turn machine,
-  atoms, replay. Lean by construction: **no tokio, no HTTP, no process
-  spawning**. Anything a third party implements or serializes lives here.
-  Files are grouped into `protocol/`, `agent/` and `runtime/`, but every
-  module is re-exported at the crate root — directories organize the source,
-  they are never public paths.
-- `crates/agentyk` — the framework: builders, `InProcessExecutor`,
-  `JsonlEventLog`, bundled drivers (feature `http`), MCP (feature `mcp`).
-  Re-exports all of core **explicitly, not by glob**; applications depend only
-  on `agentyk`. When you add a public item to core, add it to that list —
-  `python3 scripts/check_reexports.py` (and CI) fails otherwise.
+  replay. Lean by construction: **no tokio, no HTTP, no process spawning**.
+  Anything a third party implements or serializes lives here. Physical files
+  and public modules use the same domain names.
+- `crates/agentyk-engine` — the one canonical step engine: `Agent`, `Session`,
+  middleware/policy orchestration, prepared model/tool-batch operations, and
+  the in-process host. Durable execution hosts this engine; it never copies
+  the turn loop.
+- `crates/agentyk` — the facade and bundled modules: `JsonlEventLog`, drivers
+  (feature `http`), MCP (feature `mcp`), filesystem (feature `fs`). MCP and
+  filesystem are first-class library capabilities, not integration crates.
+  Re-exports core and engine explicitly; applications depend only on
+  `agentyk`. `python3 scripts/check_reexports.py` enforces the facade surface.
 
 - `examples/<name>` — runnable applications (`publish = false`). Workspace
   members so they build and test in CI, but never a dependency of the crates.
   Free to take deps the library would not (a TUI toolkit, an argument parser).
 
-New drivers/capabilities start as feature-gated modules in `agentyk` and
-graduate to `agentyk-<name>` satellite crates (depending only on core) when
-they grow a heavy dependency. Do not add tokio/reqwest/process deps to core.
+Drivers and capabilities stay as feature-gated modules in `agentyk`.
+Extracting another crate requires a concrete dependency, ownership, or release
+need. Do not add tokio/reqwest/process deps to core or bundled integrations to
+engine.
 
 ## Design rules (enforced in review)
 

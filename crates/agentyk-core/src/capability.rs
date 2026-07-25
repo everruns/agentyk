@@ -93,7 +93,7 @@ pub trait Capability: Send + Sync {
     }
 
     /// Generic, serializable extension hatch for host-side capability
-    /// metadata a satellite crate owns — enabled/degraded `status`,
+    /// metadata an adopting host owns — enabled/degraded `status`,
     /// `category`, `icon`, and similar richness everruns exposes. Kept as an
     /// opaque bag (default `Null`) rather than typed core methods, so the
     /// contract doesn't grow per host concern; a host reads and interprets

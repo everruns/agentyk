@@ -36,7 +36,7 @@ struct Forward(AppEventSender);
 #[async_trait]
 impl EventListener for Forward {
     async fn on_event(&self, event: &agentyk::Event) {
-        let _ = self.0.send(AppEvent::Agent(event.clone()));
+        let _ = self.0.send(AppEvent::Agent(Box::new(event.clone())));
     }
 }
 

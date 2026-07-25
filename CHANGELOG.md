@@ -9,15 +9,34 @@ release — every release bumps the patch component (`0.1.z`). See
 
 ## [Unreleased]
 
+### Changed — one canonical engine, multiple execution hosts
+
+- Added `agentyk-engine`, the shared home of `Agent`, `Session`, the
+  prepare/apply step engine, and the in-process host. The top-level `agentyk`
+  crate remains the application facade and keeps drivers, MCP, filesystem, and
+  event-store implementations as feature-gated modules.
+- Removed custom whole-turn executors from agent composition. `TurnEngine`
+  applies middleware, budgets, cancellation, and transitions once, then hands
+  provider-neutral model operations or prepared tool batches to a host.
+- Durable hosts can discard `TurnState` at every boundary and reconstruct it
+  from events. Turn-start, model-usage, and rewritten-call data are now
+  persisted for that reduction.
+- `EventStore` supports atomic batches, expected stream versions, and
+  incremental reads. Live history advances only after persistence succeeds.
+- Prepared operations remain runtime-only because model requests can contain
+  credentials; durable hosts persist emitted events and resolve protected
+  resources at execution time. `ModelSpec` debug output now redacts API keys.
+
 ### Fixed
 
-- **A log written by a newer agentyk is readable by an older one.**
+- **A log written by a newer agentyk remains inspectable by an older one.**
   `EventData` is internally tagged, so an unrecognized `kind` aborted
   deserialization of the line — and `JsonlEventLog::read` turned that into a
   failed read of the *whole session*, making it unresumable. `Event` now
   deserializes tolerantly: an unknown kind degrades to `EventData::Custom`
-  carrying the original payload. Replay stays sufficient to resume a session
-  across versions, which is the point of the persistence seam.
+  carrying the original payload. Unknown observational events remain readable;
+  unknown state-bearing events now stop turn-state replay rather than risking
+  an incorrect resume.
 
 ### Added — the HTTP drivers are tested over a real socket
 
@@ -70,13 +89,9 @@ release — every release bumps the patch component (`0.1.z`). See
 
 ### Changed — module layout and an explicit public surface
 
-- **`agentyk-core`'s files are grouped** into `protocol/` (event, event_log,
-  message, id, error, driver), `agent/` (config, capability, tool,
-  middleware, context, controls, budget, extensions) and `runtime/` (turn,
-  atoms, executor, replay, cancellation). Every module is re-exported at the
-  crate root, so **no public path changed** — `agentyk_core::event` is still
-  `agentyk_core::event` — and the grouping can be re-cut later without
-  breaking anyone.
+- **`agentyk-core`'s physical files now match its public domain modules.**
+  There are no private `protocol`/`agent`/`runtime` buckets hiding the actual
+  API map.
 - **`agentyk` lists its re-exports instead of `pub use agentyk_core::*`.**
   A glob means every future core item silently widens this crate's surface,
   including names that collide with one it already owns. `scripts/check_reexports.py`

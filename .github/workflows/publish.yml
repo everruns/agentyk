@@ -35,9 +35,9 @@ jobs:
 
       # No baseline on the very first publish of a crate — semver-checks
       # reports that and exits non-zero, which is not a failure of this change.
-      - name: Check agentyk-core and agentyk against crates.io
+      - name: Check published crates against crates.io
         run: |
-          for crate in agentyk-core agentyk; do
+          for crate in agentyk-core agentyk-engine agentyk; do
             if ! curl -sSf "https://crates.io/api/v1/crates/$crate" -o /dev/null; then
               echo "$crate is not published yet — no baseline to compare against, skipping"
               continue
@@ -99,11 +99,31 @@ jobs:
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
-  # Publish agentyk (the framework crate; depends on agentyk-core).
+  # Publish agentyk-engine after its core dependency reaches the index.
+  publish-engine:
+    name: Publish agentyk-engine
+    runs-on: ubuntu-latest
+    needs: publish-core
+    environment: release
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Wait for crates.io index update
+        run: sleep 30
+
+      - name: Publish agentyk-engine to crates.io
+        run: cargo publish -p agentyk-engine
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+  # Publish the facade after both internal dependencies reach the index.
   publish-agentyk:
     name: Publish agentyk
     runs-on: ubuntu-latest
-    needs: publish-core
+    needs: publish-engine
     environment: release
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -119,11 +139,11 @@ jobs:
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
-  # Verify both crates are visible at the expected version.
+  # Verify all crates are visible at the expected version.
   verify-publish:
     name: Verify published versions
     runs-on: ubuntu-latest
-    needs: [publish-core, publish-agentyk]
+    needs: [publish-core, publish-engine, publish-agentyk]
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
@@ -134,4 +154,4 @@ jobs:
         run: |
           EXPECTED=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
           echo "Expected version: $EXPECTED"
-          python3 scripts/verify_crates_publish.py --expected "$EXPECTED" agentyk-core agentyk
+          python3 scripts/verify_crates_publish.py --expected "$EXPECTED" agentyk-core agentyk-engine agentyk

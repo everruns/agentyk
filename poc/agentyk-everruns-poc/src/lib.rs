@@ -4,20 +4,13 @@
 //! as a satellite over [`agentyk-core`](agentyk_core)'s public seams, with no
 //! change to core. See `specs/extensibility.md` in the agentyk repo.
 //!
-//! The library depends on `agentyk-core` **only** — no framework, no tokio, no
-//! HTTP. It shows the design's claims end-to-end: behavior in a custom
-//! executor, everruns data on the `metadata` hatch, and memory/compaction over
-//! the context-assembly seam.
+//! The library depends on `agentyk-core` only. It shows that Everruns data can
+//! ride the metadata hatch and that approval, memory, and narration compose
+//! without replacing the canonical turn engine.
 //!
-//! **Behavior lives in a custom [`TurnExecutor`](agentyk_core::executor::TurnExecutor).**
-//! [`EverrunsExecutor`] drives the same [`TurnState`](agentyk_core::turn::TurnState)
-//! and [`atoms`](agentyk_core::atoms) as the built-in executor, differing only
-//! in **dispatch strategy**: it fans a tool batch out concurrently. Guard
-//! policy is not part of it — hint-based **approval** is
-//! [`ApprovalMiddleware`], ordinary core
+//! Hint-based approval is [`ApprovalMiddleware`], ordinary core
 //! [`TurnMiddleware`](agentyk_core::middleware::TurnMiddleware) attached with
-//! `AgentBuilder::middleware`. Denial and rewriting stopped needing a forked
-//! act loop once core middleware could express both.
+//! `AgentBuilder::middleware`.
 //!
 //! **Everruns-flavored data rides the `metadata` hatch.** [`ToolHints`]
 //! (`readonly`/`destructive`/`open_world`) live in
@@ -25,24 +18,23 @@
 //! under a `"hints"` key — core never learns the schema; this crate owns it.
 //!
 //! ```no_run
-//! use agentyk_everruns_poc::{ApprovalMiddleware, EverrunsExecutor, HintedTool, ToolHints, Approver, ApprovalDecision};
+//! use agentyk_everruns_poc::{ApprovalMiddleware, HintedTool, ToolHints, Approver, ApprovalDecision};
 //! # use agentyk_core::message::ToolCall;
 //! # async fn demo(deny_all: impl Approver + 'static) {
-//! // Concurrent dispatch, plus approval as ordinary middleware:
-//! let executor = EverrunsExecutor;
+//! // Approval is ordinary middleware:
 //! let approval = ApprovalMiddleware::new(deny_all);
-//! // Tag a tool as destructive so the executor gates it:
+//! // Tag a tool as destructive so the middleware gates it:
 //! // let tool = HintedTool::new(my_delete_tool, ToolHints::destructive());
-//! # let _ = (executor, approval);
+//! # let _ = approval;
 //! # }
 //! ```
 
-mod executor;
+mod approval;
 mod hints;
 mod memory;
 mod narration;
 
-pub use executor::{AllowAll, ApprovalDecision, ApprovalMiddleware, Approver, EverrunsExecutor};
+pub use approval::{AllowAll, ApprovalDecision, ApprovalMiddleware, Approver};
 pub use hints::{HintedTool, ToolHints};
 pub use memory::MemoryAssembler;
 pub use narration::NarrationListener;

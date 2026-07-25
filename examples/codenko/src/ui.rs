@@ -134,7 +134,7 @@ impl App {
             match event {
                 AppEvent::Agent(event) => {
                     match &event.data {
-                        EventData::TurnStarted => self.reported_failure = false,
+                        EventData::TurnStarted { .. } => self.reported_failure = false,
                         EventData::TurnFailed { .. } => self.reported_failure = true,
                         _ => {}
                     }

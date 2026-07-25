@@ -7,7 +7,7 @@
 //!
 //! It also renders the everruns-flavored richness the satellite adds — tool
 //! **risk hints** and pre-run **redaction** (both carried as `EventData::Custom`
-//! events the [`crate::EverrunsExecutor`] emits) and provider **extended
+//! events emitted around engine middleware) and provider extended
 //! thinking** (the typed [`Message::thinking`](agentyk_core::message::Message)
 //! field) — still without observing anything but events.
 
@@ -40,7 +40,7 @@ impl NarrationListener {
     /// reasoning step with thinking — more than one).
     fn narrate(data: &EventData) -> Vec<String> {
         match data {
-            EventData::TurnStarted => vec!["• turn started".to_string()],
+            EventData::TurnStarted { .. } => vec!["• turn started".to_string()],
             EventData::InputMessage { message } => vec![format!("› {}", message.text())],
             EventData::OutputMessageCompleted { message, .. } => {
                 let mut lines = Vec::new();
@@ -69,6 +69,7 @@ impl NarrationListener {
             EventData::Custom {
                 event_type,
                 payload,
+                ..
             } => match event_type.as_str() {
                 "tool.hint" => {
                     let name = payload["name"].as_str().unwrap_or("?");
@@ -128,6 +129,7 @@ mod tests {
         let lines = NarrationListener::narrate(&EventData::OutputMessageCompleted {
             message,
             message_id: Default::default(),
+            usage: Default::default(),
         });
         assert_eq!(lines.len(), 2);
         assert!(lines[0].starts_with("💭 "));
@@ -148,6 +150,11 @@ mod tests {
         let rewrite = NarrationListener::narrate(&EventData::ToolRewritten {
             call_id: "call_0".into(),
             name: "save_note".into(),
+            call: Some(agentyk_core::message::ToolCall {
+                id: "call_0".into(),
+                name: "save_note".into(),
+                arguments: serde_json::json!({}),
+            }),
             by: Some("everruns-guard".into()),
         });
         assert_eq!(

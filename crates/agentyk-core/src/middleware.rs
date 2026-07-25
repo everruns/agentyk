@@ -4,21 +4,18 @@
 //! point. That matters because interception points multiply: everruns alone
 //! wants approval pauses, redaction, capability-contributed guards,
 //! post-act transforms, and client-side tool handoff. As separate traits,
-//! each of those is a new trait, a new `AgentConfig` field, a new builder
-//! setter, and new executor code — and every executor has to be taught about
-//! it. As methods on [`TurnMiddleware`], a new point is a defaulted method:
-//! existing implementations keep compiling, and executors that don't call it
-//! yet stay correct.
+//! each of those is a new trait, a new `AgentDefinition` field, a new builder
+//! setter, and new engine code. As methods on [`TurnMiddleware`], a new point
+//! is a defaulted method and existing implementations keep compiling.
 //!
 //! Middleware replaces the earlier `PreToolUseHook` / `PostToolExecHook`
 //! pair, and can do something they could not: **rewrite** a call before it
 //! runs (argument redaction, path rewriting), which previously forced a
-//! satellite to fork the whole executor loop.
+//! adopter to fork the whole turn loop.
 //!
 //! Ordering is the attachment order. [`before_tool_chain`] defines the
-//! semantics every executor must share — a rewrite feeds the next middleware
-//! and the execution, and the first deny short-circuits — so that the
-//! built-in, satellite, and durable executors cannot drift on it.
+//! semantics the canonical engine applies — a rewrite feeds the next
+//! middleware and the execution, and the first deny short-circuits.
 
 use std::sync::Arc;
 
@@ -60,7 +57,7 @@ impl<'a> ToolInvocation<'a> {
 
 /// What a middleware decides about a tool call it is shown.
 ///
-/// Deliberately exhaustive: an executor that silently ignored a new decision
+/// Deliberately exhaustive: an engine that silently ignored a new decision
 /// would run a call a middleware meant to stop.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ToolCallDecision {
@@ -134,9 +131,8 @@ pub enum ToolChainOutcome {
 /// feeds the next middleware (and ultimately the execution), and the first
 /// [`ToolCallDecision::Deny`] short-circuits.
 ///
-/// Every executor calls this rather than re-implementing the fold, so the
-/// built-in and satellite executors agree on what a chain of middleware
-/// means.
+/// The canonical engine calls this rather than allowing hosts to reinterpret
+/// middleware semantics.
 pub async fn before_tool_chain(
     middleware: &[Arc<dyn TurnMiddleware>],
     call: &ToolCall,

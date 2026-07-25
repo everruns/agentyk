@@ -94,7 +94,8 @@ pub async fn assemble(
     })
 }
 
-fn chat_request(
+/// Build the provider-neutral request for one reason operation.
+pub fn chat_request(
     model: &ModelSpec,
     assembled: &AssembledTurn,
     messages: Vec<Message>,

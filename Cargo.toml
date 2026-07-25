@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "crates/agentyk-core",
+    "crates/agentyk-engine",
     "crates/agentyk",
     "examples/codenko",
     "poc/agentyk-everruns-poc",
@@ -32,6 +33,7 @@ missing_docs = "deny"
 [workspace.dependencies]
 # Internal (lockstep versions)
 agentyk-core = { path = "crates/agentyk-core", version = "0.1.0" }
+agentyk-engine = { path = "crates/agentyk-engine", version = "0.1.0" }
 
 # Shared external
 async-trait = "0.1"

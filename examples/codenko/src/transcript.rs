@@ -116,7 +116,7 @@ impl Transcript {
             EventData::TurnFailed { error } => self.notice(format!("turn failed: {error}")),
             EventData::TurnCancelled => self.notice("interrupted"),
             EventData::TurnSealed { reason } => self.notice(format!("turn sealed: {reason:?}")),
-            EventData::TurnStarted | EventData::TurnCompleted { .. } => {}
+            EventData::TurnStarted { .. } | EventData::TurnCompleted { .. } => {}
             EventData::InputMessage { .. } => {}
             EventData::Custom { event_type, .. } => self.notice(format!("event: {event_type}")),
             // `EventData` is non-exhaustive, and for a transcript that is the

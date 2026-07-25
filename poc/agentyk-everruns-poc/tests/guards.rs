@@ -10,9 +10,7 @@ use agentyk::{
 };
 use agentyk_core::message::ToolCall;
 use agentyk_core::middleware::{ToolCallDecision, ToolInvocation, TurnMiddleware};
-use agentyk_everruns_poc::{
-    ApprovalDecision, ApprovalMiddleware, Approver, EverrunsExecutor, HintedTool, ToolHints,
-};
+use agentyk_everruns_poc::{ApprovalDecision, ApprovalMiddleware, Approver, HintedTool, ToolHints};
 use async_trait::async_trait;
 use serde_json::json;
 
@@ -73,7 +71,6 @@ async fn a_guard_rewrites_a_call_before_it_runs() -> Result<()> {
             SimTurn::tool_call("store", json!({"secret": "hunter2"})),
             SimTurn::text("stored"),
         ]))
-        .executor(EverrunsExecutor)
         .middleware(RedactSecret)
         .tool(echo_tool())
         .build()?;
@@ -98,7 +95,6 @@ async fn guards_compose_and_the_first_deny_short_circuits() -> Result<()> {
             SimTurn::tool_call("store", json!({"secret": "hunter2"})),
             SimTurn::text("done"),
         ]))
-        .executor(EverrunsExecutor)
         .middleware(RedactSecret)
         .middleware(ApprovalMiddleware::new(DenyAll))
         .tool(HintedTool::new(echo_tool(), ToolHints::destructive()))
@@ -147,7 +143,6 @@ async fn a_capability_contributes_its_own_guard() -> Result<()> {
             SimTurn::text("ok"),
         ]))
         .capability(SecretVault)
-        .executor(EverrunsExecutor)
         .middleware(SecretVault::guard())
         .build()?;
 

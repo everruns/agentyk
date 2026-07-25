@@ -5,15 +5,14 @@
 //! [`agentyk`](https://crates.io/crates/agentyk) (which re-exports all of
 //! this); depend on `agentyk-core` directly when you are *implementing* a
 //! seam — a custom [`tool::Tool`], [`capability::Capability`],
-//! [`driver::ChatDriver`], [`event_log::EventLog`], or
-//! [`executor::TurnExecutor`] (e.g. a durable execution host).
+//! [`driver::ChatDriver`] or [`event_log::EventLog`].
 //!
 //! Contents:
 //!
 //! - **Protocol data** — [`event`] (the event protocol), [`message`],
 //!   [`tool`] definitions, typed [`id`]s, [`error`].
 //! - **Seams** — the traits in [`capability`], [`tool`], [`driver`],
-//!   [`event_log`], [`event`] (listeners), [`executor`], and [`middleware`]
+//!   [`event_log`], [`event`] (listeners), and [`middleware`]
 //!   (interception inside the turn loop).
 //! - **The turn machine** — [`turn`] (pure, serializable) and the stateless
 //!   [`atoms`] it sequences; [`replay`] folds an event log back into message
@@ -30,7 +29,7 @@
 //!
 //! - **Data types are `#[non_exhaustive]`** — [`event::EventData`],
 //!   [`error::Error`], [`driver::ModelSpec`], [`driver::ChatRequest`],
-//!   [`driver::Usage`], [`tool::ToolDefinition`], [`executor::TurnResult`],
+//!   [`driver::Usage`], [`tool::ToolDefinition`],
 //!   and friends. They gain fields and variants as providers and hosts grow;
 //!   each has a constructor plus setters, so adding one costs downstream
 //!   nothing.
@@ -41,23 +40,29 @@
 //!   *wrong*; the compile error is the feature. Adding a variant here is a
 //!   deliberate breaking change and belongs in a release note.
 
-// Files are grouped into three directories — `protocol/`, `agent/`,
-// `runtime/` — and every module is re-exported here, so a directory is an
-// organizing device and never a public path. `agentyk_core::event` is
-// `agentyk_core::event` whichever folder the file sits in, and the grouping
-// can be re-cut as the crate grows without breaking anyone.
-mod agent;
-mod protocol;
-mod runtime;
-
-pub use agent::{budget, capability, config, context, controls, extensions, middleware, tool};
-pub use protocol::{driver, error, event, event_log, id, message};
-pub use runtime::{atoms, cancellation, executor, replay, turn};
+// Physical files and public modules deliberately share the same domain names.
+// The source tree is the first architecture map maintainers encounter.
+pub mod atoms;
+pub mod budget;
+pub mod cancellation;
+pub mod capability;
+pub mod context;
+pub mod controls;
+pub mod driver;
+pub mod error;
+pub mod event;
+pub mod event_log;
+pub mod extensions;
+pub mod id;
+pub mod message;
+pub mod middleware;
+pub mod replay;
+pub mod tool;
+pub mod turn;
 
 pub use budget::{BudgetChecker, BudgetDecision};
 pub use cancellation::CancellationToken;
 pub use capability::{Capability, CommandContext, CommandDescriptor, SystemPromptContext};
-pub use config::{AgentConfig, DEFAULT_MAX_ITERATIONS};
 pub use context::{ContextAssembler, PassthroughContextAssembler};
 pub use controls::TurnControls;
 pub use driver::{
@@ -66,8 +71,7 @@ pub use driver::{
 };
 pub use error::{Error, LlmErrorKind, Result};
 pub use event::{Event, EventData, EventListener, EventRequest, event_types};
-pub use event_log::{EventLog, InMemoryEventLog};
-pub use executor::{TurnExecutor, TurnHost, TurnResult};
+pub use event_log::{EventLog, EventStore, ExpectedVersion, InMemoryEventLog};
 pub use extensions::Extensions;
 pub use id::{EventId, MessageId, SessionId, TurnId};
 pub use message::{ContentPart, ImageContentPart, Message, Role, TextContentPart, ToolCall};

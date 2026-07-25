@@ -25,7 +25,7 @@ pub struct ToolDefinition {
     pub parameters: serde_json::Value,
     /// Generic, serializable extension hatch — the tool-definition analogue
     /// of [`crate::event::EventData::Custom`]. Host-side, everruns-flavored
-    /// metadata a satellite crate owns (a risk/hint taxonomy like
+    /// metadata an adopting host owns (a risk/hint taxonomy like
     /// `readonly`/`destructive`/`open_world`, categories, MCP annotations)
     /// rides here rather than growing typed core fields; it is **not** sent
     /// to the model. `Null` for the common case.
