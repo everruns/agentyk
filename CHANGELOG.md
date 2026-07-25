@@ -9,6 +9,12 @@ release — every release bumps the patch component (`0.1.z`). See
 
 ## [Unreleased]
 
+### Documentation
+
+- Adopted the Everruns diagram system, with narrowly permitted semantic
+  colors, and replaced the public architecture page's text sketches with
+  co-located Mermaid sources and reviewed SVG renderings.
+
 ### Changed — one canonical engine, multiple execution hosts
 
 - Added `agentyk-engine`, the shared home of `Agent`, `Session`, the

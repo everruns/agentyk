@@ -61,22 +61,7 @@ crates. Provider drivers and other integrations also remain feature-gated
 modules in `agentyk` for now. The architecture does not require satellite
 crates.
 
-```text
-application / yolop / everruns
-              │
-              ▼
-        ┌─────────────┐
-        │   agentyk   │  facade, drivers, MCP, filesystem, event stores
-        └──────┬──────┘
-               │
-        ┌──────▼──────────┐
-        │ agentyk-engine  │  one canonical turn engine
-        └──────┬──────────┘
-               │
-        ┌──────▼──────┐
-        │ agentyk-core│  values, events, traits, reducer
-        └─────────────┘
-```
+![Agentyk's facade, canonical engine, core contract, and host dependency direction](./architecture-layers.svg)
 
 ## Agent definition and environment
 
@@ -109,23 +94,7 @@ resolve credentials from protected host configuration when an activity runs.
 
 The engine advances a turn one operation at a time:
 
-```text
-load events
-    │
-    ▼
-reduce events into TurnState
-    │
-    ▼
-prepare next operation ──► persist emitted events
-    │
-    ▼
-host executes or schedules operation
-    │
-    ▼
-apply operation result ──► persist emitted events
-    │
-    └──────── repeat until finished
-```
+![A host repeatedly loads events, advances TurnEngine, persists transitions, and executes or schedules operations](./architecture-execution.svg)
 
 Operations include a model request, a batch of tool calls, and a completed
 turn. Middleware and policy are applied by the engine before an operation is

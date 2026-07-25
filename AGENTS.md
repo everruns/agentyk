@@ -67,6 +67,9 @@ engine.
 - Public, task-oriented documentation for users lives in the top-level
   `README.md`. Do not put internal design intent, roadmaps, or gap analyses
   there — those are specs.
+- New or changed technical diagrams follow [`specs/diagrams.md`](specs/diagrams.md):
+  co-located Mermaid source plus hand-authored SVG, embedded via the SVG, and
+  rasterized for visual review before shipping.
 - Validate the bundle with yolop's zero-dependency checker when editing specs:
   `python3 <yolop>/src/bundled/system-skills/okf/scripts/validate_okf.py specs --strict`.
 - `.claude/skills/` holds workflows requestable by name: `/ship` lands a change

@@ -1,0 +1,11 @@
+flowchart LR
+    Application["Applications<br/>local apps · Yolop · Everruns"]
+    Facade["agentyk<br/>facade · drivers · MCP · filesystem · event stores"]
+    Engine["agentyk-engine<br/>one canonical turn engine"]
+    Core["agentyk-core<br/>values · events · traits · reducers"]
+    Host["Host infrastructure<br/>queues · workers · tenants"]
+
+    Application -->|"build and run"| Facade
+    Facade -->|"uses"| Engine
+    Engine -->|"interprets"| Core
+    Host -.->|"hosts engine contracts"| Engine
