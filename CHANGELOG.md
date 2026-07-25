@@ -19,6 +19,22 @@ release — every release bumps the patch component (`0.1.z`). See
   carrying the original payload. Replay stays sufficient to resume a session
   across versions, which is the point of the persistence seam.
 
+### Changed — module layout and an explicit public surface
+
+- **`agentyk-core`'s files are grouped** into `protocol/` (event, event_log,
+  message, id, error, driver), `agent/` (config, capability, tool,
+  middleware, context, controls, budget, extensions) and `runtime/` (turn,
+  atoms, executor, replay, cancellation). Every module is re-exported at the
+  crate root, so **no public path changed** — `agentyk_core::event` is still
+  `agentyk_core::event` — and the grouping can be re-cut later without
+  breaking anyone.
+- **`agentyk` lists its re-exports instead of `pub use agentyk_core::*`.**
+  A glob means every future core item silently widens this crate's surface,
+  including names that collide with one it already owns. `scripts/check_reexports.py`
+  (wired into CI) fails if core exports something `agentyk` does not, so the
+  explicit list cannot develop the mirror-image problem of a silent omission.
+- **New `agentyk::prelude`** for the names most applications want at once.
+
 ### Changed — history is a projection, not a second source
 
 - **`replay::History` (new) replaces the raw `Vec<Message>`** on `TurnHost`

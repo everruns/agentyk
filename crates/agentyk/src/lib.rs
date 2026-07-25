@@ -69,7 +69,49 @@ pub mod mcp;
 pub mod session;
 
 // The full contract: protocol data, seams, the turn machine, atoms, replay.
-pub use agentyk_core::*;
+//
+// Listed rather than globbed. A glob would mean every future item in core
+// silently appears here too — including ones that collide with a name this
+// crate already owns, where the collision surfaces as a confusing error in
+// *someone else's* build. Re-exporting explicitly makes widening this crate's
+// surface a decision.
+pub use agentyk_core::{
+    atoms, budget, cancellation, capability, config, context, controls, driver, error, event,
+    event_log, executor, extensions, id, message, middleware, replay, tool, turn,
+};
+
+pub use agentyk_core::{
+    AgentConfig, BudgetChecker, BudgetDecision, CancellationToken, Capability, ChatDriver,
+    ChatRequest, ChatResponse, CommandContext, CommandDescriptor, ContentPart, ContextAssembler,
+    DEFAULT_MAX_ITERATIONS, DeferrablePolicy, DeltaSink, DriverId, DriverRegistry, Error, Event,
+    EventData, EventId, EventListener, EventLog, EventRequest, Extensions, FnTool, History,
+    ImageContentPart, InMemoryEventLog, LlmErrorKind, Message, MessageId, ModelSpec,
+    PassthroughContextAssembler, ReasoningConfig, Result, Role, SealReason, SessionId,
+    SystemPromptContext, TextContentPart, Tool, ToolCall, ToolCallDecision, ToolChainOutcome,
+    ToolContext, ToolDefinition, ToolInvocation, ToolOutput, ToolPolicy, TurnAction, TurnControls,
+    TurnExecutor, TurnHost, TurnId, TurnMiddleware, TurnOutcome, TurnPhase, TurnResult, TurnState,
+    Usage, after_tool_chain, before_tool_chain, event_types, messages_from_events,
+};
+
+/// The names most applications want in scope at once.
+///
+/// ```
+/// use agentyk::prelude::*;
+///
+/// # fn demo() -> Result<Agent> {
+/// Agent::builder()
+///     .system_prompt("You are terse.")
+///     .model(ModelSpec::llmsim())
+///     .build()
+/// # }
+/// ```
+pub mod prelude {
+    pub use crate::{
+        Agent, AgentBuilder, Capability, ChatDriver, Event, EventData, EventListener, EventLog,
+        FnTool, Message, ModelSpec, Result, RunOptions, Session, Tool, ToolCallDecision,
+        ToolContext, ToolDefinition, ToolInvocation, ToolOutput, TurnMiddleware, TurnResult,
+    };
+}
 
 pub use agent::{Agent, AgentBuilder};
 pub use drivers::sim::{SimDriver, SimToolCall, SimTurn};

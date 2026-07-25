@@ -34,6 +34,11 @@ jobs:
       - name: Clippy (all features)
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
+      # An explicit re-export list beats a glob, but only while it stays
+      # complete — this is what catches a core item added and forgotten.
+      - name: Check agentyk re-exports all of agentyk-core
+        run: python3 scripts/check_reexports.py
+
       - name: Build documentation
         run: cargo doc --workspace --no-deps --all-features
         env:

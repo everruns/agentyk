@@ -41,25 +41,18 @@
 //!   *wrong*; the compile error is the feature. Adding a variant here is a
 //!   deliberate breaking change and belongs in a release note.
 
-pub mod atoms;
-pub mod budget;
-pub mod cancellation;
-pub mod capability;
-pub mod config;
-pub mod context;
-pub mod controls;
-pub mod driver;
-pub mod error;
-pub mod event;
-pub mod event_log;
-pub mod executor;
-pub mod extensions;
-pub mod id;
-pub mod message;
-pub mod middleware;
-pub mod replay;
-pub mod tool;
-pub mod turn;
+// Files are grouped into three directories — `protocol/`, `agent/`,
+// `runtime/` — and every module is re-exported here, so a directory is an
+// organizing device and never a public path. `agentyk_core::event` is
+// `agentyk_core::event` whichever folder the file sits in, and the grouping
+// can be re-cut as the crate grows without breaking anyone.
+mod agent;
+mod protocol;
+mod runtime;
+
+pub use agent::{budget, capability, config, context, controls, extensions, middleware, tool};
+pub use protocol::{driver, error, event, event_log, id, message};
+pub use runtime::{atoms, cancellation, executor, replay, turn};
 
 pub use budget::{BudgetChecker, BudgetDecision};
 pub use cancellation::CancellationToken;
