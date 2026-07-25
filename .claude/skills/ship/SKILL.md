@@ -7,7 +7,7 @@ description: Goal-oriented workflow for landing a change to agentyk safely. Use 
 
 Goal: land the requested change with evidence, and merge only after CI is green.
 
-Read [`specs/shipping.md`](../../../specs/shipping.md) § Required outcomes first —
+Read [`knowledge/shipping.md`](../../../knowledge/shipping.md) § Required outcomes first —
 it owns the bar. This skill owns how to reach it.
 
 "Fix and ship" means implement first, then switch into shipping mode.
@@ -44,7 +44,7 @@ reproduce.
 
 Mandatory for every change touching code, manifests, or CI — a change looking
 low-risk does not excuse it. The categories and their checks are in
-[`specs/shipping.md`](../../../specs/shipping.md) § Contract review: core purity,
+[`knowledge/shipping.md`](../../../knowledge/shipping.md) § Contract review: core purity,
 feature gates, protocol compatibility, host neutrality, secrets, dependency
 risk. Run the two CI steps that are wider than the local defaults before you
 push, because both fail the build:
@@ -66,9 +66,11 @@ Two sections are never omitted: the contract review above, and **Follow-ups**
 (everything deferred, one line of rationale each, or "No follow-ups."). Default
 to doing in-scope work rather than deferring it.
 
-Say explicitly whether specs changed: either which concept you updated in
-`specs/` (plus its [`index.md`](../../../specs/index.md) entry), or that no spec
-update was required and why.
+Say explicitly whether knowledge changed: either which concept you updated in
+`knowledge/` (plus its [`index.md`](../../../knowledge/index.md) entry), or
+that no knowledge update was required and why. Follow
+[`knowledge/maintenance.md`](../../../knowledge/maintenance.md): integrate durable
+decisions and stale-claim cleanup in the same change.
 
 Answer every review comment inline on its own thread and resolve it — nits,
 low-confidence suggestions, and bot comments included, and a written reply is
