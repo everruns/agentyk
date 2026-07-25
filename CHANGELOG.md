@@ -19,6 +19,35 @@ release — every release bumps the patch component (`0.1.z`). See
   carrying the original payload. Replay stays sufficient to resume a session
   across versions, which is the point of the persistence seam.
 
+### Changed — one middleware seam instead of a trait per interception point
+
+- **`TurnMiddleware` (new, in `agentyk-core`) replaces `PreToolUseHook` and
+  `PostToolExecHook`.** One trait with defaulted methods — `before_tool`
+  returning `ToolCallDecision::{Proceed, Rewrite, Deny}`, and `after_tool`
+  transforming the result — attached with `AgentBuilder::middleware`.
+  A new interception point becomes a defaulted method rather than a new trait,
+  a new config field, a new builder setter, and new code in every executor.
+- **Middleware can rewrite a call**, which the old hooks could not. Argument
+  redaction and path rewriting previously forced a satellite to fork the whole
+  executor loop just to get at the act phase.
+- A rewrite is a **state transition** (`TurnState::on_tool_rewritten`), not
+  just an event: `tool.started` announces the call as it will actually run,
+  and a durable host resuming mid-turn executes the rewrite rather than the
+  model's original call. New durable `tool.rewritten` event.
+- `before_tool_chain` / `after_tool_chain` in core define the chain semantics
+  once — a rewrite feeds the next middleware, the first deny short-circuits —
+  so built-in, satellite and durable executors cannot drift on them.
+- **Known limit, documented on `ToolCallDecision::Rewrite`:** middleware
+  governs the act phase. Redacting a tool argument keeps the value out of the
+  tool and out of every act-phase event, but `output.message.completed` still
+  records the call the model generated. Redacting that needs a reason-phase
+  interception point (everruns' `output.message.replaced`), which agentyk
+  does not have.
+- The `agentyk-everruns-poc` satellite lost its private `PreToolGuard` /
+  `GuardOutcome` traits entirely; its `EverrunsExecutor` is now a unit struct
+  whose only difference from the built-in executor is concurrent dispatch —
+  which is what an executor should be for.
+
 ### Changed — composition lives in one value
 
 - **`AgentConfig` (new, in `agentyk-core`) is an agent's whole composition** —

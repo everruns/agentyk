@@ -119,37 +119,38 @@ expensive to change the longer we wait.
 
 ## Tier 2 — machine & executor gaps (turn-semantics parity)
 
-7. ✅ **Act hooks — partly done.** `PreToolUseHook` (`Allow` / `Deny{reason}`)
-   and `PostToolExecHook` (transform the result) are in core
-   (`hooks::{PreToolUseHook, PostToolExecHook, PreToolUseDecision}`),
-   attached via `AgentBuilder::pre_tool_hook`/`.post_tool_hook`, and
-   orchestrated by `InProcessExecutor` around `atoms::act` — **not inside
-   the atom itself**, keeping hooks host/executor policy rather than a
-   third atom. A denial short-circuits execution, emits a durable
-   `tool.denied` event (`call_id`, `name`, `reason`) alongside the usual
-   `tool.started`/`tool.completed` pair, and the reason becomes the
-   (error) result the model sees. `atoms::act`'s signature is unchanged —
-   hooks are an executor concern, so direct-atom callers (e.g. a durable
-   host driving the machine manually) are unaffected unless they choose to
-   run hooks themselves.
-   **Correction (was over-claimed):** the built-in `PreToolUseHook` is
-   `Allow | Deny{reason}` and is attached on `AgentBuilder`, so *only*
-   denial-only, builder-attached guardrails port to it. everruns guardrails
-   that **mutate/redact** a call, surface a distinct user-facing message, or
-   are **contributed by a capability** — and human **approval** pauses — do
-   **not** fit this hook, and (contra an earlier claim) approval does **not**
-   need a `TurnPhase::PendingApproval`: everruns itself has no approval phase
-   (its `TurnPhase` is still PendingInput/Reason/Act/Completed), it gates via
-   the hook plus a human-intent capability. The intended home for all of
-   this is a **satellite [`TurnExecutor`]** that owns the act loop — it can
-   mutate/deny calls, await an approver, consult capability-contributed
-   hooks, and fan out in parallel — **without** a core change. **Now proven**
-   in `agentyk-everruns-poc`'s `EverrunsExecutor` (a `PreToolGuard` chain: deny
-   with a user message, `Rewrite` a call before it runs, and a capability that
-   contributes the guard gating its own tool). See
-   [`extensibility.md`](extensibility.md). `PostActHook` (turn-level) and
-   `ClientSideToolHook` (client/server split) remain unported — no use case
-   yet.
+7. ✅ **Act hooks — done, as middleware.** Core exposes a single
+   `middleware::TurnMiddleware` trait with defaulted methods
+   (`before_tool` → `ToolCallDecision::{Proceed, Rewrite, Deny}`,
+   `after_tool` → transform the result), attached via
+   `AgentBuilder::middleware` and orchestrated by the executor around
+   `atoms::act` — **not inside the atom itself**, keeping interception
+   host/executor policy rather than a third atom. A denial short-circuits
+   execution and emits a durable `tool.denied`; a rewrite goes through
+   `TurnState::on_tool_rewritten`, so it is durable, `tool.started` announces
+   the call as it will actually run, and a resumed host executes the rewrite
+   rather than the original. `atoms::act`'s signature is unchanged.
+
+   This replaces the earlier `PreToolUseHook` / `PostToolExecHook` pair, which
+   could only allow or deny and therefore did **not** cover everruns
+   guardrails that **mutate/redact** a call. That gap previously forced a
+   satellite to fork the whole act loop; it no longer does. Approval still
+   needs no `TurnPhase::PendingApproval` — everruns itself has none (its
+   `TurnPhase` is still PendingInput/Reason/Act/Completed) and gates via the
+   hook plus a human-intent capability, which is exactly what
+   `agentyk-everruns-poc`'s `ApprovalMiddleware` is.
+
+   Two things stay outside core, correctly: **capability-contributed** guards
+   (a capability bundles a tool, the host attaches the matching middleware)
+   and **dispatch strategy** (the satellite executor's concurrent fan-out).
+   `PostActHook` (turn-level) and `ClientSideToolHook` (client/server split)
+   remain unported — no use case yet, and each would be a defaulted method on
+   `TurnMiddleware` rather than a new trait.
+
+   **Known limit:** middleware governs the act phase. A rewrite cannot redact
+   what the model already generated — `output.message.completed` still holds
+   the original call. That needs a reason-phase interception point (everruns'
+   `output.message.replaced`), still unported.
 
 8. ✅ **Tool scheduling — data model done, dispatch stays sequential.**
    `TurnPhase::PendingAct` is now `{ calls: Vec<PendingCall> }`

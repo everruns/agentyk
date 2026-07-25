@@ -25,7 +25,7 @@ use crate::context::{ContextAssembler, PassthroughContextAssembler};
 use crate::driver::{ChatDriver, DriverRegistry, ModelSpec};
 use crate::event::EventListener;
 use crate::extensions::Extensions;
-use crate::hooks::{PostToolExecHook, PreToolUseHook};
+use crate::middleware::TurnMiddleware;
 
 /// The default ceiling on reason/act iterations within one turn.
 pub const DEFAULT_MAX_ITERATIONS: usize = 16;
@@ -45,11 +45,10 @@ pub struct AgentConfig {
     pub listeners: Vec<Arc<dyn EventListener>>,
     /// Ceiling on reason/act iterations within one turn.
     pub max_iterations: usize,
-    /// Run before each tool call, in order; the first `Deny` wins.
-    pub pre_tool_hooks: Vec<Arc<dyn PreToolUseHook>>,
-    /// Run after each executed (non-denied) tool call, in order, each seeing
-    /// the previous hook's output.
-    pub post_tool_hooks: Vec<Arc<dyn PostToolExecHook>>,
+    /// Interception inside the turn loop, in attachment order — see
+    /// [`TurnMiddleware`]. One list, because one middleware often wants
+    /// several of the points.
+    pub middleware: Vec<Arc<dyn TurnMiddleware>>,
     /// Checked once per turn action, like cancellation. `None` means no
     /// budget policy.
     pub budget_checker: Option<Arc<dyn BudgetChecker>>,
@@ -69,8 +68,7 @@ impl Default for AgentConfig {
             drivers: DriverRegistry::new(),
             listeners: Vec::new(),
             max_iterations: DEFAULT_MAX_ITERATIONS,
-            pre_tool_hooks: Vec::new(),
-            post_tool_hooks: Vec::new(),
+            middleware: Vec::new(),
             budget_checker: None,
             context_assembler: Arc::new(PassthroughContextAssembler),
             extensions: Extensions::new(),

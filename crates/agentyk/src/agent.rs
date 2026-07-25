@@ -21,8 +21,8 @@ use agentyk_core::error::{Error, Result};
 use agentyk_core::event::EventListener;
 use agentyk_core::event_log::{EventLog, InMemoryEventLog};
 use agentyk_core::executor::{TurnExecutor, TurnResult};
-use agentyk_core::hooks::{PostToolExecHook, PreToolUseHook};
 use agentyk_core::id::SessionId;
+use agentyk_core::middleware::TurnMiddleware;
 use agentyk_core::tool::Tool;
 use async_trait::async_trait;
 
@@ -206,19 +206,19 @@ impl AgentBuilder {
         self
     }
 
-    /// Run before each tool call; the first `Deny` wins. What approval
-    /// gating and guardrails are built on — see
-    /// [`agentyk_core::hooks::PreToolUseHook`].
-    pub fn pre_tool_hook(mut self, hook: impl PreToolUseHook + 'static) -> Self {
-        self.config.pre_tool_hooks.push(Arc::new(hook));
+    /// Intercept points inside the turn loop, in attachment order — deny a
+    /// tool call, rewrite it before it runs, or transform its output. What
+    /// approval gating, guardrails, and redaction are built on; see
+    /// [`agentyk_core::middleware::TurnMiddleware`].
+    pub fn middleware(mut self, middleware: impl TurnMiddleware + 'static) -> Self {
+        self.config.middleware.push(Arc::new(middleware));
         self
     }
 
-    /// Run after each executed (non-denied) tool call, each seeing the
-    /// previous hook's output — see
-    /// [`agentyk_core::hooks::PostToolExecHook`].
-    pub fn post_tool_hook(mut self, hook: impl PostToolExecHook + 'static) -> Self {
-        self.config.post_tool_hooks.push(Arc::new(hook));
+    /// Attach middleware you already hold as an `Arc` — the way to keep a
+    /// handle on it (e.g. an approver whose state a test inspects).
+    pub fn middleware_arc(mut self, middleware: Arc<dyn TurnMiddleware>) -> Self {
+        self.config.middleware.push(middleware);
         self
     }
 

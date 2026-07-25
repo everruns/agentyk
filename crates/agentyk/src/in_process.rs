@@ -7,9 +7,9 @@ use agentyk_core::cancellation::CancellationToken;
 use agentyk_core::error::{Error, Result};
 use agentyk_core::event::EventData;
 use agentyk_core::executor::{TurnExecutor, TurnHost, TurnResult};
-use agentyk_core::hooks::PreToolUseDecision;
 use agentyk_core::id::{MessageId, TurnId};
 use agentyk_core::message::Message;
+use agentyk_core::middleware::{self, ToolChainOutcome};
 use agentyk_core::tool::{ToolContext, ToolOutput};
 use agentyk_core::turn::{SealReason, TurnAction, TurnOutcome, TurnState};
 use async_trait::async_trait;
@@ -133,41 +133,63 @@ impl TurnExecutor for InProcessExecutor {
                     }
                 }
                 TurnAction::ExecuteTool { call } => {
-                    let effects = state.on_tool_started(&call.id);
-                    host.record(turn_id, effects).await?;
                     let context = ToolContext::new(host.session_id, turn_id)
                         .with_extensions(host.config.extensions.clone());
+                    let definition = assembled.tool(&call.name).map(|tool| tool.definition());
 
-                    let mut denial: Option<String> = None;
-                    for hook in &host.config.pre_tool_hooks {
-                        if let PreToolUseDecision::Deny { reason } =
-                            hook.before_tool_use(&call, &context).await
-                        {
-                            denial = Some(reason);
-                            break;
-                        }
-                    }
+                    // The middleware chain resolves first, so `tool.started`
+                    // records the call as it will actually run — a rewritten
+                    // call is never announced under its original arguments.
+                    let outcome = middleware::before_tool_chain(
+                        &host.config.middleware,
+                        &call,
+                        definition.as_ref(),
+                        &context,
+                    )
+                    .await;
 
-                    let output = if let Some(reason) = &denial {
-                        host.record(
-                            turn_id,
-                            vec![EventData::ToolDenied {
-                                call_id: call.id.clone(),
-                                name: call.name.clone(),
-                                reason: reason.clone(),
-                            }],
-                        )
-                        .await?;
-                        ToolOutput::error(reason.clone())
-                    } else {
-                        let mut output = atoms::act(&assembled, &call, &context).await;
-                        for hook in &host.config.post_tool_hooks {
-                            output = hook.after_tool_exec(&call, output, &context).await;
+                    let (executed, output) = match outcome {
+                        ToolChainOutcome::Deny { reason } => {
+                            let effects = state.on_tool_started(&call.id);
+                            host.record(turn_id, effects).await?;
+                            host.record(
+                                turn_id,
+                                vec![EventData::ToolDenied {
+                                    call_id: call.id.clone(),
+                                    name: call.name.clone(),
+                                    reason: reason.clone(),
+                                }],
+                            )
+                            .await?;
+                            (call.clone(), ToolOutput::error(reason))
                         }
-                        output
+                        ToolChainOutcome::Proceed {
+                            call: executed,
+                            rewritten,
+                        } => {
+                            if rewritten {
+                                // Into the state, not just the event stream:
+                                // a resumed host must run the rewrite.
+                                let effects =
+                                    state.on_tool_rewritten(&executed.id, executed.clone(), None);
+                                host.record(turn_id, effects).await?;
+                            }
+                            let effects = state.on_tool_started(&executed.id);
+                            host.record(turn_id, effects).await?;
+                            let output = atoms::act(&assembled, &executed, &context).await;
+                            let output = middleware::after_tool_chain(
+                                &host.config.middleware,
+                                &executed,
+                                definition.as_ref(),
+                                &context,
+                                output,
+                            )
+                            .await;
+                            (executed, output)
+                        }
                     };
 
-                    let effects = state.on_tool_completed(&call.id, &output);
+                    let effects = state.on_tool_completed(&executed.id, &output);
                     host.record(turn_id, effects).await?;
                 }
                 TurnAction::Complete(outcome) => {

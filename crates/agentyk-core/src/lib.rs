@@ -13,8 +13,8 @@
 //! - **Protocol data** — [`event`] (the event protocol), [`message`],
 //!   [`tool`] definitions, typed [`id`]s, [`error`].
 //! - **Seams** — the traits in [`capability`], [`tool`], [`driver`],
-//!   [`event_log`], [`event`] (listeners), [`executor`], and [`hooks`]
-//!   (pre/post tool interception).
+//!   [`event_log`], [`event`] (listeners), [`executor`], and [`middleware`]
+//!   (interception inside the turn loop).
 //! - **The turn machine** — [`turn`] (pure, serializable) and the stateless
 //!   [`atoms`] it sequences; [`replay`] folds an event log back into message
 //!   history.
@@ -36,7 +36,7 @@
 //!   nothing.
 //! - **Contract types are exhaustive on purpose** — [`turn::TurnAction`],
 //!   [`turn::TurnOutcome`], [`message::Role`], [`message::ContentPart`],
-//!   [`hooks::PreToolUseDecision`]. A host that does not handle a new turn
+//!   [`middleware::ToolCallDecision`]. A host that does not handle a new turn
 //!   action, or a driver that does not translate a new content part, is
 //!   *wrong*; the compile error is the feature. Adding a variant here is a
 //!   deliberate breaking change and belongs in a release note.
@@ -54,9 +54,9 @@ pub mod event;
 pub mod event_log;
 pub mod executor;
 pub mod extensions;
-pub mod hooks;
 pub mod id;
 pub mod message;
+pub mod middleware;
 pub mod replay;
 pub mod tool;
 pub mod turn;
@@ -76,9 +76,12 @@ pub use event::{Event, EventData, EventListener, EventRequest, event_types};
 pub use event_log::{EventLog, InMemoryEventLog};
 pub use executor::{TurnExecutor, TurnHost, TurnResult};
 pub use extensions::Extensions;
-pub use hooks::{PostToolExecHook, PreToolUseDecision, PreToolUseHook};
 pub use id::{EventId, MessageId, SessionId, TurnId};
 pub use message::{ContentPart, ImageContentPart, Message, Role, TextContentPart, ToolCall};
+pub use middleware::{
+    ToolCallDecision, ToolChainOutcome, ToolInvocation, TurnMiddleware, after_tool_chain,
+    before_tool_chain,
+};
 pub use replay::messages_from_events;
 pub use tool::{
     DeferrablePolicy, FnTool, Tool, ToolContext, ToolDefinition, ToolOutput, ToolPolicy,

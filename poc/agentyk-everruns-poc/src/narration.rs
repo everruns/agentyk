@@ -59,6 +59,11 @@ impl NarrationListener {
             EventData::ToolDenied { name, reason, .. } => {
                 vec![format!("⛔ {name} denied — {reason}")]
             }
+            // Rewriting became a first-class core event once middleware could
+            // express it, so this no longer reads a custom event.
+            EventData::ToolRewritten { name, .. } => {
+                vec![format!("✎ {name} — redacted before it ran")]
+            }
             // everruns-flavored richness the satellite emits as custom events.
             EventData::Custom {
                 event_type,
@@ -68,10 +73,6 @@ impl NarrationListener {
                     let name = payload["name"].as_str().unwrap_or("?");
                     let risk = payload["risk"].as_str().unwrap_or("");
                     vec![format!("{} {name} — {risk}", risk_icon(risk))]
-                }
-                "tool.rewritten" => {
-                    let name = payload["name"].as_str().unwrap_or("?");
-                    vec![format!("✎ {name} — redacted before it ran")]
                 }
                 _ => vec![],
             },
@@ -133,17 +134,21 @@ mod tests {
     }
 
     #[test]
-    fn renders_hint_and_rewrite_custom_events() {
+    fn renders_the_hint_custom_event() {
         let hint = NarrationListener::narrate(&EventData::custom(
             "tool.hint",
             serde_json::json!({ "name": "delete_all", "risk": "destructive" }),
         ));
         assert_eq!(hint, vec!["⚠ delete_all — destructive".to_string()]);
+    }
 
-        let rewrite = NarrationListener::narrate(&EventData::custom(
-            "tool.rewritten",
-            serde_json::json!({ "name": "save_note" }),
-        ));
+    #[test]
+    fn renders_the_first_class_rewrite_event() {
+        let rewrite = NarrationListener::narrate(&EventData::ToolRewritten {
+            call_id: "call_0".into(),
+            name: "save_note".into(),
+            by: Some("everruns-guard".into()),
+        });
         assert_eq!(
             rewrite,
             vec!["✎ save_note — redacted before it ran".to_string()]

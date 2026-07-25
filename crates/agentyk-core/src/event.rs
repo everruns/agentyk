@@ -37,6 +37,7 @@ pub mod event_types {
     pub const TOOL_STARTED: &str = "tool.started";
     pub const TOOL_COMPLETED: &str = "tool.completed";
     pub const TOOL_DENIED: &str = "tool.denied";
+    pub const TOOL_REWRITTEN: &str = "tool.rewritten";
 }
 
 /// Typed event payloads.
@@ -106,7 +107,7 @@ pub enum EventData {
         output: String,
         is_error: bool,
     },
-    /// A [`crate::hooks::PreToolUseHook`] denied this call before it ran.
+    /// A [`crate::middleware::TurnMiddleware`] denied this call before it ran.
     /// Recorded alongside (not instead of) the usual
     /// `tool.started`/`tool.completed` pair — the denial reason also
     /// becomes the (error) `tool.completed` output the model sees.
@@ -114,6 +115,20 @@ pub enum EventData {
         call_id: String,
         name: String,
         reason: String,
+    },
+    /// A [`crate::middleware::TurnMiddleware`] rewrote this call before it
+    /// ran — argument redaction, path rewriting. Recorded so a mutation is
+    /// never invisible: `name` is the call as executed, and `tool.started`
+    /// carries the executed call. The everruns analogue of
+    /// `output.message.replaced` for the act phase.
+    ToolRewritten {
+        call_id: String,
+        name: String,
+        /// Which middleware rewrote it, from
+        /// [`crate::middleware::TurnMiddleware::name`], when the executor
+        /// knows.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        by: Option<String>,
     },
     /// Escape hatch for domain events this crate doesn't know about yet —
     /// a capability or host emitting its own event without forking core.
@@ -151,6 +166,7 @@ impl EventData {
             EventData::ToolStarted { .. } => event_types::TOOL_STARTED,
             EventData::ToolCompleted { .. } => event_types::TOOL_COMPLETED,
             EventData::ToolDenied { .. } => event_types::TOOL_DENIED,
+            EventData::ToolRewritten { .. } => event_types::TOOL_REWRITTEN,
             EventData::Custom { event_type, .. } => event_type,
         }
     }

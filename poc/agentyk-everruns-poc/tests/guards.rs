@@ -1,7 +1,7 @@
-//! Pre-tool guards: mutate a call before it runs, compose several guards, and
-//! let a capability contribute the guard that governs its own tool — the
-//! everruns guardrail shapes core's `PreToolUseHook` can't express, all in a
-//! satellite over agentyk-core's seams.
+//! Guardrails as core middleware: mutate a call before it runs, compose
+//! several, and let a capability contribute the guard that governs its own
+//! tool — the everruns guardrail shapes, expressed with core's
+//! `TurnMiddleware` rather than a satellite trait plus a forked act loop.
 
 use std::sync::Arc;
 
@@ -9,57 +9,25 @@ use agentyk::{
     Agent, Capability, EventData, FnTool, ModelSpec, Result, SimDriver, SimTurn, Tool, ToolOutput,
 };
 use agentyk_core::message::ToolCall;
-use agentyk_core::tool::ToolContext;
+use agentyk_core::middleware::{ToolCallDecision, ToolInvocation, TurnMiddleware};
 use agentyk_everruns_poc::{
-    ApprovalDecision, Approver, EverrunsExecutor, GuardOutcome, HintedTool, PreToolGuard, ToolHints,
+    ApprovalDecision, ApprovalMiddleware, Approver, EverrunsExecutor, HintedTool, ToolHints,
 };
 use async_trait::async_trait;
 use serde_json::json;
 
-/// A guard that redacts a `secret` argument before the tool ever sees it.
+/// Middleware that redacts a `secret` argument before the tool ever sees it.
 struct RedactSecret;
 
 #[async_trait]
-impl PreToolGuard for RedactSecret {
-    async fn inspect(
-        &self,
-        call: &ToolCall,
-        _hints: &ToolHints,
-        _ctx: &ToolContext,
-    ) -> GuardOutcome {
-        if call.arguments.get("secret").is_some() {
-            let mut arguments = call.arguments.clone();
-            arguments["secret"] = json!("***");
-            GuardOutcome::Rewrite(ToolCall {
-                id: call.id.clone(),
-                name: call.name.clone(),
-                arguments,
-            })
-        } else {
-            GuardOutcome::Allow
+impl TurnMiddleware for RedactSecret {
+    async fn before_tool(&self, invocation: &ToolInvocation<'_>) -> ToolCallDecision {
+        if invocation.call.arguments.get("secret").is_some() {
+            let mut call = invocation.call.clone();
+            call.arguments["secret"] = json!("***");
+            return ToolCallDecision::Rewrite(call);
         }
-    }
-}
-
-/// A guard that consults an approver for tools whose hints need approval —
-/// the same policy `EverrunsExecutor::new` applies, usable in an explicit chain.
-struct ApprovalGuard(Arc<dyn Approver>);
-
-#[async_trait]
-impl PreToolGuard for ApprovalGuard {
-    async fn inspect(
-        &self,
-        call: &ToolCall,
-        hints: &ToolHints,
-        _ctx: &ToolContext,
-    ) -> GuardOutcome {
-        if !hints.needs_approval() {
-            return GuardOutcome::Allow;
-        }
-        match self.0.approve(call, hints).await {
-            ApprovalDecision::Allow => GuardOutcome::Allow,
-            ApprovalDecision::Deny { user_message } => GuardOutcome::Deny { user_message },
-        }
+        ToolCallDecision::Proceed
     }
 }
 
@@ -105,7 +73,8 @@ async fn a_guard_rewrites_a_call_before_it_runs() -> Result<()> {
             SimTurn::tool_call("store", json!({"secret": "hunter2"})),
             SimTurn::text("stored"),
         ]))
-        .executor(EverrunsExecutor::with_guards(vec![Arc::new(RedactSecret)]))
+        .executor(EverrunsExecutor)
+        .middleware(RedactSecret)
         .tool(echo_tool())
         .build()?;
 
@@ -129,10 +98,9 @@ async fn guards_compose_and_the_first_deny_short_circuits() -> Result<()> {
             SimTurn::tool_call("store", json!({"secret": "hunter2"})),
             SimTurn::text("done"),
         ]))
-        .executor(
-            EverrunsExecutor::with_guards(vec![Arc::new(RedactSecret)])
-                .guard(ApprovalGuard(Arc::new(DenyAll))),
-        )
+        .executor(EverrunsExecutor)
+        .middleware(RedactSecret)
+        .middleware(ApprovalMiddleware::new(DenyAll))
         .tool(HintedTool::new(echo_tool(), ToolHints::destructive()))
         .build()?;
 
@@ -150,8 +118,8 @@ async fn guards_compose_and_the_first_deny_short_circuits() -> Result<()> {
 struct SecretVault;
 
 impl SecretVault {
-    fn guard() -> ApprovalGuard {
-        ApprovalGuard(Arc::new(DenyAll))
+    fn guard() -> ApprovalMiddleware {
+        ApprovalMiddleware::new(DenyAll)
     }
 }
 
@@ -170,8 +138,8 @@ impl Capability for SecretVault {
 
 #[tokio::test]
 async fn a_capability_contributes_its_own_guard() -> Result<()> {
-    // The capability provides the tool; its own guard is attached to the
-    // executor — both halves of one everruns "capability with a guardrail".
+    // The capability provides the tool; its own guard is attached as
+    // middleware — both halves of one everruns "capability with a guardrail".
     let agent = Agent::builder()
         .model(ModelSpec::llmsim())
         .driver(SimDriver::new([
@@ -179,9 +147,8 @@ async fn a_capability_contributes_its_own_guard() -> Result<()> {
             SimTurn::text("ok"),
         ]))
         .capability(SecretVault)
-        .executor(EverrunsExecutor::with_guards(vec![Arc::new(
-            SecretVault::guard(),
-        )]))
+        .executor(EverrunsExecutor)
+        .middleware(SecretVault::guard())
         .build()?;
 
     let mut session = agent.session();
