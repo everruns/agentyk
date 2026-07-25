@@ -29,12 +29,18 @@ use crate::tool::{Tool, ToolContext, ToolDefinition, ToolOutput};
 /// The resolved per-turn environment: what the model sees and what the host
 /// can execute. Rebuilt from the agent value — never persisted.
 pub struct AssembledTurn {
+    /// The agent's prompt joined with every capability's contribution, or
+    /// `None` when all of them are empty.
     pub system_prompt: Option<String>,
+    /// What the model is offered this turn. Deferred tools are executable
+    /// but deliberately absent — see [`crate::tool::DeferrablePolicy`].
     pub tool_definitions: Vec<ToolDefinition>,
     tools: HashMap<String, Arc<dyn Tool>>,
 }
 
 impl AssembledTurn {
+    /// Look up an executable tool by name, including deferred ones that
+    /// were never offered to the model.
     pub fn tool(&self, name: &str) -> Option<&Arc<dyn Tool>> {
         self.tools.get(name)
     }

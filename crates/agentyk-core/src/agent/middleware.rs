@@ -31,16 +31,20 @@ use crate::tool::{ToolContext, ToolDefinition, ToolOutput};
 /// middleware needs to judge it.
 #[non_exhaustive]
 pub struct ToolInvocation<'a> {
+    /// The call as it currently stands — already carrying any rewrite an
+    /// earlier middleware made.
     pub call: &'a ToolCall,
     /// The tool's definition, when the tool is known. Carries
     /// [`ToolDefinition::metadata`], which is where host-side taxonomies
     /// (risk hints, categories) live — so a middleware can gate on them
     /// without core knowing their schema. `None` for an unknown tool.
     pub definition: Option<&'a ToolDefinition>,
+    /// Session, turn, and the host's injected services.
     pub context: &'a ToolContext,
 }
 
 impl<'a> ToolInvocation<'a> {
+    /// Bundle what a middleware needs to judge one call.
     pub fn new(
         call: &'a ToolCall,
         definition: Option<&'a ToolDefinition>,
@@ -78,7 +82,10 @@ pub enum ToolCallDecision {
     Rewrite(ToolCall),
     /// The call never runs. `reason` becomes the (error) result the model
     /// sees, and `tool.denied` is recorded.
-    Deny { reason: String },
+    Deny {
+        /// Why, in words the model can react to.
+        reason: String,
+    },
 }
 
 /// Intercepts points in a turn. Every method has a default, so an
@@ -109,6 +116,7 @@ pub trait TurnMiddleware: Send + Sync {
 pub enum ToolChainOutcome {
     /// Run this call: the original, or the last rewrite of it.
     Proceed {
+        /// What to execute.
         call: ToolCall,
         /// Whether any middleware rewrote the call, so the executor can
         /// record `tool.rewritten` — a redaction that left no trace would be
@@ -116,7 +124,10 @@ pub enum ToolChainOutcome {
         rewritten: bool,
     },
     /// Blocked before running.
-    Deny { reason: String },
+    Deny {
+        /// Why, from the middleware that stopped it.
+        reason: String,
+    },
 }
 
 /// Run the `before_tool` chain in order: a [`ToolCallDecision::Rewrite`]

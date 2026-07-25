@@ -22,6 +22,12 @@ homepage = "https://github.com/everruns/agentyk"
 # compiler keeps for downstream auditors.
 [workspace.lints.rust]
 unsafe_code = "forbid"
+# Every public item carries documentation. `deny` rather than `warn`: this is
+# a library whose whole product is its API, and an undocumented item ships
+# once and is awkward to add docs to later. CI's `-D warnings` would make a
+# warning fatal anyway — saying `deny` here means `cargo check` locally tells
+# you at the same time CI would.
+missing_docs = "deny"
 
 [workspace.dependencies]
 # Internal (lockstep versions)

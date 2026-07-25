@@ -92,12 +92,18 @@ pub enum SealReason {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum TurnOutcome {
+    /// The model produced a final answer.
     Success {
+        /// Its text — what a caller shows the user.
         response: String,
     },
+    /// Something went wrong: a driver error, or a host abort.
     Failed {
+        /// What happened.
         error: String,
     },
+    /// The turn kept asking for tools until it hit the iteration ceiling,
+    /// without ever answering.
     MaxIterations,
     /// Stopped cooperatively via a
     /// [`crate::cancellation::CancellationToken`] rather than failing.
@@ -111,6 +117,7 @@ pub enum TurnOutcome {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct PendingCall {
+    /// The call to run — the rewritten one, if middleware changed it.
     pub call: ToolCall,
     /// Whether `tool.started` was already recorded for this call — makes
     /// `on_tool_started` idempotent per call id across crash/retry.
@@ -125,8 +132,14 @@ pub struct PendingCall {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "phase", rename_all = "snake_case")]
 pub enum TurnPhase {
+    /// Waiting on the model.
     PendingReason,
-    PendingAct { calls: Vec<PendingCall> },
+    /// Waiting on tools: the batch the last reason step asked for.
+    PendingAct {
+        /// Every call in the batch, each tracked independently.
+        calls: Vec<PendingCall>,
+    },
+    /// Finished.
     Completed(TurnOutcome),
 }
 
@@ -137,7 +150,10 @@ pub enum TurnAction {
     /// Run the LLM (the reason atom) over the current history.
     Reason,
     /// Execute one tool call (the act atom).
-    ExecuteTool { call: ToolCall },
+    ExecuteTool {
+        /// Which call to run.
+        call: ToolCall,
+    },
     /// The turn is finished.
     Complete(TurnOutcome),
 }
@@ -148,14 +164,19 @@ pub enum TurnAction {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct TurnState {
+    /// The session this turn belongs to.
     pub session_id: SessionId,
+    /// This turn's id, minted at [`TurnState::start`].
     pub turn_id: TurnId,
+    /// Ceiling on reason steps before the turn gives up.
     pub max_iterations: usize,
+    /// Where the turn currently is.
     pub phase: TurnPhase,
     /// Completed reason (LLM) calls.
     pub iterations: usize,
     /// Executed tool calls.
     pub tool_calls_executed: usize,
+    /// Tokens spent so far in this turn.
     pub usage: Usage,
     /// The id of the assistant message currently being generated, set by
     /// [`Self::on_reason_started`] and read by the executor (to tag streaming
@@ -404,10 +425,12 @@ impl TurnState {
         vec![EventData::TurnSealed { reason }]
     }
 
+    /// Whether the turn has finished, however it ended.
     pub fn is_complete(&self) -> bool {
         matches!(self.phase, TurnPhase::Completed(_))
     }
 
+    /// How the turn ended, or `None` while it is still running.
     pub fn outcome(&self) -> Option<&TurnOutcome> {
         match &self.phase {
             TurnPhase::Completed(outcome) => Some(outcome),

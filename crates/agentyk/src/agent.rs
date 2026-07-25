@@ -47,6 +47,7 @@ impl std::fmt::Debug for Agent {
 }
 
 impl Agent {
+    /// Start composing an agent.
     pub fn builder() -> AgentBuilder {
         AgentBuilder::new()
     }
@@ -57,6 +58,7 @@ impl Agent {
         &self.config
     }
 
+    /// The agent's name, for logs and diagnostics.
     pub fn name(&self) -> &str {
         &self.config.name
     }
@@ -67,6 +69,7 @@ impl Agent {
         self.config.model()
     }
 
+    /// Everything attached to this agent, in attachment order.
     pub fn capabilities(&self) -> &[Arc<dyn Capability>] {
         &self.config.capabilities
     }
@@ -132,6 +135,8 @@ pub struct AgentBuilder {
 }
 
 impl AgentBuilder {
+    /// A builder with defaults for everything but the model, which is
+    /// required.
     pub fn new() -> Self {
         Self {
             config: AgentConfig::default(),
@@ -140,11 +145,14 @@ impl AgentBuilder {
         }
     }
 
+    /// Name the agent, for logs and diagnostics. Defaults to `"agent"`.
     pub fn name(mut self, name: impl Into<String>) -> Self {
         self.config.name = name.into();
         self
     }
 
+    /// The agent's own instructions. Capability contributions are appended
+    /// to this when a turn assembles its prompt.
     pub fn system_prompt(mut self, prompt: impl Into<String>) -> Self {
         self.config.system_prompt = prompt.into();
         self
@@ -162,6 +170,8 @@ impl AgentBuilder {
         self
     }
 
+    /// Attach a capability you already hold as an `Arc` — the way to share
+    /// one between agents, or keep a handle on its state.
     pub fn capability_arc(mut self, capability: Arc<dyn Capability>) -> Self {
         self.config.capabilities.push(capability);
         self
@@ -179,6 +189,8 @@ impl AgentBuilder {
         self
     }
 
+    /// Observe every event this agent's sessions emit. Listeners cannot
+    /// change a turn — see [`AgentBuilder::middleware`] for that.
     pub fn listener(mut self, listener: impl EventListener + 'static) -> Self {
         self.config.listeners.push(Arc::new(listener));
         self
@@ -249,6 +261,11 @@ impl AgentBuilder {
         self
     }
 
+    /// Finish composing.
+    ///
+    /// Fails if no model was set, or if no driver is registered for the one
+    /// that was — both are wiring mistakes worth catching before a turn runs
+    /// rather than during one.
     pub fn build(self) -> Result<Agent> {
         let mut config = self.config;
 

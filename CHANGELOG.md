@@ -19,6 +19,18 @@ release — every release bumps the patch component (`0.1.z`). See
   carrying the original payload. Replay stays sufficient to resume a session
   across versions, which is the point of the persistence seam.
 
+### Added — every public item is documented, and stays that way
+
+- **270 undocumented public items now carry documentation** — enum variants,
+  struct fields, trait methods, constructors — across both published crates
+  and the proof-of-concept satellite. Field docs say what a field is *for*,
+  not what it is named: why `ToolOutput::is_error` is a result rather than a
+  turn failure, why `Message.thinking` must round-trip, what an `EventListener`
+  can and cannot do.
+- **`missing_docs = "deny"`** at the workspace level, so an undocumented
+  public item fails `cargo check` locally at the same moment it would fail CI
+  — rather than accumulating until someone runs a docs pass.
+
 ### Changed — provider wire types are typed, so a shape change is diagnosable
 
 - **Both drivers deserialize provider payloads into typed structs** instead of

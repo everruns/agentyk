@@ -21,12 +21,16 @@ const DEFAULT_BASE_URL: &str = "https://api.anthropic.com";
 const API_VERSION: &str = "2023-06-01";
 const DEFAULT_MAX_TOKENS: u64 = 8192;
 
+/// Speaks the Anthropic Messages protocol.
+///
+/// Requires an api key on the [`ModelSpec`]. Streams real incremental deltas.
 pub struct AnthropicDriver {
     client: reqwest::Client,
     max_tokens: u64,
 }
 
 impl AnthropicDriver {
+    /// A driver on a default HTTP client.
     pub fn new() -> Self {
         Self::with_client(reqwest::Client::new())
     }
@@ -40,6 +44,8 @@ impl AnthropicDriver {
         }
     }
 
+    /// Cap the response length (default 8192). Raised automatically when a
+    /// thinking budget would otherwise exceed it, which the API rejects.
     pub fn max_tokens(mut self, max_tokens: u64) -> Self {
         self.max_tokens = max_tokens;
         self

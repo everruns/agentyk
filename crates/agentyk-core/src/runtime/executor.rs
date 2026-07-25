@@ -30,6 +30,7 @@ use crate::replay::History;
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct TurnResult {
+    /// Correlates with every event this turn recorded.
     pub turn_id: TurnId,
     /// The model's final text response.
     pub response: String,
@@ -37,10 +38,12 @@ pub struct TurnResult {
     pub iterations: usize,
     /// Tool calls executed within the turn.
     pub tool_calls: usize,
+    /// Tokens spent across every completion in the turn.
     pub usage: Usage,
 }
 
 impl TurnResult {
+    /// Record how a turn ended.
     pub fn new(
         turn_id: TurnId,
         response: impl Into<String>,
@@ -67,12 +70,16 @@ impl TurnResult {
 /// third-party executors) every time the agent gains a capability.
 #[non_exhaustive]
 pub struct TurnHost<'a> {
+    /// The session this turn belongs to.
     pub session_id: SessionId,
     /// The agent's composition — prompt, capabilities, drivers, hooks, seams.
     pub config: &'a AgentConfig,
     /// The model for *this* turn: the agent's default with any per-turn
     /// [`crate::controls::TurnControls`] applied. Not `config.model()`.
     pub model: &'a ModelSpec,
+    /// Where durable events are appended. Reach it through
+    /// [`TurnHost::record`] rather than directly, so history and listeners
+    /// stay in step.
     pub log: &'a dyn EventLog,
     /// The session's message history. Advanced by [`TurnHost::record`] from
     /// the events themselves — see [`History`] for why it is not a plain
@@ -110,6 +117,7 @@ impl<'a> TurnHost<'a> {
         self
     }
 
+    /// Let this turn be stopped from elsewhere.
     pub fn cancellation(mut self, token: CancellationToken) -> Self {
         self.cancellation = token;
         self
@@ -143,5 +151,12 @@ impl TurnHost<'_> {
 /// A strategy for executing one agent turn.
 #[async_trait]
 pub trait TurnExecutor: Send + Sync {
+    /// Drive one turn to completion.
+    ///
+    /// The implementation owns the loop: start a [`crate::turn::TurnState`],
+    /// run the atoms it asks for, and record every transition's effects via
+    /// [`TurnHost::record`]. What it must *not* invent is policy —
+    /// middleware, budget and cancellation come from the host and should be
+    /// honored as the built-in executor does.
     async fn run_turn(&self, host: &mut TurnHost<'_>, input: Message) -> Result<TurnResult>;
 }

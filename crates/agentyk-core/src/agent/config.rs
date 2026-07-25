@@ -34,14 +34,23 @@ pub const DEFAULT_MAX_ITERATIONS: usize = 16;
 /// builder hands it over.
 #[non_exhaustive]
 pub struct AgentConfig {
+    /// Identifies the agent in logs and diagnostics. Not an id anything
+    /// looks up — agentyk has no agent registry.
     pub name: String,
+    /// The agent's own instructions. Capability contributions are appended
+    /// to this when a turn assembles its prompt.
     pub system_prompt: String,
     /// `None` only while a builder is still filling this in — `AgentBuilder`
     /// refuses to build without one, so an `AgentConfig` reachable from an
     /// `Agent` always carries a model. Use [`AgentConfig::model`].
     pub model: Option<ModelSpec>,
+    /// What the agent can do: each contributes prompt text and tools.
     pub capabilities: Vec<Arc<dyn Capability>>,
+    /// The driver protocols available to this agent, routed by
+    /// [`ModelSpec::driver`].
     pub drivers: DriverRegistry,
+    /// Observers of the event stream. They cannot change a turn — see
+    /// [`TurnMiddleware`](crate::middleware::TurnMiddleware) for that.
     pub listeners: Vec<Arc<dyn EventListener>>,
     /// Ceiling on reason/act iterations within one turn.
     pub max_iterations: usize,

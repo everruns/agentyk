@@ -25,22 +25,29 @@ use crate::tool::ToolDefinition;
 pub struct DriverId(String);
 
 impl DriverId {
+    /// Name a driver protocol. Use the constructors below for the bundled
+    /// ones; this is for your own.
     pub fn new(id: impl Into<String>) -> Self {
         Self(id.into())
     }
 
+    /// The id as written on the wire and in a [`ModelSpec`].
     pub fn as_str(&self) -> &str {
         &self.0
     }
 
+    /// `"openai"` — the Chat Completions protocol, which many other
+    /// providers also speak.
     pub fn openai() -> Self {
         Self::new("openai")
     }
 
+    /// `"anthropic"` — the Messages protocol.
     pub fn anthropic() -> Self {
         Self::new("anthropic")
     }
 
+    /// `"llmsim"` — the scripted offline simulator, for tests and examples.
     pub fn llmsim() -> Self {
         Self::new("llmsim")
     }
@@ -80,19 +87,27 @@ pub struct ReasoningConfig {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct ModelSpec {
+    /// Which protocol implementation to route through.
     pub driver: DriverId,
+    /// The provider's own model name, sent verbatim.
     pub model: String,
+    /// Credential for this model. Some drivers require one
+    /// (Anthropic); others accept none, for local runtimes and proxies.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub api_key: Option<String>,
     /// Override the driver's default endpoint (OpenAI-compatible servers,
     /// proxies, local runtimes).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub base_url: Option<String>,
+    /// Reasoning/thinking request, for models that support it. Honored per
+    /// driver — see [`ReasoningConfig`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reasoning: Option<ReasoningConfig>,
 }
 
 impl ModelSpec {
+    /// A model on an explicitly named driver. Prefer [`ModelSpec::openai`]
+    /// or [`ModelSpec::anthropic`] for the bundled ones.
     pub fn new(driver: impl Into<DriverId>, model: impl Into<String>) -> Self {
         Self {
             driver: driver.into(),
@@ -103,10 +118,13 @@ impl ModelSpec {
         }
     }
 
+    /// A model served over the OpenAI Chat Completions protocol. Point it
+    /// at any compatible endpoint with [`ModelSpec::base_url`].
     pub fn openai(model: impl Into<String>) -> Self {
         Self::new(DriverId::openai(), model)
     }
 
+    /// A model served over the Anthropic Messages protocol.
     pub fn anthropic(model: impl Into<String>) -> Self {
         Self::new(DriverId::anthropic(), model)
     }
@@ -117,6 +135,7 @@ impl ModelSpec {
         Self::new(DriverId::llmsim(), "llmsim")
     }
 
+    /// Attach the credential this model authenticates with.
     pub fn api_key(mut self, key: impl Into<String>) -> Self {
         self.api_key = Some(key.into());
         self
@@ -142,6 +161,8 @@ impl ModelSpec {
         self
     }
 
+    /// Send to a different endpoint than the driver's default — an
+    /// OpenAI-compatible server, a proxy, a local runtime.
     pub fn base_url(mut self, url: impl Into<String>) -> Self {
         self.base_url = Some(url.into());
         self
@@ -153,13 +174,20 @@ impl ModelSpec {
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct ChatRequest {
+    /// Which model, through which driver, with which credentials.
     pub model: ModelSpec,
+    /// The assembled system prompt: the agent's, plus every capability's
+    /// contribution.
     pub system_prompt: Option<String>,
+    /// Conversation history, oldest first.
     pub messages: Vec<Message>,
+    /// The tools offered to the model this turn. Deferred tools are
+    /// executable but deliberately absent here.
     pub tools: Vec<ToolDefinition>,
 }
 
 impl ChatRequest {
+    /// The minimum a completion needs: a model and a conversation.
     pub fn new(model: ModelSpec, messages: Vec<Message>) -> Self {
         Self {
             model,
@@ -169,16 +197,20 @@ impl ChatRequest {
         }
     }
 
+    /// Set the system prompt.
     pub fn system_prompt(mut self, prompt: impl Into<String>) -> Self {
         self.system_prompt = Some(prompt.into());
         self
     }
 
+    /// Set the system prompt from an `Option`, for callers that assembled
+    /// one that may be empty.
     pub fn maybe_system_prompt(mut self, prompt: Option<String>) -> Self {
         self.system_prompt = prompt;
         self
     }
 
+    /// Offer these tools to the model.
     pub fn tools(mut self, tools: Vec<ToolDefinition>) -> Self {
         self.tools = tools;
         self
@@ -190,11 +222,15 @@ impl ChatRequest {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct Usage {
+    /// Tokens consumed by the prompt.
     pub input_tokens: u64,
+    /// Tokens produced by the model, reasoning tokens included where the
+    /// provider counts them.
     pub output_tokens: u64,
 }
 
 impl Usage {
+    /// Record one completion's token counts.
     pub fn new(input_tokens: u64, output_tokens: u64) -> Self {
         Self {
             input_tokens,
@@ -202,21 +238,26 @@ impl Usage {
         }
     }
 
+    /// Accumulate another completion's usage — how a turn totals its cost
+    /// across iterations.
     pub fn add(&mut self, other: Usage) {
         self.input_tokens += other.input_tokens;
         self.output_tokens += other.output_tokens;
     }
 }
 
+/// What one completion produced.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct ChatResponse {
     /// The assistant message: final text and/or tool calls.
     pub message: Message,
+    /// What it cost.
     pub usage: Usage,
 }
 
 impl ChatResponse {
+    /// Pair a generated message with its token usage.
     pub fn new(message: Message, usage: Usage) -> Self {
         Self { message, usage }
     }
@@ -228,6 +269,11 @@ impl ChatResponse {
 /// ephemeral `output.message.delta` event.
 #[async_trait]
 pub trait DeltaSink: Send {
+    /// Report newly generated text. `delta` is the increment; `accumulated`
+    /// is everything so far, including it.
+    ///
+    /// Returning an error stops the stream — which is how cancellation takes
+    /// effect mid-completion rather than after it.
     async fn delta(&mut self, delta: &str, accumulated: &str) -> Result<()>;
 }
 
@@ -235,8 +281,15 @@ pub trait DeltaSink: Send {
 /// provider's wire format and back.
 #[async_trait]
 pub trait ChatDriver: Send + Sync {
+    /// The protocol id this driver answers to; a [`ModelSpec`] naming it
+    /// routes here.
     fn id(&self) -> DriverId;
 
+    /// Produce the next assistant message.
+    ///
+    /// Errors should be [`crate::error::Error::Driver`] with a
+    /// [`crate::error::LlmErrorKind`], so a host can tell a transient failure
+    /// from a terminal one.
     async fn complete(&self, request: ChatRequest) -> Result<ChatResponse>;
 
     /// Stream a completion, reporting text as it arrives through `sink`, and
@@ -266,22 +319,28 @@ pub struct DriverRegistry {
 }
 
 impl DriverRegistry {
+    /// An empty registry.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Add a driver, replacing any already registered under the same id.
     pub fn register(&mut self, driver: impl ChatDriver + 'static) {
         self.register_arc(Arc::new(driver));
     }
 
+    /// Add a driver you already hold as an `Arc` — e.g. one shared between
+    /// agents.
     pub fn register_arc(&mut self, driver: Arc<dyn ChatDriver>) {
         self.drivers.insert(driver.id(), driver);
     }
 
+    /// The driver registered under `id`, if any.
     pub fn get(&self, id: &DriverId) -> Option<Arc<dyn ChatDriver>> {
         self.drivers.get(id).cloned()
     }
 
+    /// Whether a driver is registered under `id`.
     pub fn contains(&self, id: &DriverId) -> bool {
         self.drivers.contains_key(id)
     }

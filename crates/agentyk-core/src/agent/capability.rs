@@ -21,10 +21,13 @@ use crate::tool::{Tool, ToolOutput};
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct SystemPromptContext {
+    /// The session whose prompt is being assembled, so a capability can
+    /// contribute session-specific text.
     pub session_id: SessionId,
 }
 
 impl SystemPromptContext {
+    /// Context for assembling one session's system prompt.
     pub fn new(session_id: SessionId) -> Self {
         Self { session_id }
     }
@@ -37,10 +40,12 @@ impl SystemPromptContext {
 pub struct CommandDescriptor {
     /// Invoked as `/{name}` (no leading slash here).
     pub name: String,
+    /// One line describing what it does, for a host to list.
     pub description: String,
 }
 
 impl CommandDescriptor {
+    /// Describe a command a capability answers to.
     pub fn new(name: impl Into<String>, description: impl Into<String>) -> Self {
         Self {
             name: name.into(),
@@ -55,24 +60,34 @@ impl CommandDescriptor {
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct CommandContext {
+    /// The session the command was invoked in.
     pub session_id: SessionId,
 }
 
 impl CommandContext {
+    /// Context for running one command.
     pub fn new(session_id: SessionId) -> Self {
         Self { session_id }
     }
 }
 
+/// A bundle of behavior attached to an agent: prompt text, tools, and
+/// slash commands.
+///
+/// Capabilities are attached **by object**, not registered and referenced by
+/// id, so a capability can hold whatever state it needs (a connection, a
+/// workspace handle) without a registry to look it up in.
 #[async_trait]
 pub trait Capability: Send + Sync {
     /// Stable string id, e.g. `"file_system"` or `"mcp:github"`.
     fn id(&self) -> &str;
 
+    /// Display name. Defaults to the id.
     fn name(&self) -> &str {
         self.id()
     }
 
+    /// One line for a host to show alongside the name. Empty by default.
     fn description(&self) -> &str {
         ""
     }

@@ -39,12 +39,16 @@ use agentyk_core::tool::{Tool, ToolContext, ToolDefinition, ToolOutput};
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub struct FileEntry {
+    /// The entry's own name, not a path.
     pub name: String,
+    /// Whether it is a directory.
     pub is_dir: bool,
+    /// Size in bytes; `0` for directories.
     pub size: u64,
 }
 
 impl FileEntry {
+    /// A file entry.
     pub fn file(name: impl Into<String>, size: u64) -> Self {
         Self {
             name: name.into(),
@@ -53,6 +57,7 @@ impl FileEntry {
         }
     }
 
+    /// A directory entry.
     pub fn dir(name: impl Into<String>) -> Self {
         Self {
             name: name.into(),
@@ -67,9 +72,15 @@ impl FileEntry {
 /// module docs.
 #[async_trait]
 pub trait FileSystem: Send + Sync {
+    /// Read a file's full contents. Paths are relative to the workspace
+    /// root; an implementation must refuse to escape it.
     async fn read_file(&self, path: &str) -> Result<String>;
+    /// Write a file's full contents, creating it and any parent directories.
     async fn write_file(&self, path: &str, content: &str) -> Result<()>;
+    /// List the entries directly inside a directory, not recursively.
     async fn list_directory(&self, path: &str) -> Result<Vec<FileEntry>>;
+    /// Delete a file, or a directory when `recursive` is set. Deleting a
+    /// non-empty directory without it must fail.
     async fn delete_file(&self, path: &str, recursive: bool) -> Result<()>;
 }
 
@@ -165,6 +176,7 @@ pub struct InMemoryFileSystem {
 }
 
 impl InMemoryFileSystem {
+    /// An empty workspace.
     pub fn new() -> Self {
         Self::default()
     }
@@ -264,10 +276,13 @@ pub struct WriteBlocklistFileSystem {
 }
 
 impl WriteBlocklistFileSystem {
+    /// Guard a store with the default blocklist: `.git`, `node_modules`,
+    /// `target`, `dist`, `build`.
     pub fn wrap(inner: Arc<dyn FileSystem>) -> Self {
         Self::with_blocklist(inner, DEFAULT_WRITE_BLOCKLIST.iter().copied())
     }
 
+    /// Guard a store with your own list of protected path components.
     pub fn with_blocklist(
         inner: Arc<dyn FileSystem>,
         blocklist: impl IntoIterator<Item = impl Into<String>>,
@@ -467,12 +482,15 @@ pub struct FileSystemCapability {
 }
 
 impl FileSystemCapability {
+    /// Expose a workspace to the model.
     pub fn new(store: impl FileSystem + 'static) -> Self {
         Self {
             store: Arc::new(store),
         }
     }
 
+    /// Expose a workspace you already hold as an `Arc` — e.g. one shared
+    /// with the rest of the host.
     pub fn from_arc(store: Arc<dyn FileSystem>) -> Self {
         Self { store }
     }

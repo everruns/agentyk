@@ -23,34 +23,63 @@ use serde::{Deserialize, Serialize};
 use crate::id::{EventId, MessageId, SessionId, TurnId};
 use crate::message::{Message, ToolCall};
 
-/// Dot-notation event type strings.
+/// The dot-notation type string of every event this crate emits, as it
+/// appears in [`Event::event_type`] and on disk.
+///
+/// Match on these rather than on string literals: a typo in a literal is a
+/// filter that silently never fires.
 pub mod event_types {
+    /// A turn began; the input message follows.
     pub const TURN_STARTED: &str = "turn.started";
+    /// A turn ended with a final assistant answer.
     pub const TURN_COMPLETED: &str = "turn.completed";
+    /// A turn ended in failure — a driver error, or the iteration ceiling.
     pub const TURN_FAILED: &str = "turn.failed";
+    /// A turn was stopped by its caller.
     pub const TURN_CANCELLED: &str = "turn.cancelled";
+    /// A turn was stopped deliberately by policy — see
+    /// [`crate::turn::SealReason`].
     pub const TURN_SEALED: &str = "turn.sealed";
+    /// The user message that opened the turn.
     pub const INPUT_MESSAGE: &str = "input.message";
+    /// The model began generating an assistant message.
     pub const OUTPUT_MESSAGE_STARTED: &str = "output.message.started";
+    /// An incremental text update. Ephemeral: never persisted.
     pub const OUTPUT_MESSAGE_DELTA: &str = "output.message.delta";
+    /// The assistant message is complete, text and tool calls included.
     pub const OUTPUT_MESSAGE_COMPLETED: &str = "output.message.completed";
+    /// A tool call is about to run, with the arguments it will run on.
     pub const TOOL_STARTED: &str = "tool.started";
+    /// A tool call resolved, successfully or not.
     pub const TOOL_COMPLETED: &str = "tool.completed";
+    /// Middleware blocked a tool call before it ran.
     pub const TOOL_DENIED: &str = "tool.denied";
+    /// Middleware rewrote a tool call before it ran.
     pub const TOOL_REWRITTEN: &str = "tool.rewritten";
 }
 
-/// Typed event payloads.
+/// The payload of an [`Event`] — what actually happened.
+///
+/// `#[non_exhaustive]`: new event types are added as the protocol grows, and
+/// a log written by a newer agentyk stays readable by an older one (unknown
+/// kinds degrade to [`EventData::Custom`], see [`Event`]).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum EventData {
+    /// A turn began. The `input.message` event follows immediately.
     TurnStarted,
+    /// A turn ended with a final assistant answer.
     TurnCompleted {
+        /// LLM completions performed within the turn.
         iterations: usize,
+        /// Tool calls executed within the turn.
         tool_calls: usize,
     },
+    /// A turn ended in failure. Also covers hitting the iteration ceiling,
+    /// where no answer was ever produced.
     TurnFailed {
+        /// Human-readable description of what went wrong.
         error: String,
     },
     /// The turn was stopped via a [`crate::cancellation::CancellationToken`]
@@ -59,9 +88,12 @@ pub enum EventData {
     /// The turn was deliberately sealed — see
     /// [`crate::turn::SealReason`].
     TurnSealed {
+        /// Why the turn was sealed rather than allowed to continue.
         reason: crate::turn::SealReason,
     },
+    /// The user message that opened the turn.
     InputMessage {
+        /// The input, as it enters history.
         message: Message,
     },
     /// The model started generating a response for this reason step. UIs can
@@ -75,6 +107,9 @@ pub enum EventData {
         /// lack it) still deserialize, gaining a fresh id.
         #[serde(default)]
         message_id: MessageId,
+        /// The wire model name this step ran on, when the executor knows it —
+        /// which may differ per turn, via
+        /// [`crate::controls::TurnControls`].
         #[serde(default, skip_serializing_if = "Option::is_none")]
         model: Option<String>,
         /// 1-based iteration within the turn.
@@ -85,26 +120,42 @@ pub enum EventData {
     /// to listeners, never persisted. Carries the same `message_id` as its
     /// started/completed siblings.
     OutputMessageDelta {
+        /// Ties this delta to its `started`/`completed` siblings.
         #[serde(default)]
         message_id: MessageId,
+        /// Just-generated text, to append.
         delta: String,
+        /// All text generated so far, `delta` included — for consumers that
+        /// would rather replace than append.
         accumulated: String,
     },
     /// The reason step finished; `message` is the fully materialized
     /// assistant message (text and/or tool calls). Same `message_id` as the
     /// started event.
     OutputMessageCompleted {
+        /// Same id as the `started` event and every delta between them.
         #[serde(default)]
         message_id: MessageId,
+        /// The finished assistant message — this is what enters history.
         message: Message,
     },
+    /// A tool call is about to run. The call carried here is the one that
+    /// will actually execute, so it reflects any middleware rewrite.
     ToolStarted {
+        /// The call as it will run: id, name, and arguments.
         call: ToolCall,
     },
+    /// A tool call resolved. Recorded for denied calls too, carrying the
+    /// denial reason as an error result, because that is what the model sees.
     ToolCompleted {
+        /// Correlates with the `tool.started` event for this call.
         call_id: String,
+        /// The tool that ran.
         name: String,
+        /// What the model receives as the result.
         output: String,
+        /// Whether `output` describes a failure. Tool failures are results,
+        /// not turn failures: the model gets to react to them.
         is_error: bool,
     },
     /// A [`crate::middleware::TurnMiddleware`] denied this call before it ran.
@@ -112,8 +163,11 @@ pub enum EventData {
     /// `tool.started`/`tool.completed` pair — the denial reason also
     /// becomes the (error) `tool.completed` output the model sees.
     ToolDenied {
+        /// The call that was blocked.
         call_id: String,
+        /// The tool that would have run.
         name: String,
+        /// Why it was blocked. Also becomes the error result the model sees.
         reason: String,
     },
     /// A [`crate::middleware::TurnMiddleware`] rewrote this call before it
@@ -122,7 +176,10 @@ pub enum EventData {
     /// carries the executed call. The everruns analogue of
     /// `output.message.replaced` for the act phase.
     ToolRewritten {
+        /// The call that was rewritten. Unchanged by the rewrite — the
+        /// pending batch is keyed by it.
         call_id: String,
+        /// The tool name as executed, which a rewrite may have changed.
         name: String,
         /// Which middleware rewrote it, from
         /// [`crate::middleware::TurnMiddleware::name`], when the executor
@@ -137,13 +194,18 @@ pub enum EventData {
     /// types are expected to graduate into first-class variants (see
     /// `specs/everruns-adoption.md`).
     Custom {
+        /// Dot-notation type, e.g. `"budget.warning"`. Becomes
+        /// [`Event::event_type`].
         event_type: String,
+        /// Whatever the emitter wants to carry. Core never interprets it.
         #[serde(default)]
         payload: serde_json::Value,
     },
 }
 
 impl EventData {
+    /// Build a [`EventData::Custom`] event — the escape hatch for domain
+    /// events core has no variant for.
     pub fn custom(event_type: impl Into<String>, payload: serde_json::Value) -> Self {
         EventData::Custom {
             event_type: event_type.into(),
@@ -191,15 +253,25 @@ impl EventData {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[non_exhaustive]
 pub struct Event {
+    /// Unique id, assigned on emission.
     pub id: EventId,
+    /// Dot-notation type — see [`event_types`]. Denormalized from `data` so
+    /// consumers can filter without matching the payload.
     #[serde(rename = "type")]
     pub event_type: String,
+    /// When it was emitted.
     pub ts: DateTime<Utc>,
+    /// The session it belongs to.
     pub session_id: SessionId,
+    /// The turn it belongs to, for events emitted inside one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub turn_id: Option<TurnId>,
+    /// Position in the session's durable order, starting at 1. `None` marks
+    /// an ephemeral event, which was delivered to listeners but never
+    /// persisted — see [`EventData::is_ephemeral`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sequence: Option<u64>,
+    /// What happened.
     pub data: EventData,
 }
 
@@ -255,12 +327,16 @@ impl<'de> Deserialize<'de> for Event {
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct EventRequest {
+    /// The session this event belongs to.
     pub session_id: SessionId,
+    /// The turn it belongs to, if it was emitted inside one.
     pub turn_id: Option<TurnId>,
+    /// What happened.
     pub data: EventData,
 }
 
 impl EventRequest {
+    /// An event not tied to any particular turn.
     pub fn new(session_id: SessionId, data: EventData) -> Self {
         Self {
             session_id,
@@ -269,6 +345,7 @@ impl EventRequest {
         }
     }
 
+    /// An event emitted during a turn — what an executor records.
     pub fn with_turn(session_id: SessionId, turn_id: TurnId, data: EventData) -> Self {
         Self {
             session_id,
@@ -313,6 +390,11 @@ impl EventRequest {
 /// check [`Event::sequence`] (`None` for ephemeral) to distinguish.
 #[async_trait]
 pub trait EventListener: Send + Sync {
+    /// Called for every event, durable and ephemeral, in emission order.
+    ///
+    /// Listeners run inline on the turn's write path, so slow work here slows
+    /// the turn; hand it to a channel or task instead. A listener cannot
+    /// change the event or stop the turn — that is what middleware is for.
     async fn on_event(&self, event: &Event);
 
     /// Human-readable name for diagnostics.

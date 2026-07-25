@@ -16,8 +16,21 @@ use async_trait::async_trait;
 use crate::id::SessionId;
 use crate::message::Message;
 
+/// Decides what a turn actually sends to the model.
+///
+/// Sits between replay and the reason atom, so trimming, compaction and
+/// memory injection are implementations of this seam rather than changes to
+/// the turn machine — and none of them touch the event log, which keeps the
+/// real history.
 #[async_trait]
 pub trait ContextAssembler: Send + Sync {
+    /// Turn replayed history into what this turn actually sends to the
+    /// model.
+    ///
+    /// This is where trimming, compaction and memory injection belong: the
+    /// event log keeps the real history, and only what this returns reaches
+    /// the provider. Called once per reason step, so a resumed session gets
+    /// the same treatment as a fresh one.
     /// `messages` is the full replayed history. Return what this turn
     /// should actually send to the model.
     async fn assemble(&self, session_id: SessionId, messages: &[Message]) -> Vec<Message>;

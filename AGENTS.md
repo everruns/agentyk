@@ -42,6 +42,9 @@ they grow a heavy dependency. Do not add tokio/reqwest/process deps to core.
 
 ## Design rules (enforced in review)
 
+- Every public item is documented — `missing_docs` is `deny`, so this is
+  enforced by the compiler, not by review. Say what an item is *for*; a doc
+  that restates the name is worse than none.
 - Values first: no API that requires creating-then-referencing an entity by
   id. Ids are outputs, never inputs.
 - The event log is the persistence seam; replay must suffice to resume a session.

@@ -26,6 +26,7 @@ pub struct NarrationListener {
 }
 
 impl NarrationListener {
+    /// A listener with an empty transcript.
     pub fn new() -> Self {
         Self::default()
     }

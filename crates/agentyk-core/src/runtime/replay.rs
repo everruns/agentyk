@@ -69,14 +69,17 @@ impl History {
         }
     }
 
+    /// The conversation so far, oldest first.
     pub fn messages(&self) -> &[Message] {
         &self.messages
     }
 
+    /// Whether no event has contributed a message yet.
     pub fn is_empty(&self) -> bool {
         self.messages.is_empty()
     }
 
+    /// How many messages history holds.
     pub fn len(&self) -> usize {
         self.messages.len()
     }

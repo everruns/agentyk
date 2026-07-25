@@ -18,12 +18,18 @@ use super::http::{self, HttpProvider, StreamAccumulator, decode};
 
 const DEFAULT_BASE_URL: &str = "https://api.openai.com/v1";
 
+/// Speaks the OpenAI Chat Completions protocol.
+///
+/// Also serves any compatible endpoint — OpenRouter, local runtimes, proxies
+/// — via [`ModelSpec::base_url`]. An api key is optional, since local
+/// runtimes routinely need none. Streams real incremental deltas.
 pub struct OpenAiDriver {
     id: DriverId,
     client: reqwest::Client,
 }
 
 impl OpenAiDriver {
+    /// A driver registered as `"openai"`, on a default HTTP client.
     pub fn new() -> Self {
         Self::with_id(DriverId::openai())
     }

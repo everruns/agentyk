@@ -25,15 +25,19 @@ pub struct TurnControls {
 }
 
 impl TurnControls {
+    /// No overrides — the agent's own model and settings.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Run this turn on a different model, without rebuilding the agent.
     pub fn model(mut self, model: ModelSpec) -> Self {
         self.model = Some(model);
         self
     }
 
+    /// Request a reasoning effort level for this turn, on whichever model
+    /// ends up being used.
     pub fn reasoning_effort(mut self, effort: impl Into<String>) -> Self {
         let mut reasoning = self.reasoning.unwrap_or_default();
         reasoning.effort = Some(effort.into());

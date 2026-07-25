@@ -52,8 +52,14 @@ enum Resolved {
 /// [`ApprovalMiddleware`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ApprovalDecision {
+    /// Let the call run.
     Allow,
-    Deny { user_message: String },
+    /// Block it.
+    Deny {
+        /// Shown to the user and handed to the model as the result — the
+        /// everruns shape core's plain deny could not express.
+        user_message: String,
+    },
 }
 
 /// Consulted before a tool whose [`ToolHints`] say it
@@ -61,6 +67,8 @@ pub enum ApprovalDecision {
 /// to pause for a human, apply a policy, etc.
 #[async_trait]
 pub trait Approver: Send + Sync {
+    /// Decide whether one risky call may run. A real host would pause here
+    /// for a human; the tests answer by policy.
     async fn approve(&self, call: &ToolCall, hints: &ToolHints) -> ApprovalDecision;
 }
 
@@ -85,6 +93,7 @@ impl Approver for AllowAll {
 pub struct ApprovalMiddleware(Arc<dyn Approver>);
 
 impl ApprovalMiddleware {
+    /// Gate risky tools through this approver.
     pub fn new(approver: impl Approver + 'static) -> Self {
         Self(Arc::new(approver))
     }

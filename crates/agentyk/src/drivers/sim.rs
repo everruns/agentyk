@@ -13,12 +13,17 @@ use agentyk_core::message::{Message, ToolCall};
 
 #[derive(Debug, Clone)]
 #[non_exhaustive]
+/// One tool call for the simulated model to request.
 pub struct SimToolCall {
+    /// The tool to ask for. It need not exist — an unknown tool is a good
+    /// thing to test.
     pub name: String,
+    /// The arguments to ask with.
     pub arguments: serde_json::Value,
 }
 
 impl SimToolCall {
+    /// Script one tool call.
     pub fn new(name: impl Into<String>, arguments: serde_json::Value) -> Self {
         Self {
             name: name.into(),
@@ -32,11 +37,14 @@ impl SimToolCall {
 #[derive(Debug, Clone, Default)]
 #[non_exhaustive]
 pub struct SimTurn {
+    /// The text to answer with.
     pub text: String,
+    /// Tools to request instead of answering. Non-empty wins over `text`.
     pub tool_calls: Vec<SimToolCall>,
 }
 
 impl SimTurn {
+    /// A turn that answers with text, ending the loop.
     pub fn text(text: impl Into<String>) -> Self {
         Self {
             text: text.into(),
@@ -44,6 +52,7 @@ impl SimTurn {
         }
     }
 
+    /// A turn that requests one tool, continuing the loop.
     pub fn tool_call(name: impl Into<String>, arguments: serde_json::Value) -> Self {
         Self {
             text: String::new(),
@@ -70,6 +79,9 @@ pub struct SimDriver {
 }
 
 impl SimDriver {
+    /// A driver that plays these turns in order. Once the script runs out
+    /// it answers with a marker string rather than hanging, so an
+    /// under-specified test fails visibly.
     pub fn new(turns: impl IntoIterator<Item = SimTurn>) -> Self {
         Self {
             turns: Mutex::new(turns.into_iter().collect()),

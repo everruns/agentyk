@@ -39,6 +39,7 @@ pub struct RunOptions {
 }
 
 impl RunOptions {
+    /// Defaults: uncancellable, on the agent's own model.
     pub fn new() -> Self {
         Self::default()
     }
@@ -56,6 +57,11 @@ impl RunOptions {
     }
 }
 
+/// A conversation with an agent.
+///
+/// Holds the session id, the event log, and the message history — which is a
+/// projection of that log, never a separate source. Sessions are created from
+/// an [`Agent`] and can be resumed from a log alone.
 pub struct Session {
     agent: Agent,
     id: SessionId,

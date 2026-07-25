@@ -43,13 +43,19 @@ const PROTOCOL_VERSION: &str = "2025-06-18";
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct McpServer {
+    /// Names the server in the capability id (`mcp:<name>`) and in errors.
     pub name: String,
+    /// The executable to spawn.
     pub command: String,
+    /// Arguments passed to it.
     pub args: Vec<String>,
+    /// Environment variables set for it — where a server's credentials
+    /// usually go.
     pub env: Vec<(String, String)>,
 }
 
 impl McpServer {
+    /// A server spawned as a child process and spoken to over stdio.
     pub fn stdio(name: impl Into<String>, command: impl Into<String>) -> Self {
         Self {
             name: name.into(),
@@ -59,16 +65,19 @@ impl McpServer {
         }
     }
 
+    /// Append one argument.
     pub fn arg(mut self, arg: impl Into<String>) -> Self {
         self.args.push(arg.into());
         self
     }
 
+    /// Append several arguments.
     pub fn args(mut self, args: impl IntoIterator<Item = impl Into<String>>) -> Self {
         self.args.extend(args.into_iter().map(Into::into));
         self
     }
 
+    /// Set an environment variable for the server process.
     pub fn env(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
         self.env.push((key.into(), value.into()));
         self
@@ -88,6 +97,9 @@ pub struct McpClient {
 }
 
 impl McpClient {
+    /// Spawn the server and complete the MCP initialize handshake.
+    ///
+    /// The child is killed when the client is dropped.
     pub async fn connect(server: &McpServer) -> Result<Self> {
         let mut command = Command::new(&server.command);
         command
@@ -220,11 +232,14 @@ impl McpClient {
         .await
     }
 
+    /// Ask the server what tools it offers.
     pub async fn list_tools(&self) -> Result<Vec<ToolDefinition>> {
         let result = self.request("tools/list", json!({})).await?;
         Ok(parse_tool_list(&result))
     }
 
+    /// Invoke one of the server's tools. Only text content blocks are read
+    /// from the result.
     pub async fn call_tool(&self, name: &str, arguments: Value) -> Result<ToolOutput> {
         let result = self
             .request("tools/call", json!({"name": name, "arguments": arguments}))
@@ -303,6 +318,8 @@ pub struct McpCapability {
 }
 
 impl McpCapability {
+    /// Expose an MCP server's tools to the agent. The process is spawned
+    /// lazily, on the first turn that resolves tools.
     pub fn new(server: McpServer) -> Self {
         Self {
             id: format!("mcp:{}", server.name),
