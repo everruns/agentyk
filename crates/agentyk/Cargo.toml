@@ -63,3 +63,7 @@ required-features = ["fs"]
 [[test]]
 name = "mcp_stdio"
 required-features = ["mcp"]
+
+[[test]]
+name = "http_drivers"
+required-features = ["http"]

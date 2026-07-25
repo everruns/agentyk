@@ -1,12 +1,12 @@
 //! The transcript is what the operator actually sees, so it is tested against
-//! a real turn — same executor, same event ordering, same hooks — driven by
+//! a real turn — same executor, same event ordering, same middleware — driven by
 //! the scripted `SimDriver`. No network, no API key, no terminal.
 
 use std::sync::Arc;
 
 use agentyk::{
-    Agent, CancellationToken, EventListener, FnTool, InMemoryEventLog, ModelSpec,
-    PreToolUseDecision, PreToolUseHook, SimDriver, SimTurn, ToolCall, ToolContext, ToolOutput,
+    Agent, CancellationToken, EventListener, FnTool, InMemoryEventLog, ModelSpec, SimDriver,
+    SimTurn, ToolCallDecision, ToolInvocation, ToolOutput, TurnMiddleware,
 };
 use async_trait::async_trait;
 use codenko::agent::{AppEvent, AppEventSender, Prompt, TurnOutcome, spawn_agent_task};
@@ -19,15 +19,11 @@ use tokio::sync::mpsc;
 struct FixedApproval(bool);
 
 #[async_trait]
-impl PreToolUseHook for FixedApproval {
-    async fn before_tool_use(
-        &self,
-        _call: &ToolCall,
-        _context: &ToolContext,
-    ) -> PreToolUseDecision {
+impl TurnMiddleware for FixedApproval {
+    async fn before_tool(&self, _invocation: &ToolInvocation<'_>) -> ToolCallDecision {
         match self.0 {
-            true => PreToolUseDecision::Allow,
-            false => PreToolUseDecision::Deny {
+            true => ToolCallDecision::Proceed,
+            false => ToolCallDecision::Deny {
                 reason: "the operator declined this call".into(),
             },
         }
@@ -73,7 +69,7 @@ async fn run_turn(
         .model(ModelSpec::llmsim())
         .driver(SimDriver::new(turns))
         .tool(echo_tool())
-        .pre_tool_hook(FixedApproval(approve))
+        .middleware(FixedApproval(approve))
         .listener_arc(Arc::new(Forward(events.clone())))
         .max_iterations(max_iterations)
         .build()

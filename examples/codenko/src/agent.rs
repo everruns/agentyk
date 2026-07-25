@@ -14,8 +14,8 @@ use std::time::Duration;
 
 use agentyk::{
     Agent, AnthropicDriver, CancellationToken, Event, EventListener, EventLog,
-    FileSystemCapability, FnTool, ModelSpec, PreToolUseDecision, PreToolUseHook,
-    RealDiskFileSystem, ToolCall, ToolContext, ToolOutput,
+    FileSystemCapability, FnTool, ModelSpec, RealDiskFileSystem, ToolCall, ToolCallDecision,
+    ToolInvocation, ToolOutput, TurnMiddleware,
 };
 use async_trait::async_trait;
 use serde_json::json;
@@ -95,26 +95,30 @@ impl EventListener for ChannelListener {
 }
 
 /// Turns [`GATED_TOOLS`] calls into a UI prompt and waits for the answer.
-/// This is the whole of codenko's approval flow: the hook seam blocks the
-/// turn, so no state machine is needed on either side.
-struct ApprovalHook(AppEventSender);
+/// This is the whole of codenko's approval flow: middleware blocks the turn
+/// while it awaits, so no state machine is needed on either side.
+struct ApprovalMiddleware(AppEventSender);
 
 #[async_trait]
-impl PreToolUseHook for ApprovalHook {
-    async fn before_tool_use(&self, call: &ToolCall, _context: &ToolContext) -> PreToolUseDecision {
-        if !GATED_TOOLS.contains(&call.name.as_str()) {
-            return PreToolUseDecision::Allow;
+impl TurnMiddleware for ApprovalMiddleware {
+    fn name(&self) -> &str {
+        "codenko-approval"
+    }
+
+    async fn before_tool(&self, invocation: &ToolInvocation<'_>) -> ToolCallDecision {
+        if !GATED_TOOLS.contains(&invocation.call.name.as_str()) {
+            return ToolCallDecision::Proceed;
         }
         let (reply, answer) = oneshot::channel();
         let request = AppEvent::Approval {
-            call: call.clone(),
+            call: invocation.call.clone(),
             reply,
         };
         if self.0.send(request).is_err() {
             return deny("the operator is no longer available");
         }
         match answer.await {
-            Ok(true) => PreToolUseDecision::Allow,
+            Ok(true) => ToolCallDecision::Proceed,
             Ok(false) => deny("the operator declined this call"),
             // The UI dropped the sender (quit mid-prompt): fail closed.
             Err(_) => deny("the approval prompt was dismissed"),
@@ -122,8 +126,8 @@ impl PreToolUseHook for ApprovalHook {
     }
 }
 
-fn deny(reason: &str) -> PreToolUseDecision {
-    PreToolUseDecision::Deny {
+fn deny(reason: &str) -> ToolCallDecision {
+    ToolCallDecision::Deny {
         reason: reason.to_string(),
     }
 }
@@ -241,7 +245,7 @@ pub fn build_agent(
         .driver(AnthropicDriver::new().max_tokens(16_000))
         .capability(FileSystemCapability::new(files))
         .tool(run_command_tool(workspace.to_path_buf()))
-        .pre_tool_hook(ApprovalHook(events.clone()))
+        .middleware(ApprovalMiddleware(events.clone()))
         .listener(ChannelListener(events))
         .max_iterations(24)
         .build()

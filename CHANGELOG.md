@@ -19,6 +19,18 @@ release — every release bumps the patch component (`0.1.z`). See
   carrying the original payload. Replay stays sufficient to resume a session
   across versions, which is the point of the persistence seam.
 
+### Added — the HTTP drivers are tested over a real socket
+
+- `crates/agentyk/tests/http_drivers.rs` serves canned provider responses from
+  a local `TcpListener` and drives the real `ChatDriver` through
+  `ModelSpec::base_url`, so the request goes out over a socket and comes back
+  through the shared HTTP layer. Covers both providers, both the streaming and
+  non-streaming paths, endpoint and auth-header construction, HTTP-error
+  classification, and the shape-change error end to end. No new dependency —
+  tokio is already a dev-dependency.
+- What it still does not prove is that the canned bodies match what the
+  providers send *today*; only a live call does that.
+
 ### Added — every public item is documented, and stays that way
 
 - **270 undocumented public items now carry documentation** — enum variants,
