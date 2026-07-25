@@ -72,8 +72,12 @@ async fn durable_host_drives_turn_across_a_crash() -> Result<()> {
         let log = JsonlEventLog::new(&log_path)?;
         let session_id = agentyk::SessionId::new();
 
-        let assembled =
-            atoms::assemble(agent.system_prompt(), agent.capabilities(), session_id).await?;
+        let assembled = atoms::assemble(
+            agent.config().system_prompt.as_str(),
+            agent.capabilities(),
+            session_id,
+        )
+        .await?;
         let driver = agent.driver_for_model().expect("driver");
 
         let input = agentyk::Message::user("what is 20 + 22?");

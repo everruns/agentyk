@@ -51,15 +51,21 @@ pub struct InProcessExecutor;
 #[async_trait]
 impl TurnExecutor for InProcessExecutor {
     async fn run_turn(&self, host: &mut TurnHost<'_>, input: Message) -> Result<TurnResult> {
-        let assembled =
-            atoms::assemble(host.system_prompt, host.capabilities, host.session_id).await?;
+        let assembled = atoms::assemble(
+            host.config.system_prompt.as_str(),
+            &host.config.capabilities,
+            host.session_id,
+        )
+        .await?;
         let driver = host
+            .config
             .drivers
             .get(&host.model.driver)
             .ok_or_else(|| Error::UnknownDriver(host.model.driver.to_string()))?;
         let model = host.model.clone();
 
-        let (mut state, effects) = TurnState::start(host.session_id, host.max_iterations, &input);
+        let (mut state, effects) =
+            TurnState::start(host.session_id, host.config.max_iterations, &input);
         let turn_id = state.turn_id;
         host.record(turn_id, effects).await?;
 
@@ -72,7 +78,7 @@ impl TurnExecutor for InProcessExecutor {
                 host.record(turn_id, effects).await?;
                 return Err(Error::Cancelled);
             }
-            if let Some(checker) = &host.budget_checker
+            if let Some(checker) = &host.config.budget_checker
                 && checker.check(host.session_id).await == BudgetDecision::Seal
             {
                 let effects = state.on_seal(SealReason::BudgetExhausted);
@@ -89,6 +95,7 @@ impl TurnExecutor for InProcessExecutor {
                     let message_id = state.current_message_id.unwrap_or_default();
 
                     let messages = host
+                        .config
                         .context_assembler
                         .assemble(host.session_id, host.messages)
                         .await;
@@ -129,10 +136,10 @@ impl TurnExecutor for InProcessExecutor {
                     let effects = state.on_tool_started(&call.id);
                     host.record(turn_id, effects).await?;
                     let context = ToolContext::new(host.session_id, turn_id)
-                        .with_extensions(host.extensions.clone());
+                        .with_extensions(host.config.extensions.clone());
 
                     let mut denial: Option<String> = None;
-                    for hook in host.pre_tool_hooks {
+                    for hook in &host.config.pre_tool_hooks {
                         if let PreToolUseDecision::Deny { reason } =
                             hook.before_tool_use(&call, &context).await
                         {
@@ -154,7 +161,7 @@ impl TurnExecutor for InProcessExecutor {
                         ToolOutput::error(reason.clone())
                     } else {
                         let mut output = atoms::act(&assembled, &call, &context).await;
-                        for hook in host.post_tool_hooks {
+                        for hook in &host.config.post_tool_hooks {
                             output = hook.after_tool_exec(&call, output, &context).await;
                         }
                         output
@@ -173,7 +180,7 @@ impl TurnExecutor for InProcessExecutor {
                             state.usage,
                         )),
                         TurnOutcome::MaxIterations => {
-                            Err(Error::MaxIterations(host.max_iterations))
+                            Err(Error::MaxIterations(host.config.max_iterations))
                         }
                         TurnOutcome::Failed { error } => Err(Error::Other(error)),
                         TurnOutcome::Cancelled => Err(Error::Cancelled),

@@ -154,15 +154,21 @@ impl Default for EverrunsExecutor {
 #[async_trait]
 impl TurnExecutor for EverrunsExecutor {
     async fn run_turn(&self, host: &mut TurnHost<'_>, input: Message) -> Result<TurnResult> {
-        let assembled =
-            atoms::assemble(host.system_prompt, host.capabilities, host.session_id).await?;
+        let assembled = atoms::assemble(
+            host.config.system_prompt.as_str(),
+            &host.config.capabilities,
+            host.session_id,
+        )
+        .await?;
         let driver = host
+            .config
             .drivers
             .get(&host.model.driver)
             .ok_or_else(|| Error::UnknownDriver(host.model.driver.to_string()))?;
         let model = host.model.clone();
 
-        let (mut state, effects) = TurnState::start(host.session_id, host.max_iterations, &input);
+        let (mut state, effects) =
+            TurnState::start(host.session_id, host.config.max_iterations, &input);
         let turn_id = state.turn_id;
         host.record(turn_id, effects).await?;
 
@@ -178,6 +184,7 @@ impl TurnExecutor for EverrunsExecutor {
                     let started = state.on_reason_started(Some(&model.model));
                     host.record(turn_id, started).await?;
                     let messages = host
+                        .config
                         .context_assembler
                         .assemble(host.session_id, host.messages)
                         .await;
@@ -233,7 +240,7 @@ impl TurnExecutor for EverrunsExecutor {
                     }
 
                     let context = ToolContext::new(host.session_id, turn_id)
-                        .with_extensions(host.extensions.clone());
+                        .with_extensions(host.config.extensions.clone());
 
                     // Run the batch concurrently. Each future runs the guard
                     // chain for its call (rewrites feed the next guard and the
@@ -319,7 +326,7 @@ impl TurnExecutor for EverrunsExecutor {
                             state.usage,
                         )),
                         TurnOutcome::MaxIterations => {
-                            Err(Error::MaxIterations(host.max_iterations))
+                            Err(Error::MaxIterations(host.config.max_iterations))
                         }
                         TurnOutcome::Failed { error } => Err(Error::Other(error)),
                         TurnOutcome::Cancelled => Err(Error::Cancelled),

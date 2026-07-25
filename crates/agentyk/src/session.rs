@@ -108,7 +108,7 @@ impl Session {
     /// [`agentyk_core::capability::Capability::commands`].
     pub fn commands(&self) -> Vec<CommandDescriptor> {
         self.agent
-            .inner
+            .config
             .capabilities
             .iter()
             .flat_map(|capability| capability.commands())
@@ -122,7 +122,7 @@ impl Session {
     /// "unknown command" message if none claims it.
     pub async fn execute_command(&self, name: &str, args: &str) -> Result<ToolOutput> {
         let context = CommandContext::new(self.id);
-        for capability in &self.agent.inner.capabilities {
+        for capability in &self.agent.config.capabilities {
             if capability.commands().iter().any(|c| c.name == name)
                 && let Some(output) = capability.execute_command(name, args, &context).await
             {
@@ -172,26 +172,14 @@ impl Session {
         input: impl Into<String>,
         options: RunOptions,
     ) -> Result<TurnResult> {
-        let agent = self.agent.inner.clone();
-        let executor = agent.executor.clone();
-        let effective_model = options.controls.resolve(&agent.model);
-        let mut host = TurnHost {
-            session_id: self.id,
-            system_prompt: &agent.system_prompt,
-            model: &effective_model,
-            capabilities: &agent.capabilities,
-            drivers: &agent.drivers,
-            listeners: &agent.listeners,
-            max_iterations: agent.max_iterations,
-            log: self.log.as_ref(),
-            messages: &mut self.messages,
-            cancellation: options.cancellation,
-            pre_tool_hooks: &agent.pre_tool_hooks,
-            post_tool_hooks: &agent.post_tool_hooks,
-            budget_checker: agent.budget_checker.clone(),
-            context_assembler: agent.context_assembler.as_ref(),
-            extensions: &agent.extensions,
-        };
+        let config = self.agent.config.clone();
+        let executor = self.agent.executor.clone();
+        let effective_model = options.controls.resolve(config.model());
+        // Composition travels as one value; only the genuinely per-run parts
+        // are set here. Adding a composition knob does not touch this call.
+        let mut host = TurnHost::new(self.id, &config, self.log.as_ref(), &mut self.messages)
+            .model(&effective_model)
+            .cancellation(options.cancellation);
         executor.run_turn(&mut host, Message::user(input)).await
     }
 }

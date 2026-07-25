@@ -4,18 +4,23 @@
 //! [`AgentBuilder`] entirely from values. There is no id to mint, nothing to
 //! register, and no store to create it in. Sessions are spawned *from* the
 //! agent; ids exist only inside them as correlation handles.
+//!
+//! Composition lives in one place: the builder fills an
+//! [`AgentConfig`] and hands it over. A new knob is a field on `AgentConfig`
+//! plus a setter here — it reaches every executor through
+//! [`TurnHost`](agentyk_core::executor::TurnHost) without any further wiring.
 
 use std::sync::Arc;
 
 use agentyk_core::budget::BudgetChecker;
 use agentyk_core::capability::Capability;
-use agentyk_core::context::{ContextAssembler, PassthroughContextAssembler};
+use agentyk_core::config::AgentConfig;
+use agentyk_core::context::ContextAssembler;
 use agentyk_core::driver::{ChatDriver, DriverRegistry, ModelSpec};
 use agentyk_core::error::{Error, Result};
 use agentyk_core::event::EventListener;
 use agentyk_core::event_log::{EventLog, InMemoryEventLog};
 use agentyk_core::executor::{TurnExecutor, TurnResult};
-use agentyk_core::extensions::Extensions;
 use agentyk_core::hooks::{PostToolExecHook, PreToolUseHook};
 use agentyk_core::id::SessionId;
 use agentyk_core::tool::Tool;
@@ -24,34 +29,19 @@ use async_trait::async_trait;
 use crate::in_process::InProcessExecutor;
 use crate::session::Session;
 
-pub(crate) struct AgentInner {
-    pub(crate) name: String,
-    pub(crate) system_prompt: String,
-    pub(crate) model: ModelSpec,
-    pub(crate) capabilities: Vec<Arc<dyn Capability>>,
-    pub(crate) drivers: DriverRegistry,
-    pub(crate) listeners: Vec<Arc<dyn EventListener>>,
-    pub(crate) max_iterations: usize,
-    pub(crate) executor: Arc<dyn TurnExecutor>,
-    pub(crate) pre_tool_hooks: Vec<Arc<dyn PreToolUseHook>>,
-    pub(crate) post_tool_hooks: Vec<Arc<dyn PostToolExecHook>>,
-    pub(crate) budget_checker: Option<Arc<dyn BudgetChecker>>,
-    pub(crate) context_assembler: Arc<dyn ContextAssembler>,
-    pub(crate) extensions: Extensions,
-}
-
 /// A runnable agent, composed by value. Cheap to clone (shared internals).
 #[derive(Clone)]
 pub struct Agent {
-    pub(crate) inner: Arc<AgentInner>,
+    pub(crate) config: Arc<AgentConfig>,
+    // Deliberately *not* part of `AgentConfig`: the executor is what consumes
+    // a composition, not part of one.
+    pub(crate) executor: Arc<dyn TurnExecutor>,
 }
 
 impl std::fmt::Debug for Agent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Agent")
-            .field("name", &self.inner.name)
-            .field("model", &self.inner.model)
-            .field("capabilities", &self.inner.capabilities.len())
+            .field("config", &self.config)
             .finish_non_exhaustive()
     }
 }
@@ -61,54 +51,30 @@ impl Agent {
         AgentBuilder::new()
     }
 
+    /// Everything this agent is composed of. Prefer this over per-field
+    /// accessors — it is the one thing that grows.
+    pub fn config(&self) -> &AgentConfig {
+        &self.config
+    }
+
     pub fn name(&self) -> &str {
-        &self.inner.name
+        &self.config.name
     }
 
-    pub fn system_prompt(&self) -> &str {
-        &self.inner.system_prompt
-    }
-
+    /// The agent's default model. Per-turn overrides go through
+    /// [`TurnControls`](agentyk_core::controls::TurnControls).
     pub fn model(&self) -> &ModelSpec {
-        &self.inner.model
+        self.config.model()
     }
 
     pub fn capabilities(&self) -> &[Arc<dyn Capability>] {
-        &self.inner.capabilities
-    }
-
-    pub fn drivers(&self) -> &DriverRegistry {
-        &self.inner.drivers
+        &self.config.capabilities
     }
 
     /// The driver that speaks this agent's model protocol. Guaranteed by
     /// `build()` to exist.
     pub fn driver_for_model(&self) -> Option<Arc<dyn ChatDriver>> {
-        self.inner.drivers.get(&self.inner.model.driver)
-    }
-
-    pub fn max_iterations(&self) -> usize {
-        self.inner.max_iterations
-    }
-
-    pub fn pre_tool_hooks(&self) -> &[Arc<dyn PreToolUseHook>] {
-        &self.inner.pre_tool_hooks
-    }
-
-    pub fn post_tool_hooks(&self) -> &[Arc<dyn PostToolExecHook>] {
-        &self.inner.post_tool_hooks
-    }
-
-    pub fn budget_checker(&self) -> Option<&Arc<dyn BudgetChecker>> {
-        self.inner.budget_checker.as_ref()
-    }
-
-    pub fn context_assembler(&self) -> &Arc<dyn ContextAssembler> {
-        &self.inner.context_assembler
-    }
-
-    pub fn extensions(&self) -> &Extensions {
-        &self.inner.extensions
+        self.config.driver_for_model()
     }
 
     /// Start a session with an in-memory event log.
@@ -159,66 +125,45 @@ impl Capability for AdHocTools {
 
 /// Fluent, by-value agent composition.
 pub struct AgentBuilder {
-    name: String,
-    system_prompt: String,
-    model: Option<ModelSpec>,
-    capabilities: Vec<Arc<dyn Capability>>,
+    config: AgentConfig,
+    /// Staged until `build()` wraps them in an implicit capability.
     tools: Vec<Arc<dyn Tool>>,
-    drivers: DriverRegistry,
-    listeners: Vec<Arc<dyn EventListener>>,
-    max_iterations: usize,
     executor: Arc<dyn TurnExecutor>,
-    pre_tool_hooks: Vec<Arc<dyn PreToolUseHook>>,
-    post_tool_hooks: Vec<Arc<dyn PostToolExecHook>>,
-    budget_checker: Option<Arc<dyn BudgetChecker>>,
-    context_assembler: Arc<dyn ContextAssembler>,
-    extensions: Extensions,
 }
 
 impl AgentBuilder {
     pub fn new() -> Self {
         Self {
-            name: "agent".to_string(),
-            system_prompt: String::new(),
-            model: None,
-            capabilities: Vec::new(),
+            config: AgentConfig::default(),
             tools: Vec::new(),
-            drivers: DriverRegistry::new(),
-            listeners: Vec::new(),
-            max_iterations: 16,
             executor: Arc::new(InProcessExecutor),
-            pre_tool_hooks: Vec::new(),
-            post_tool_hooks: Vec::new(),
-            budget_checker: None,
-            context_assembler: Arc::new(PassthroughContextAssembler),
-            extensions: Extensions::new(),
         }
     }
 
     pub fn name(mut self, name: impl Into<String>) -> Self {
-        self.name = name.into();
+        self.config.name = name.into();
         self
     }
 
     pub fn system_prompt(mut self, prompt: impl Into<String>) -> Self {
-        self.system_prompt = prompt.into();
+        self.config.system_prompt = prompt.into();
         self
     }
 
     /// The model, by value — see [`ModelSpec`]. Required.
     pub fn model(mut self, model: ModelSpec) -> Self {
-        self.model = Some(model);
+        self.config.model = Some(model);
         self
     }
 
     /// Attach a capability by object — no registry, no string reference.
     pub fn capability(mut self, capability: impl Capability + 'static) -> Self {
-        self.capabilities.push(Arc::new(capability));
+        self.config.capabilities.push(Arc::new(capability));
         self
     }
 
     pub fn capability_arc(mut self, capability: Arc<dyn Capability>) -> Self {
-        self.capabilities.push(capability);
+        self.config.capabilities.push(capability);
         self
     }
 
@@ -230,12 +175,12 @@ impl AgentBuilder {
 
     /// Register an extra or replacement LLM driver.
     pub fn driver(mut self, driver: impl ChatDriver + 'static) -> Self {
-        self.drivers.register(driver);
+        self.config.drivers.register(driver);
         self
     }
 
     pub fn listener(mut self, listener: impl EventListener + 'static) -> Self {
-        self.listeners.push(Arc::new(listener));
+        self.config.listeners.push(Arc::new(listener));
         self
     }
 
@@ -243,13 +188,14 @@ impl AgentBuilder {
     /// handle to inspect its state (e.g. a test collector) after the agent
     /// is built.
     pub fn listener_arc(mut self, listener: Arc<dyn EventListener>) -> Self {
-        self.listeners.push(listener);
+        self.config.listeners.push(listener);
         self
     }
 
-    /// Ceiling on reason/act iterations within one turn (default 16).
+    /// Ceiling on reason/act iterations within one turn (default
+    /// [`DEFAULT_MAX_ITERATIONS`](agentyk_core::config::DEFAULT_MAX_ITERATIONS)).
     pub fn max_iterations(mut self, max_iterations: usize) -> Self {
-        self.max_iterations = max_iterations;
+        self.config.max_iterations = max_iterations;
         self
     }
 
@@ -264,7 +210,7 @@ impl AgentBuilder {
     /// gating and guardrails are built on — see
     /// [`agentyk_core::hooks::PreToolUseHook`].
     pub fn pre_tool_hook(mut self, hook: impl PreToolUseHook + 'static) -> Self {
-        self.pre_tool_hooks.push(Arc::new(hook));
+        self.config.pre_tool_hooks.push(Arc::new(hook));
         self
     }
 
@@ -272,7 +218,7 @@ impl AgentBuilder {
     /// previous hook's output — see
     /// [`agentyk_core::hooks::PostToolExecHook`].
     pub fn post_tool_hook(mut self, hook: impl PostToolExecHook + 'static) -> Self {
-        self.post_tool_hooks.push(Arc::new(hook));
+        self.config.post_tool_hooks.push(Arc::new(hook));
         self
     }
 
@@ -281,7 +227,7 @@ impl AgentBuilder {
     /// [`agentyk_core::budget::BudgetChecker`]. No default policy: unset
     /// means a turn never seals for budget reasons.
     pub fn budget_checker(mut self, checker: impl BudgetChecker + 'static) -> Self {
-        self.budget_checker = Some(Arc::new(checker));
+        self.config.budget_checker = Some(Arc::new(checker));
         self
     }
 
@@ -290,7 +236,7 @@ impl AgentBuilder {
     /// memory injection are implementations of this seam, not changes to
     /// the turn machine. See [`agentyk_core::context::ContextAssembler`].
     pub fn context_assembler(mut self, assembler: impl ContextAssembler + 'static) -> Self {
-        self.context_assembler = Arc::new(assembler);
+        self.config.context_assembler = Arc::new(assembler);
         self
     }
 
@@ -299,54 +245,51 @@ impl AgentBuilder {
     /// store, a workspace handle, anything a tool needs but core shouldn't
     /// know the shape of. Replaces any previous value of the same type.
     pub fn extension<T: Send + Sync + 'static>(mut self, value: T) -> Self {
-        self.extensions.insert(value);
+        self.config.extensions.insert(value);
         self
     }
 
     pub fn build(self) -> Result<Agent> {
-        let model = self
-            .model
-            .ok_or_else(|| Error::InvalidAgent("a model is required — call .model(...)".into()))?;
+        let mut config = self.config;
 
-        let mut capabilities = self.capabilities;
+        if config.model.is_none() {
+            return Err(Error::InvalidAgent(
+                "a model is required — call .model(...)".into(),
+            ));
+        }
+
         if !self.tools.is_empty() {
-            capabilities.push(Arc::new(AdHocTools { tools: self.tools }));
+            config
+                .capabilities
+                .push(Arc::new(AdHocTools { tools: self.tools }));
         }
 
-        #[allow(unused_mut)]
-        let mut drivers = self.drivers;
-        #[cfg(feature = "http")]
-        {
-            use agentyk_core::driver::DriverId;
-            if !drivers.contains(&DriverId::openai()) {
-                drivers.register(crate::drivers::openai::OpenAiDriver::new());
-            }
-            if !drivers.contains(&DriverId::anthropic()) {
-                drivers.register(crate::drivers::anthropic::AnthropicDriver::new());
-            }
-        }
+        register_bundled_drivers(&mut config.drivers);
 
-        if !drivers.contains(&model.driver) {
-            return Err(Error::UnknownDriver(model.driver.to_string()));
+        if !config.drivers.contains(&config.model().driver) {
+            return Err(Error::UnknownDriver(config.model().driver.to_string()));
         }
 
         Ok(Agent {
-            inner: Arc::new(AgentInner {
-                name: self.name,
-                system_prompt: self.system_prompt,
-                model,
-                capabilities,
-                drivers,
-                listeners: self.listeners,
-                max_iterations: self.max_iterations,
-                executor: self.executor,
-                pre_tool_hooks: self.pre_tool_hooks,
-                post_tool_hooks: self.post_tool_hooks,
-                budget_checker: self.budget_checker,
-                context_assembler: self.context_assembler,
-                extensions: self.extensions,
-            }),
+            config: Arc::new(config),
+            executor: self.executor,
         })
+    }
+}
+
+/// The HTTP drivers are registered unless the agent already supplied its own
+/// under the same id, so `ModelSpec::openai(..)` works with no wiring.
+#[cfg_attr(not(feature = "http"), allow(unused_variables))]
+fn register_bundled_drivers(drivers: &mut DriverRegistry) {
+    #[cfg(feature = "http")]
+    {
+        use agentyk_core::driver::DriverId;
+        if !drivers.contains(&DriverId::openai()) {
+            drivers.register(crate::drivers::openai::OpenAiDriver::new());
+        }
+        if !drivers.contains(&DriverId::anthropic()) {
+            drivers.register(crate::drivers::anthropic::AnthropicDriver::new());
+        }
     }
 }
 

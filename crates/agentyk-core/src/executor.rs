@@ -16,20 +16,15 @@
 use async_trait::async_trait;
 use chrono::Utc;
 
-use crate::budget::BudgetChecker;
 use crate::cancellation::CancellationToken;
-use crate::capability::Capability;
-use crate::context::ContextAssembler;
-use crate::driver::{DriverRegistry, ModelSpec, Usage};
+use crate::config::AgentConfig;
+use crate::driver::{ModelSpec, Usage};
 use crate::error::Result;
-use crate::event::{EventData, EventListener, EventRequest};
+use crate::event::{EventData, EventRequest};
 use crate::event_log::EventLog;
-use crate::extensions::Extensions;
-use crate::hooks::{PostToolExecHook, PreToolUseHook};
 use crate::id::{EventId, SessionId, TurnId};
 use crate::message::Message;
 use crate::replay::message_from_event_data;
-use std::sync::Arc;
 
 /// The outcome of one executed turn.
 #[derive(Debug, Clone)]
@@ -63,16 +58,21 @@ impl TurnResult {
     }
 }
 
-/// Everything a turn needs from its host: the agent's composition and the
-/// session's log and history. Executors receive it per turn.
+/// Everything a turn needs from its host: the agent's composition
+/// ([`AgentConfig`]) plus what is specific to *this* run — the session's log
+/// and history, the effective model, and cancellation.
+///
+/// The split matters: composition knobs are added to `AgentConfig` and reach
+/// every executor for free, so this struct does not grow a field (and break
+/// third-party executors) every time the agent gains a capability.
+#[non_exhaustive]
 pub struct TurnHost<'a> {
     pub session_id: SessionId,
-    pub system_prompt: &'a str,
+    /// The agent's composition — prompt, capabilities, drivers, hooks, seams.
+    pub config: &'a AgentConfig,
+    /// The model for *this* turn: the agent's default with any per-turn
+    /// [`crate::controls::TurnControls`] applied. Not `config.model()`.
     pub model: &'a ModelSpec,
-    pub capabilities: &'a [Arc<dyn Capability>],
-    pub drivers: &'a DriverRegistry,
-    pub listeners: &'a [Arc<dyn EventListener>],
-    pub max_iterations: usize,
     pub log: &'a dyn EventLog,
     /// Live message history; the executor keeps it in sync with the events
     /// it records.
@@ -81,22 +81,38 @@ pub struct TurnHost<'a> {
     /// chunks) so a caller can stop a running turn — see
     /// [`CancellationToken`].
     pub cancellation: CancellationToken,
-    /// Run before each tool call, in order; the first `Deny` wins — see
-    /// [`PreToolUseHook`].
-    pub pre_tool_hooks: &'a [Arc<dyn PreToolUseHook>],
-    /// Run after each executed (non-denied) tool call, in order, each
-    /// seeing the previous hook's output — see [`PostToolExecHook`].
-    pub post_tool_hooks: &'a [Arc<dyn PostToolExecHook>],
-    /// Checked once per turn action, like `cancellation` — a host that
-    /// wants to seal a turn on budget exhaustion sets this. `None` (the
-    /// default) means no budget policy — see [`BudgetChecker`].
-    pub budget_checker: Option<Arc<dyn BudgetChecker>>,
-    /// Transforms replayed history into what's actually sent to the model
-    /// this turn — see [`ContextAssembler`]. Defaults to a passthrough.
-    pub context_assembler: &'a dyn ContextAssembler,
-    /// Cloned into every [`crate::tool::ToolContext`] a turn constructs —
-    /// see [`Extensions`].
-    pub extensions: &'a Extensions,
+}
+
+impl<'a> TurnHost<'a> {
+    /// The effective model defaults to the agent's own; use
+    /// [`TurnHost::model`] to override it for one turn.
+    pub fn new(
+        session_id: SessionId,
+        config: &'a AgentConfig,
+        log: &'a dyn EventLog,
+        messages: &'a mut Vec<Message>,
+    ) -> Self {
+        Self {
+            session_id,
+            config,
+            model: config.model(),
+            log,
+            messages,
+            cancellation: CancellationToken::new(),
+        }
+    }
+
+    /// Run this turn on a different model than the agent's default — what
+    /// [`crate::controls::TurnControls`] resolves to.
+    pub fn model(mut self, model: &'a ModelSpec) -> Self {
+        self.model = model;
+        self
+    }
+
+    pub fn cancellation(mut self, token: CancellationToken) -> Self {
+        self.cancellation = token;
+        self
+    }
 }
 
 impl TurnHost<'_> {
@@ -117,7 +133,7 @@ impl TurnHost<'_> {
                 }
                 self.log.append(request).await?
             };
-            for listener in self.listeners {
+            for listener in &self.config.listeners {
                 listener.on_event(&event).await;
             }
         }

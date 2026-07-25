@@ -7,7 +7,7 @@
 //! turn action and, on [`BudgetDecision::Seal`], stops the turn via
 //! [`crate::turn::TurnState::on_seal`] rather than letting it run to
 //! [`crate::turn::TurnOutcome::MaxIterations`]. No default policy ships —
-//! [`crate::executor::TurnHost::budget_checker`] is `None` unless a host
+//! [`crate::config::AgentConfig::budget_checker`] is `None` unless a host
 //! sets one.
 
 use async_trait::async_trait;

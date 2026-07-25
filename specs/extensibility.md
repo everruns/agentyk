@@ -35,6 +35,16 @@ Therefore:
   field for it.
 - **Behavior → a satellite [`TurnExecutor`] + capabilities.** Never core.
 
+## Where a new knob goes
+
+Composition — anything an agent *is* — is a field on `AgentConfig` in core,
+plus a setter on `AgentBuilder`. Nothing else. `TurnHost` carries
+`&AgentConfig` rather than one field per knob, so a new knob reaches every
+`TurnExecutor` (including third-party and durable ones) without changing a
+public struct they construct or match on. Per-run state — the effective model,
+cancellation, the log, the live history — stays on `TurnHost`, because it is
+not part of the agent.
+
 ## What already composes over existing seams (no core change)
 
 | everruns capability | Build it with |

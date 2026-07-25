@@ -45,6 +45,7 @@ pub mod atoms;
 pub mod budget;
 pub mod cancellation;
 pub mod capability;
+pub mod config;
 pub mod context;
 pub mod controls;
 pub mod driver;
@@ -63,6 +64,7 @@ pub mod turn;
 pub use budget::{BudgetChecker, BudgetDecision};
 pub use cancellation::CancellationToken;
 pub use capability::{Capability, CommandContext, CommandDescriptor, SystemPromptContext};
+pub use config::{AgentConfig, DEFAULT_MAX_ITERATIONS};
 pub use context::{ContextAssembler, PassthroughContextAssembler};
 pub use controls::TurnControls;
 pub use driver::{

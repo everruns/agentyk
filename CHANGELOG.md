@@ -19,6 +19,26 @@ release — every release bumps the patch component (`0.1.z`). See
   carrying the original payload. Replay stays sufficient to resume a session
   across versions, which is the point of the persistence seam.
 
+### Changed — composition lives in one value
+
+- **`AgentConfig` (new, in `agentyk-core`) is an agent's whole composition** —
+  prompt, model, capabilities, drivers, listeners, hooks, budget checker,
+  context assembler, extensions. `AgentBuilder` fills one in and `Agent` holds
+  it behind an `Arc`; `Agent::config()` exposes it.
+- **`TurnHost` went from 15 public fields to 6**: `session_id`, `config`,
+  `model` (the per-turn effective one), `log`, `messages`, `cancellation`,
+  built with `TurnHost::new(..).model(..).cancellation(..)`.
+
+  Adding a composition knob used to mean seven mechanical edits across four
+  files — builder field, builder setter, `AgentInner` field, `build()` copy,
+  `Agent` accessor, `TurnHost` field, session wiring — and the `TurnHost`
+  field made it a breaking change for every third-party `TurnExecutor`. It is
+  now a field on `AgentConfig` plus a builder setter, and reaches every
+  executor for free.
+- Executors read composition through `host.config.*`. Per-field `Agent`
+  accessors are gone except `name()`, `model()`, `capabilities()` and
+  `driver_for_model()`; use `agent.config()` for the rest.
+
 ### Changed — packaging and API-stability guardrails
 
 - **Public data types are `#[non_exhaustive]`**, so core can grow fields and
