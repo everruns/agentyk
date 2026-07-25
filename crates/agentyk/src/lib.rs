@@ -52,13 +52,19 @@
 //! let result = agent.run("list the files").await?;
 //! ```
 
+// Enables the "Available on crate feature ..." badges when docs.rs builds
+// with `--cfg docsrs` on nightly; a no-op for every ordinary build.
+#![cfg_attr(docsrs, feature(doc_cfg))]
+
 pub mod agent;
 pub mod drivers;
 #[cfg(feature = "fs")]
+#[cfg_attr(docsrs, doc(cfg(feature = "fs")))]
 pub mod filesystem;
 pub mod in_process;
 pub mod jsonl_log;
 #[cfg(feature = "mcp")]
+#[cfg_attr(docsrs, doc(cfg(feature = "mcp")))]
 pub mod mcp;
 pub mod session;
 
@@ -68,6 +74,7 @@ pub use agentyk_core::*;
 pub use agent::{Agent, AgentBuilder};
 pub use drivers::sim::{SimDriver, SimToolCall, SimTurn};
 #[cfg(feature = "fs")]
+#[cfg_attr(docsrs, doc(cfg(feature = "fs")))]
 pub use filesystem::{
     FileEntry, FileSystem, FileSystemCapability, InMemoryFileSystem, RealDiskFileSystem,
     WriteBlocklistFileSystem,
@@ -75,8 +82,10 @@ pub use filesystem::{
 pub use in_process::InProcessExecutor;
 pub use jsonl_log::JsonlEventLog;
 #[cfg(feature = "mcp")]
+#[cfg_attr(docsrs, doc(cfg(feature = "mcp")))]
 pub use mcp::{McpCapability, McpClient, McpServer};
 pub use session::{RunOptions, Session};
 
 #[cfg(feature = "http")]
+#[cfg_attr(docsrs, doc(cfg(feature = "http")))]
 pub use drivers::{anthropic::AnthropicDriver, openai::OpenAiDriver};

@@ -10,9 +10,18 @@ members = [
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
+# Verified in CI (the `msrv` job), not just declared. 1.88 is the floor for
+# let-chains in edition 2024, which the turn loop and event log use.
+rust-version = "1.88"
 license = "MIT"
 repository = "https://github.com/everruns/agentyk"
 homepage = "https://github.com/everruns/agentyk"
+
+# Applied to every member via `lints.workspace = true`. agentyk is a pure-safe
+# library: nothing here needs `unsafe`, and forbidding it is a promise the
+# compiler keeps for downstream auditors.
+[workspace.lints.rust]
+unsafe_code = "forbid"
 
 [workspace.dependencies]
 # Internal (lockstep versions)

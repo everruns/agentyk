@@ -3,34 +3,61 @@ name = "agentyk"
 description = "Compose agents from values and run them: turn loop, event log, capabilities, MCP, multi-provider LLM drivers."
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true
 keywords = ["agent", "llm", "ai", "mcp"]
 categories = ["asynchronous"]
 
+[lints]
+workspace = true
+
 [dependencies]
 agentyk-core = { workspace = true }
 async-trait = { workspace = true }
 chrono = { workspace = true }
 serde_json = { workspace = true }
-tokio = { workspace = true, features = ["rt", "macros", "sync", "process", "io-util", "time", "fs"] }
 tracing = { workspace = true }
 
-# HTTP LLM drivers (feature: http)
+# Optional: nothing in the default build needs an async runtime, HTTP client,
+# or process spawning. Each is pulled in by the feature that uses it, with only
+# the tokio features that feature needs — so `--no-default-features` really is
+# lean rather than lean-by-documentation.
+tokio = { workspace = true, optional = true }
 reqwest = { workspace = true, optional = true, features = ["stream"] }
 futures-util = { version = "0.3", optional = true, default-features = false }
 
 [features]
-default = ["mcp", "fs"]
+# Empty by default: a bare `agentyk` compiles the turn loop, the event logs,
+# and the sim driver, and nothing that can open a socket or spawn a process.
+# Applications opt into capability surface explicitly (or take `full`).
+default = []
 # OpenAI-compatible and Anthropic HTTP drivers, streaming included.
 http = ["dep:reqwest", "dep:futures-util"]
-# MCP stdio client + capability.
-mcp = []
+# MCP stdio client + capability. Spawns and talks to a child process.
+mcp = ["dep:tokio", "tokio/rt", "tokio/process", "tokio/io-util", "tokio/sync", "tokio/time"]
 # FileSystemCapability + RealDisk/InMemory stores.
-fs = []
+fs = ["dep:tokio", "tokio/fs", "tokio/sync"]
+# Everything the framework bundles.
+full = ["http", "mcp", "fs"]
+
+[package.metadata.docs.rs]
+all-features = true
+# Renders the "Available on crate feature ..." badges from `doc(cfg(...))`.
+rustdoc-args = ["--cfg", "docsrs"]
 
 [dev-dependencies]
 serde = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 tempfile = { workspace = true }
+
+# Feature-specific integration tests, declared so a lean `cargo test` skips
+# them instead of failing to compile. Everything else runs on the bare crate.
+[[test]]
+name = "filesystem"
+required-features = ["fs"]
+
+[[test]]
+name = "mcp_stdio"
+required-features = ["mcp"]

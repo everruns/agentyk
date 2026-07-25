@@ -9,6 +9,25 @@ release — every release bumps the patch component (`0.1.z`). See
 
 ## [Unreleased]
 
+### Changed — packaging and API-stability guardrails
+
+- **`agentyk` defaults to no features.** `tokio` is now an optional dependency
+  pulled in only by the features that use it (`mcp`, `fs`), each enabling just
+  the tokio features it needs. Previously `tokio` — including `process` and
+  `fs` support — was unconditional, so the documented "lean build" was not
+  actually lean. Default build: 28 crates; `full`: 100. Use
+  `features = ["full"]` for the previous batteries-included surface.
+- **MSRV is declared and verified.** `rust-version = "1.88"` on every member,
+  with a CI job that builds on exactly that toolchain, so the promise cannot
+  silently drift.
+- **`unsafe_code = "forbid"`** workspace-wide.
+- **CI feature matrix** — each feature is built alone, not only in the
+  all-features build, so `#[cfg]` gating stays honest as features grow.
+- **`cargo-semver-checks` gates publishing** against the last crates.io
+  release (in `publish.yml`, where a baseline exists; skipped for a crate's
+  first publish).
+- Feature-gated items carry `doc(cfg(...))` badges on docs.rs.
+
 ### Added — protocol extensibility (from an audit against everruns 0.17.16)
 
 - **Reasoning round-trip**: `Message.thinking` and `Message.thinking_signature`
