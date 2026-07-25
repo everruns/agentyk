@@ -1,11 +1,8 @@
 //! Session — a conversation with an agent.
 //!
 //! `Session::run` executes one turn of the everruns `input → reason → act`
-//! contract by delegating to the agent's
-//! [`TurnExecutor`](agentyk_core::executor::TurnExecutor) (default:
-//! [`crate::in_process::InProcessExecutor`]), which drives the
-//! [`TurnState`](agentyk_core::turn::TurnState) machine over the
-//! [`atoms`](agentyk_core::atoms). Every step is appended to the event log
+//! contract through the canonical engine and its in-process host. Every step
+//! is appended to the event log
 //! and fanned out to listeners; a session can be
 //! [resumed](crate::Agent::resume_session) from its log alone.
 
@@ -17,13 +14,14 @@ use agentyk_core::controls::TurnControls;
 use agentyk_core::error::Result;
 use agentyk_core::event::Event;
 use agentyk_core::event_log::EventLog;
-use agentyk_core::executor::{TurnHost, TurnResult};
 use agentyk_core::id::SessionId;
 use agentyk_core::message::Message;
 use agentyk_core::replay::History;
 use agentyk_core::tool::ToolOutput;
 
 use crate::agent::Agent;
+use crate::host::{TurnHost, TurnResult};
+use crate::in_process::InProcessExecutor;
 
 /// Everything one [`Session::run_with_options`] call can override. Defaults
 /// (`RunOptions::default()`) reproduce plain [`Session::run`]: an
@@ -114,7 +112,7 @@ impl Session {
     /// [`agentyk_core::capability::Capability::commands`].
     pub fn commands(&self) -> Vec<CommandDescriptor> {
         self.agent
-            .config
+            .definition()
             .capabilities
             .iter()
             .flat_map(|capability| capability.commands())
@@ -128,7 +126,7 @@ impl Session {
     /// "unknown command" message if none claims it.
     pub async fn execute_command(&self, name: &str, args: &str) -> Result<ToolOutput> {
         let context = CommandContext::new(self.id);
-        for capability in &self.agent.config.capabilities {
+        for capability in &self.agent.definition().capabilities {
             if capability.commands().iter().any(|c| c.name == name)
                 && let Some(output) = capability.execute_command(name, args, &context).await
             {
@@ -178,14 +176,19 @@ impl Session {
         input: impl Into<String>,
         options: RunOptions,
     ) -> Result<TurnResult> {
-        let config = self.agent.config.clone();
-        let executor = self.agent.executor.clone();
-        let effective_model = options.controls.resolve(config.model());
-        // Composition travels as one value; only the genuinely per-run parts
-        // are set here. Adding a composition knob does not touch this call.
-        let mut host = TurnHost::new(self.id, &config, self.log.as_ref(), &mut self.history)
-            .model(&effective_model)
-            .cancellation(options.cancellation);
-        executor.run_turn(&mut host, Message::user(input)).await
+        let definition = self.agent.definition();
+        let effective_model = options.controls.resolve(&definition.model);
+        let mut host = TurnHost::new(
+            self.id,
+            definition,
+            self.agent.environment(),
+            self.log.as_ref(),
+            &mut self.history,
+        )
+        .model(&effective_model)
+        .cancellation(options.cancellation);
+        InProcessExecutor
+            .run_turn(&mut host, Message::user(input))
+            .await
     }
 }

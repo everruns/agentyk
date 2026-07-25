@@ -1,14 +1,12 @@
-//! The satellite executor fans out a whole tool batch concurrently
-//! (`TurnState::pending_tool_actions`), gating each call by its own hints —
-//! agentyk's item-9 "concurrent dispatch" follow-up, proven in a satellite.
+//! The canonical engine prepares a whole tool batch and gates each call by
+//! its own hints. The in-process host executes that batch sequentially; a
+//! durable host may dispatch it concurrently without replacing the engine.
 
 use agentyk::{
     Agent, EventData, FnTool, ModelSpec, Result, SimDriver, SimToolCall, SimTurn, ToolOutput,
 };
 use agentyk_core::message::ToolCall;
-use agentyk_everruns_poc::{
-    ApprovalDecision, ApprovalMiddleware, Approver, EverrunsExecutor, HintedTool, ToolHints,
-};
+use agentyk_everruns_poc::{ApprovalDecision, ApprovalMiddleware, Approver, HintedTool, ToolHints};
 use async_trait::async_trait;
 use serde_json::json;
 
@@ -45,7 +43,6 @@ async fn a_batch_is_dispatched_and_gated_per_call() -> Result<()> {
     let agent = Agent::builder()
         .model(ModelSpec::llmsim())
         .driver(SimDriver::new([two_call_turn(), SimTurn::text("done")]))
-        .executor(EverrunsExecutor)
         .middleware(ApprovalMiddleware::new(DenyDestructive))
         .tool(HintedTool::new(
             tool("safe_read", "file contents"),

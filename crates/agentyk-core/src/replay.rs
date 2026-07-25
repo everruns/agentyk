@@ -120,13 +120,14 @@ mod tests {
                     message: Message::user("hi"),
                 },
             ),
-            durable(session_id, 2, EventData::TurnStarted),
+            durable(session_id, 2, EventData::TurnStarted { max_iterations: 16 }),
             durable(
                 session_id,
                 3,
                 EventData::OutputMessageCompleted {
                     message_id: MessageId::new(),
                     message: Message::assistant("thinking"),
+                    usage: crate::driver::Usage::default(),
                 },
             ),
             durable(

@@ -1,12 +1,10 @@
-//! End-to-end proof: the satellite `EverrunsExecutor` gates tools by their
+//! End-to-end proof: engine middleware gates tools by their
 //! `metadata` hints, driving a real agent through the framework harness — all
 //! over agentyk-core's public seams, no core change.
 
 use agentyk::{Agent, EventData, FnTool, ModelSpec, Result, SimDriver, SimTurn, ToolOutput};
 use agentyk_core::message::ToolCall;
-use agentyk_everruns_poc::{
-    ApprovalDecision, ApprovalMiddleware, Approver, EverrunsExecutor, HintedTool, ToolHints,
-};
+use agentyk_everruns_poc::{ApprovalDecision, ApprovalMiddleware, Approver, HintedTool, ToolHints};
 use async_trait::async_trait;
 use serde_json::json;
 
@@ -31,8 +29,8 @@ fn delete_tool() -> FnTool {
     )
 }
 
-/// Build an agent whose turns run on the satellite executor, with `delete`
-/// tagged `destructive` so the executor gates it.
+/// Build an agent with `delete` tagged `destructive` so engine middleware
+/// gates it.
 fn agent_with(approver: impl Approver + 'static, hints: ToolHints) -> Result<Agent> {
     Agent::builder()
         .model(ModelSpec::llmsim())
@@ -40,7 +38,6 @@ fn agent_with(approver: impl Approver + 'static, hints: ToolHints) -> Result<Age
             SimTurn::tool_call("delete", json!({})),
             SimTurn::text("done"),
         ]))
-        .executor(EverrunsExecutor)
         .middleware(ApprovalMiddleware::new(approver))
         .tool(HintedTool::new(delete_tool(), hints))
         .build()

@@ -1,0 +1,12 @@
+sequenceDiagram
+    participant Store as Event store
+    participant Host as Execution host
+    participant Engine as TurnEngine
+
+    loop Until the turn finishes
+        Host->>Store: 1. Load events
+        Host->>Engine: 2. Replay state; prepare or apply
+        Engine-->>Host: 3. Events + operation or outcome
+        Host->>Store: 4. Append with expected version
+        Host->>Host: 5. Execute now or schedule durably
+    end

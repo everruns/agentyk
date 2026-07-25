@@ -1,9 +1,8 @@
 # agentyk-everruns-poc (prototype)
 
-A **proof that the extensibility boundary holds**: everruns-flavored behavior
-built as a satellite over [`agentyk-core`](https://crates.io/crates/agentyk-core)'s
-public seams, with **no change to core**. Not a shipped crate (`publish = false`);
-it exists to validate the strategy in
+A proof that Everruns-flavored policy and metadata compose with Agentyk's
+canonical engine. Not a shipped crate (`publish = false`); it exists to
+validate the strategy in
 [`knowledge/extensibility.md`](../../knowledge/extensibility.md).
 
 The library depends on `agentyk-core` **only** — no framework, no tokio, no
@@ -18,19 +17,15 @@ example harness.
   capability can bundle a tool with the middleware governing it. None of it
   needs a custom executor — it did before core middleware could express a
   rewrite.
-- **Strategy lives in a custom `TurnExecutor`.** `EverrunsExecutor` drives the
-  same `atoms` + `TurnState` as the built-in executor and differs only in
-  **concurrent tool dispatch** via `TurnState::pending_tool_actions`, closing
-  agentyk's item-9 "concurrent dispatch is a deferred follow-up" note.
+- **The canonical engine prepares tool batches.** A durable or concurrent host
+  can dispatch the batch without replacing middleware or turn semantics.
 - **Everruns-flavored data rides the `metadata` hatch.** `ToolHints`
   (`readonly`/`destructive`/`open_world`) live in `ToolDefinition.metadata`
   under a `"hints"` key — core never learns the schema.
 - **The transcript surface is a pure observer.** `NarrationListener` renders
   the event stream into readable lines — an `EventListener`, not a turn-loop
-  concern. It also surfaces a tool's **risk hint** (`🔎 readonly` / `⚠ destructive`),
-  which the executor emits as an `EventData::Custom` event, and pre-run
-  **redaction** (`✎ … redacted before it ran`) from the first-class
-  `tool.rewritten` event — plus
+  concern. It surfaces pre-run **redaction** (`✎ … redacted before it ran`)
+  from the first-class `tool.rewritten` event, plus
   provider **extended thinking** (`💭 …`, the typed `Message::thinking` field),
   all without core learning any new variant.
 
@@ -47,12 +42,10 @@ secret) and prints a transcript built entirely from events:
 ── transcript ─────────────────────────────
 • turn started
 › search for cats, delete everything, and save a note
-🔎 search — readonly
 ⚙ search(…)
-⚠ delete_all — destructive
 ⚙ delete_all(…)
-✓ search
 ⛔ delete_all denied — `delete_all` needs approval — blocked for the demo
+✓ search
 ✗ delete_all
 ⚙ save_note(…)
 ✎ save_note — redacted before it ran
@@ -62,15 +55,15 @@ secret) and prints a transcript built entirely from events:
 ───────────────────────────────────────────
 ```
 
-The `🔎`/`⚠` hint lines and the `✎` redaction line come from `tool.hint` /
-`tool.rewritten` `EventData::Custom` events the executor emits; a real run
-against a thinking-capable driver would also show `💭` lines.
+The `✎` redaction line comes from the durable `tool.rewritten` event emitted by
+the engine; a real run against a thinking-capable driver would also show `💭`
+lines.
 
-## The satellite boundary
+## The adopter boundary
 
-> `agentyk-everruns-poc` (or a rebuilt everruns-core) = a custom `TurnExecutor`
-> (act/hook/approval/parallel semantics) + capabilities + drivers + `metadata`
-> conventions. `agentyk-core` stays frozen and lean.
+> Rebuilt everruns-core = a durable host and operation dispatchers +
+> capabilities + drivers + metadata conventions. The shared engine owns turn
+> semantics.
 
 See [`knowledge/extensibility.md`](../../knowledge/extensibility.md) for the full rule:
 first-class typed fields only for universal, correctness-load-bearing protocol

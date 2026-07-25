@@ -7,6 +7,7 @@ name = "agentyk"
 version = "0.1.0"
 dependencies = [
  "agentyk-core",
+ "agentyk-engine",
  "async-trait",
  "chrono",
  "futures-util",
@@ -31,13 +32,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "agentyk-engine"
+version = "0.1.0"
+dependencies = [
+ "agentyk-core",
+ "async-trait",
+ "chrono",
+]
+
+[[package]]
 name = "agentyk-everruns-poc"
 version = "0.1.0"
 dependencies = [
  "agentyk",
  "agentyk-core",
  "async-trait",
- "futures-util",
  "serde",
  "serde_json",
  "tokio",

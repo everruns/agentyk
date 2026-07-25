@@ -84,7 +84,7 @@ pub struct ReasoningConfig {
 /// A model, by value (everruns: `ResolvedModel`): wire model name, the driver
 /// that speaks its protocol, and optional credentials/endpoint. Build it
 /// inline and hand it to the agent — nothing to register.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct ModelSpec {
     /// Which protocol implementation to route through.
@@ -103,6 +103,18 @@ pub struct ModelSpec {
     /// driver — see [`ReasoningConfig`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reasoning: Option<ReasoningConfig>,
+}
+
+impl std::fmt::Debug for ModelSpec {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ModelSpec")
+            .field("driver", &self.driver)
+            .field("model", &self.model)
+            .field("api_key", &self.api_key.as_ref().map(|_| "<redacted>"))
+            .field("base_url", &self.base_url)
+            .field("reasoning", &self.reasoning)
+            .finish()
+    }
 }
 
 impl ModelSpec {
@@ -265,7 +277,7 @@ impl ChatResponse {
 
 /// Receives incremental text as a [`ChatDriver`] streams a completion.
 /// `accumulated` is the full text so far, including `delta` — the executor
-/// forwards each call straight to [`crate::executor::TurnHost::record`] as an
+/// forwards each call to the engine host's event recorder as an
 /// ephemeral `output.message.delta` event.
 #[async_trait]
 pub trait DeltaSink: Send {
@@ -343,5 +355,20 @@ impl DriverRegistry {
     /// Whether a driver is registered under `id`.
     pub fn contains(&self, id: &DriverId) -> bool {
         self.drivers.contains_key(id)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ModelSpec;
+
+    #[test]
+    fn model_debug_redacts_credentials() {
+        let model = ModelSpec::openai("test-model").api_key("super-secret");
+
+        let debug = format!("{model:?}");
+
+        assert!(debug.contains("<redacted>"));
+        assert!(!debug.contains("super-secret"));
     }
 }

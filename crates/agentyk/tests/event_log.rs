@@ -2,7 +2,10 @@
 
 use std::sync::Arc;
 
-use agentyk::{Agent, EventLog, JsonlEventLog, ModelSpec, Result, SimDriver, SimTurn};
+use agentyk::{
+    Agent, Error, EventData, EventLog, EventRequest, ExpectedVersion, JsonlEventLog, ModelSpec,
+    Result, SessionId, SimDriver, SimTurn,
+};
 use serde_json::json;
 
 #[tokio::test]
@@ -130,5 +133,40 @@ async fn two_sessions_share_one_file_with_independent_sequences() -> Result<()> 
     assert_eq!(events_a[0].sequence, Some(1));
     assert_eq!(events_b[0].sequence, Some(1));
     assert_ne!(a.id(), b.id());
+    Ok(())
+}
+
+#[tokio::test]
+async fn jsonl_batches_are_version_checked_and_incrementally_readable() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let log = JsonlEventLog::new(dir.path().join("batch.jsonl"))?;
+    let session_id = SessionId::new();
+    let requests = vec![
+        EventRequest::new(session_id, EventData::TurnStarted { max_iterations: 4 }),
+        EventRequest::new(session_id, EventData::TurnCancelled),
+    ];
+
+    let appended = log
+        .append_batch(session_id, ExpectedVersion::Exact(0), requests)
+        .await?;
+    assert_eq!(appended[0].sequence, Some(1));
+    assert_eq!(appended[1].sequence, Some(2));
+
+    let conflict = log
+        .append_batch(
+            session_id,
+            ExpectedVersion::Exact(0),
+            vec![EventRequest::new(session_id, EventData::TurnCancelled)],
+        )
+        .await
+        .unwrap_err();
+    assert!(matches!(
+        conflict,
+        Error::EventConflict {
+            expected: 0,
+            actual: 2
+        }
+    ));
+    assert_eq!(log.read_after(session_id, Some(1)).await?.len(), 1);
     Ok(())
 }

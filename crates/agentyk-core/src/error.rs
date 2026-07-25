@@ -108,6 +108,15 @@ pub enum Error {
     #[error("event log error: {0}")]
     EventLog(String),
 
+    /// An append expected a different end-of-stream sequence.
+    #[error("event stream conflict: expected version {expected}, found {actual}")]
+    EventConflict {
+        /// Version supplied by the writer.
+        expected: u64,
+        /// Version currently stored.
+        actual: u64,
+    },
+
     /// Local I/O failed — an event log file, a workspace read.
     #[error(transparent)]
     Io(#[from] std::io::Error),

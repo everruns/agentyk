@@ -13,6 +13,10 @@ not here — nothing in this bundle is a user-facing product doc.
 
 ## Concepts
 
+- [architecture](architecture.md) (`Design`) — crate boundaries, the
+  single canonical step engine, execution hosts, and event-sourced durability.
+- [diagrams](diagrams.md) (`Design`) — Mermaid/SVG source pairing, placement,
+  visual language, accessible color use, and required raster review.
 - [maintenance](maintenance.md) (`Process`) — the definition of done for keeping persistent repository memory current and internally coherent.
 - [plan](plan.md) (`Plan`) — direction and the phased roadmap: build agentyk
   value-first, harden for adoption, then rebuild everruns-core/runtime on top.
@@ -23,8 +27,8 @@ not here — nothing in this bundle is a user-facing product doc.
   first-class core field versus a generic `metadata` hatch: behavior is external,
   data extensibility is core.
 - [release](release.md) (`Process`) — the CI-driven publishing flow: a
-  `chore(release)` commit tags, releases, and publishes `agentyk-core` then
-  `agentyk` to crates.io.
+  `chore(release)` commit tags, releases, and publishes `agentyk-core`,
+  `agentyk-engine`, then `agentyk` to crates.io.
 - [shipping](shipping.md) (`Process`) — the bar a change clears before it
   merges: offline proof matching the risk, a contract review over the promises
   the crates make, green CI. Adopted from yolop and reduced to a library's

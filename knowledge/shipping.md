@@ -90,8 +90,8 @@ change touches, look for the failure in the diff:
   or a tenant.
 - **Secrets.** `ModelSpec` carries an API key by value and serializes it when
   set, so it must not reach an event, a log line, or a serialized message.
-- **Dependency risk.** A new crate needs a one-line justification. The two
-  published crates move in lockstep — see [`release.md`](release.md).
+- **Dependency risk.** A new crate needs a one-line justification. Core,
+  engine, and facade move in lockstep — see [`release.md`](release.md).
 
 Docs-only, comment-only, or test-only changes may record "No contract-relevant
 changes" with a one-line justification.

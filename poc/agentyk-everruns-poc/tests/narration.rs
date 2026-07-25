@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use agentyk::{Agent, FnTool, ModelSpec, Result, SimDriver, SimToolCall, SimTurn, ToolOutput};
 use agentyk_core::middleware::{ToolCallDecision, ToolInvocation, TurnMiddleware};
-use agentyk_everruns_poc::{EverrunsExecutor, HintedTool, NarrationListener, ToolHints};
+use agentyk_everruns_poc::{HintedTool, NarrationListener, ToolHints};
 use async_trait::async_trait;
 use serde_json::json;
 
@@ -63,7 +63,7 @@ fn echo(name: &'static str) -> FnTool {
 }
 
 #[tokio::test]
-async fn narration_surfaces_hints_and_redaction_from_custom_events() -> Result<()> {
+async fn narration_surfaces_engine_middleware_redaction() -> Result<()> {
     let narration: Arc<NarrationListener> = Arc::default();
     let agent = Agent::builder()
         .model(ModelSpec::llmsim())
@@ -75,9 +75,7 @@ async fn narration_surfaces_hints_and_redaction_from_custom_events() -> Result<(
             SimTurn::text("done"),
         ]))
         // Only a redactor in the chain — no approval guard, so the destructive
-        // tool still runs; the readonly/destructive hints and the redaction
-        // ride the event stream as custom events regardless.
-        .executor(EverrunsExecutor)
+        // tool still runs.
         .middleware(RedactSecret)
         .listener_arc(narration.clone())
         .tool(HintedTool::new(echo("search"), ToolHints::readonly()))
@@ -87,16 +85,7 @@ async fn narration_surfaces_hints_and_redaction_from_custom_events() -> Result<(
     agent.run("search then save a secret").await?;
 
     let lines = narration.lines();
-    // Risk hints (from tool.hint custom events)...
-    assert!(
-        lines.iter().any(|l| l == "🔎 search — readonly"),
-        "{lines:?}"
-    );
-    assert!(
-        lines.iter().any(|l| l == "⚠ save — destructive"),
-        "{lines:?}"
-    );
-    // ...and the redaction (from a tool.rewritten custom event).
+    // The canonical engine records middleware rewrites for observers.
     assert!(
         lines.iter().any(|l| l == "✎ save — redacted before it ran"),
         "{lines:?}"

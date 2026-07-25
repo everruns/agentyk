@@ -9,8 +9,8 @@
 //! [`crate::event_log::EventLog`] and assigned a sequence. A few are
 //! **ephemeral** ([`EventData::is_ephemeral`]) — streaming deltas, delivered
 //! to listeners in real time but never persisted or sequenced
-//! (`sequence: None`). [`crate::executor::TurnHost::record`] is what branches
-//! on this; the event log itself only ever sees durable events.
+//! (`sequence: None`). The engine host recorder branches on this; the event
+//! log itself only ever sees durable events.
 //!
 //! Event types use the everruns dot notation (`turn.started`,
 //! `input.message`, `tool.completed`, …) so the protocol stays recognizable
@@ -68,7 +68,12 @@ pub mod event_types {
 #[non_exhaustive]
 pub enum EventData {
     /// A turn began. The `input.message` event follows immediately.
-    TurnStarted,
+    TurnStarted {
+        /// Reason-step ceiling captured in the event so replay reconstructs
+        /// the same machine without an out-of-band checkpoint.
+        #[serde(default = "default_max_iterations")]
+        max_iterations: usize,
+    },
     /// A turn ended with a final assistant answer.
     TurnCompleted {
         /// LLM completions performed within the turn.
@@ -138,6 +143,9 @@ pub enum EventData {
         message_id: MessageId,
         /// The finished assistant message — this is what enters history.
         message: Message,
+        /// Token usage for this reason step.
+        #[serde(default)]
+        usage: crate::driver::Usage,
     },
     /// A tool call is about to run. The call carried here is the one that
     /// will actually execute, so it reflects any middleware rewrite.
@@ -181,6 +189,13 @@ pub enum EventData {
         call_id: String,
         /// The tool name as executed, which a rewrite may have changed.
         name: String,
+        /// The full call as it will execute. Required to resume after the
+        /// rewrite is persisted but before `tool.started`.
+        ///
+        /// `None` only represents a legacy log written before rewritten calls
+        /// were replayable; current emitters always write `Some`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        call: Option<ToolCall>,
         /// Which middleware rewrote it, from
         /// [`crate::middleware::TurnMiddleware::name`], when the executor
         /// knows.
@@ -200,7 +215,18 @@ pub enum EventData {
         /// Whatever the emitter wants to carry. Core never interprets it.
         #[serde(default)]
         payload: serde_json::Value,
+        /// Whether replay must understand this event to advance turn state.
+        ///
+        /// Custom events emitted through [`Self::custom`] are observational.
+        /// Unknown serialized event variants are conservatively marked
+        /// state-bearing by [`Event`]'s deserializer.
+        #[serde(default)]
+        state_bearing: bool,
     },
+}
+
+fn default_max_iterations() -> usize {
+    16
 }
 
 impl EventData {
@@ -210,13 +236,14 @@ impl EventData {
         EventData::Custom {
             event_type: event_type.into(),
             payload,
+            state_bearing: false,
         }
     }
 
     /// The dot-notation type string for this payload.
     pub fn event_type(&self) -> &str {
         match self {
-            EventData::TurnStarted => event_types::TURN_STARTED,
+            EventData::TurnStarted { .. } => event_types::TURN_STARTED,
             EventData::TurnCompleted { .. } => event_types::TURN_COMPLETED,
             EventData::TurnFailed { .. } => event_types::TURN_FAILED,
             EventData::TurnCancelled => event_types::TURN_CANCELLED,
@@ -309,6 +336,7 @@ impl<'de> Deserialize<'de> for Event {
             serde_json::from_value::<EventData>(repr.data.clone()).unwrap_or(EventData::Custom {
                 event_type: repr.event_type.clone(),
                 payload: repr.data,
+                state_bearing: true,
             });
         Ok(Event {
             id: repr.id,
@@ -369,8 +397,8 @@ impl EventRequest {
     }
 
     /// Finalize into an ephemeral [`Event`] (`sequence: None`) without going
-    /// through an [`crate::event_log::EventLog`] — called by
-    /// [`crate::executor::TurnHost::record`] for events where
+    /// through an [`crate::event_log::EventLog`] — called by the engine host
+    /// recorder for events where
     /// [`EventData::is_ephemeral`] is true.
     pub fn into_ephemeral_event(self, id: EventId, ts: DateTime<Utc>) -> Event {
         Event {
@@ -440,7 +468,7 @@ mod tests {
 
     #[test]
     fn only_delta_is_ephemeral() {
-        assert!(!EventData::TurnStarted.is_ephemeral());
+        assert!(!EventData::TurnStarted { max_iterations: 16 }.is_ephemeral());
         assert!(
             !EventData::OutputMessageStarted {
                 message_id: MessageId::new(),
@@ -453,9 +481,33 @@ mod tests {
             !EventData::OutputMessageCompleted {
                 message_id: MessageId::new(),
                 message: Message::assistant("hi"),
+                usage: crate::driver::Usage::default(),
             }
             .is_ephemeral()
         );
+    }
+
+    #[test]
+    fn legacy_turn_started_defaults_the_iteration_limit() {
+        let data: EventData = serde_json::from_value(serde_json::json!({
+            "kind": "turn_started"
+        }))
+        .unwrap();
+
+        assert_eq!(data, EventData::TurnStarted { max_iterations: 16 });
+    }
+
+    #[test]
+    fn legacy_tool_rewrite_remains_readable_but_is_marked_incomplete() {
+        let data: EventData = serde_json::from_value(serde_json::json!({
+            "kind": "tool_rewritten",
+            "call_id": "call_1",
+            "name": "save",
+            "by": "guard"
+        }))
+        .unwrap();
+
+        assert!(matches!(data, EventData::ToolRewritten { call: None, .. }));
     }
 
     #[test]
@@ -483,6 +535,7 @@ mod tests {
         let EventData::Custom {
             event_type,
             ref payload,
+            ..
         } = event.data
         else {
             panic!("expected an unknown kind to degrade to Custom");

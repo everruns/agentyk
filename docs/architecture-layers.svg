@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 380" fill="none" role="img" aria-labelledby="title desc">
+  <title id="title">Agentyk dependency layers</title>
+  <desc id="desc">Applications use the Agentyk facade, which uses the canonical engine and core contract. Host infrastructure also implements engine contracts without entering core.</desc>
+  <style>
+    text { font-family: 'Geist', 'Inter', system-ui, sans-serif; }
+    .label { font-size: 13px; fill: #0A0A0A; font-weight: 600; }
+    .sublabel { font-size: 11px; fill: #404040; font-weight: 400; }
+    .header-text { font-size: 11px; fill: #A0A0A0; font-weight: 400; letter-spacing: 0.08em; }
+    .mono { font-family: 'Geist Mono', 'SF Mono', monospace; font-size: 10px; fill: #404040; }
+    .arrow-label { font-size: 10px; fill: #0A1636; font-weight: 500; }
+  </style>
+  <rect width="800" height="380" fill="#FFFFFF"/>
+
+  <text x="100" y="70" text-anchor="middle" class="header-text">CONSUMERS</text>
+  <rect x="25" y="90" width="150" height="110" fill="#F5F5F5" stroke="#0A0A0A" stroke-width="1"/>
+  <text x="100" y="132" text-anchor="middle" class="label">Applications</text>
+  <text x="100" y="154" text-anchor="middle" class="sublabel">Local apps · Yolop</text>
+  <text x="100" y="174" text-anchor="middle" class="sublabel">Everruns</text>
+
+  <text x="305" y="70" text-anchor="middle" class="header-text">PUBLIC LIBRARY</text>
+  <rect x="215" y="90" width="180" height="110" fill="#F5F5F5" stroke="#0A0A0A" stroke-width="1"/>
+  <text x="305" y="126" text-anchor="middle" class="label">agentyk</text>
+  <text x="305" y="149" text-anchor="middle" class="sublabel">Facade · drivers · MCP</text>
+  <text x="305" y="169" text-anchor="middle" class="sublabel">Filesystem · event stores</text>
+  <text x="305" y="188" text-anchor="middle" class="mono">feature-gated modules</text>
+
+  <text x="515" y="70" text-anchor="middle" class="header-text">SEMANTICS</text>
+  <rect x="435" y="90" width="160" height="110" fill="#F5F5F5" stroke="#0A0A0A" stroke-width="1"/>
+  <text x="515" y="132" text-anchor="middle" class="label">agentyk-engine</text>
+  <text x="515" y="154" text-anchor="middle" class="sublabel">One canonical</text>
+  <text x="515" y="174" text-anchor="middle" class="sublabel">turn engine</text>
+
+  <text x="700" y="70" text-anchor="middle" class="header-text">CONTRACT</text>
+  <rect x="630" y="90" width="140" height="110" fill="#F5F5F5" stroke="#0A0A0A" stroke-width="1"/>
+  <text x="700" y="132" text-anchor="middle" class="label">agentyk-core</text>
+  <text x="700" y="154" text-anchor="middle" class="sublabel">Values · events</text>
+  <text x="700" y="174" text-anchor="middle" class="sublabel">Traits · reducers</text>
+
+  <line x1="175" y1="145" x2="205" y2="145" stroke="#0A1636" stroke-width="1.5"/>
+  <polygon points="205,140 215,145 205,150" fill="#0A1636"/>
+  <text x="195" y="130" text-anchor="middle" class="arrow-label">build + run</text>
+
+  <line x1="395" y1="145" x2="425" y2="145" stroke="#0A1636" stroke-width="1.5"/>
+  <polygon points="425,140 435,145 425,150" fill="#0A1636"/>
+  <text x="415" y="130" text-anchor="middle" class="arrow-label">uses</text>
+
+  <line x1="595" y1="145" x2="620" y2="145" stroke="#0A1636" stroke-width="1.5"/>
+  <polygon points="620,140 630,145 620,150" fill="#0A1636"/>
+  <text x="612" y="130" text-anchor="middle" class="arrow-label">interprets</text>
+
+  <text x="515" y="250" text-anchor="middle" class="header-text">HOST INFRASTRUCTURE</text>
+  <rect x="425" y="270" width="180" height="80" fill="#FFFFFF" stroke="#404040" stroke-width="1" stroke-dasharray="4 3"/>
+  <text x="515" y="303" text-anchor="middle" class="label">Queues · workers · tenants</text>
+  <text x="515" y="326" text-anchor="middle" class="sublabel">Scheduling and operations</text>
+
+  <path d="M 605 310 H 620 V 220 H 515 V 210" stroke="#A0A0A0" stroke-width="1" stroke-dasharray="3 3" fill="none"/>
+  <polygon points="510,210 515,200 520,210" fill="#0A1636"/>
+  <text x="630" y="266" class="arrow-label">hosts engine contracts</text>
+</svg>

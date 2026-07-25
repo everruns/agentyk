@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fail if `agentyk` does not re-export everything `agentyk-core` exports.
+"""Fail if `agentyk` does not re-export everything core and engine export.
 
 Applications depend only on `agentyk`, so anything core makes public has to be
 reachable through it. That used to be guaranteed by `pub use agentyk_core::*`
@@ -20,11 +20,13 @@ import sys
 from pathlib import Path
 
 CORE = Path("crates/agentyk-core/src/lib.rs")
+ENGINE = Path("crates/agentyk-engine/src/lib.rs")
 FRAMEWORK = Path("crates/agentyk/src/lib.rs")
 
 # `pub use <path>::{a, b, c};` or `pub use <path>::Item;`, across newlines.
 BRACED = re.compile(r"pub use ([\w:]*?)\{(.*?)\}\s*;", re.DOTALL)
 SINGLE = re.compile(r"pub use ([\w:]+)::(\w+)\s*;")
+MODULE = re.compile(r"^pub mod (\w+)\s*;", re.MULTILINE)
 
 
 def exported_names(source: str, only_from: str | None = None) -> set[str]:
@@ -34,6 +36,9 @@ def exported_names(source: str, only_from: str | None = None) -> set[str]:
     which is how the framework's core re-exports are separated from its own.
     """
     names: set[str] = set()
+
+    if only_from is None:
+        names.update(MODULE.findall(source))
 
     for path, body in BRACED.findall(source):
         if only_from is not None and not path.startswith(only_from):
@@ -54,25 +59,46 @@ def exported_names(source: str, only_from: str | None = None) -> set[str]:
 
 
 def main() -> int:
-    if not CORE.exists() or not FRAMEWORK.exists():
+    if not CORE.exists() or not ENGINE.exists() or not FRAMEWORK.exists():
         print("error: run this from the repository root", file=sys.stderr)
         return 2
 
     core = exported_names(CORE.read_text())
-    framework = exported_names(FRAMEWORK.read_text(), only_from="agentyk_core::")
+    engine = exported_names(ENGINE.read_text())
+    framework_core = exported_names(
+        FRAMEWORK.read_text(), only_from="agentyk_core::"
+    )
+    framework_engine = exported_names(
+        FRAMEWORK.read_text(), only_from="agentyk_engine::"
+    )
 
-    missing = sorted(core - framework)
-    if missing:
-        print("agentyk does not re-export these agentyk-core items:\n", file=sys.stderr)
-        for name in missing:
-            print(f"  {name}", file=sys.stderr)
+    missing_core = sorted(core - framework_core)
+    missing_engine = sorted(engine - framework_engine)
+    if missing_core or missing_engine:
+        if missing_core:
+            print(
+                "agentyk does not re-export these agentyk-core items:\n",
+                file=sys.stderr,
+            )
+            for name in missing_core:
+                print(f"  {name}", file=sys.stderr)
+        if missing_engine:
+            print(
+                "agentyk does not re-export these agentyk-engine items:\n",
+                file=sys.stderr,
+            )
+            for name in missing_engine:
+                print(f"  {name}", file=sys.stderr)
         print(
-            f"\nAdd them to the `pub use agentyk_core::{{..}}` list in {FRAMEWORK}.",
+            f"\nAdd them to the matching explicit `pub use` list in {FRAMEWORK}.",
             file=sys.stderr,
         )
         return 1
 
-    print(f"ok: agentyk re-exports all {len(core)} agentyk-core items")
+    print(
+        "ok: agentyk re-exports "
+        f"all {len(core)} agentyk-core and {len(engine)} agentyk-engine items"
+    )
     return 0
 
 
