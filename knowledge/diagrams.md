@@ -171,6 +171,9 @@ After creating or changing an SVG:
 4. repeat until it has no overlaps, clipped labels, stray arrow crossings,
    crowded badges, or unbalanced whitespace.
 
+For sequence diagrams, also verify that lifelines remain visible through every
+frame and that each message line visibly touches its sender and receiver.
+
 Example:
 
 ```sh
