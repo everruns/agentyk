@@ -9,7 +9,9 @@ agent looks like in a real application, and to be short enough to read in one
 sitting — about 1,450 lines of source and 280 of tests. The UI is
 [`tuika`](https://crates.io/crates/tuika).
 
-![codenko fixing a bug](docs/demo.gif)
+<img src="docs/demo.gif" width="880" alt="codenko reading fizz.py, diagnosing the unreachable FizzBuzz branch, then fixing it and running the file — with the approval prompt gating both the write and the command.">
+
+<sup>Recorded on `openai/gpt-5.6-terra`. Displayed at half its pixel width, which is why it stays sharp — see [Re-recording the demo](#re-recording-the-demo).</sup>
 
 ## Run it
 
@@ -61,8 +63,6 @@ why: OpenAI's `gpt-5.6` family refuses function tools on chat completions at any
 other effort level, and codenko is nothing but function tools. Leave the flag
 off and the first turn ends in a `turn failed` notice quoting the API's own
 explanation — the driver surfaces the response body rather than swallowing it.
-
-![codenko on gpt-5.6-terra](docs/demo-openai.gif)
 
 ### Keys
 
@@ -162,22 +162,28 @@ message history, which is what `Agent::resume_session` does.
 
 ## Re-recording the demo
 
-Both GIFs are real runs against real models, recorded with
-[vhs](https://github.com/charmbracelet/vhs):
+The GIF is a real run against a real model, recorded with
+[vhs](https://github.com/charmbracelet/vhs) and squeezed with
+[gifsicle](https://www.lcdf.org/gifsicle/):
 
 ```sh
 cargo build --release -p codenko
-export PATH="$PWD/target/release:$PATH"
-
-ANTHROPIC_API_KEY=... vhs examples/codenko/demo.tape          # docs/demo.gif
-OPENAI_API_KEY=...    vhs examples/codenko/demo-openai.tape   # docs/demo-openai.gif
+PATH="$PWD/target/release:$PATH" OPENAI_API_KEY=... vhs examples/codenko/demo.tape
+gifsicle -O3 --lossy=60 --colors 64 -b examples/codenko/docs/demo.gif
 ```
 
-Both tapes run the same scenario — a scratch workspace with a small bug, a
-question about it, then the fix — so the recordings exercise reading, writing,
-approval, and a verification command, and are directly comparable across
-providers. Model wording varies between takes; the sleeps are sized for the
-slowest step.
+[`demo.tape`](demo.tape) creates a scratch workspace with a small bug, asks about
+it, then asks for the fix — so one recording exercises reading, writing,
+approval, and a verification command. Model wording varies between takes; the
+sleeps are sized for the slowest step.
+
+Two things about the resolution, both borrowed from tuika's own demo generator.
+The tape records at **2x** (1760 wide, font 28) and the README displays it at
+`width="880"`: a GIF wider than the README column is resampled by a fractional
+factor and looks soft, while an exact 2:1 downscale stays crisp and also holds up
+on HiDPI screens. And 2x density costs bytes — ~1.4 MB raw — so the gifsicle
+pass is part of the recipe rather than an afterthought; a terminal capture has
+few enough colors that 64 at `lossy=60` is visually indistinguishable at 557 KB.
 
 ## Deliberate omissions
 
