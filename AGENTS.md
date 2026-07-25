@@ -5,7 +5,7 @@ running them (turn loop, event log, capabilities, MCP, multi-provider
 drivers). It reuses the domain language of
 [`everruns`](https://github.com/everruns/everruns) but is built from scratch;
 the long-term plan is to rebuild everruns-core/runtime on top of it. Read
-[`specs/plan.md`](specs/plan.md) before changing architecture.
+[`knowledge/plan.md`](knowledge/plan.md) before changing architecture.
 
 ## Workflow
 
@@ -51,23 +51,26 @@ they grow a heavy dependency. Do not add tokio/reqwest/process deps to core.
 - Traits stay host-neutral: nothing in core presumes a database, server,
   or tenant.
 - Heavy integrations go behind features (`http`, `mcp`) or arrive as capabilities.
-- Keep the everruns vocabulary (see the mapping table in `specs/plan.md`).
+- Keep the everruns vocabulary (see the mapping table in `knowledge/plan.md`).
 
-## Specs and docs
+## Knowledge and docs
 
-- `specs/` is durable design intent for maintainers — the **why** and **what**,
-  not exhaustive **how** (link to source for exact fields/enums/API shapes). It
-  is an [Open Knowledge Format](https://okf.md) v0.1 bundle: one concept per
-  markdown file with a `type` in its frontmatter, listed in
-  [`specs/index.md`](specs/index.md). Read the relevant spec before changing
-  behavior in that area; add or update one when intent changes.
+- `knowledge/` is the repository’s persistent memory and durable design intent —
+  the **why** and **what**, not exhaustive **how** (link to source for exact
+  fields/enums/API shapes). It is an [Open Knowledge Format](https://okf.md)
+  v0.1 bundle: one concept per markdown file with a `type` in its frontmatter,
+  listed in [`knowledge/index.md`](knowledge/index.md). Read the relevant
+  knowledge before changing behavior in that area; integrate new decisions and
+  update stale knowledge as part of the same change.
 - Public, task-oriented documentation for users lives in the top-level
   `README.md`. Do not put internal design intent, roadmaps, or gap analyses
-  there — those are specs.
-- Validate the bundle with yolop's zero-dependency checker when editing specs:
-  `python3 <yolop>/src/bundled/system-skills/okf/scripts/validate_okf.py specs --strict`.
+  there — those are specifications expressed as knowledge concepts.
+- Follow [`knowledge/maintenance.md`](knowledge/maintenance.md) for the
+  definition of done and knowledge-maintenance rules. Validate the bundle after
+  editing it with yolop’s zero-dependency checker:
+  `python3 <yolop>/src/bundled/system-skills/okf/scripts/validate_okf.py knowledge --strict`.
 - `.claude/skills/` holds workflows requestable by name: `/ship` lands a change
-  (bar in [`specs/shipping.md`](specs/shipping.md), workflow in the skill).
+  (bar in [`knowledge/shipping.md`](knowledge/shipping.md), workflow in the skill).
 
 ## Local dev and tests
 

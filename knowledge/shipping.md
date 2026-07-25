@@ -31,7 +31,7 @@ which is invocable as `/ship`.
 
 1. Reach the requested goal, not perform rituals around it.
 2. Match validation depth to the risk actually changed.
-3. Keep affected artifacts in sync (`README.md`, `AGENTS.md`, `specs/`, `CHANGELOG.md`).
+3. Keep affected artifacts in sync (`README.md`, `AGENTS.md`, `knowledge/`, `CHANGELOG.md`).
 4. Merge only from a safe branch state with green CI.
 
 ## Ownership boundary
@@ -56,7 +56,7 @@ Every shipped change MUST satisfy all of these.
 4. **Contract reviewed.** The library-risk review below is performed and its
    result recorded in the PR body.
 5. **Synced artifacts.** `README.md` for user-facing surface, `AGENTS.md` for
-   agent guidance, `specs/` plus [`index.md`](index.md) when intent changes, and
+   agent guidance, `knowledge/` plus [`index.md`](index.md) when intent changes, and
    `CHANGELOG.md` under `[Unreleased]`. No code-duplicating prose.
 6. **Smoke test the affected surface.** Beyond the automated test, run the flow:
    `cargo run -p agentyk --example hello` for framework changes, a live-provider

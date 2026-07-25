@@ -1,9 +1,9 @@
-# agentyk specs
+# Agentyk Knowledge
 
 Durable design intent, constraints, and contracts for maintainers — the **why**
 and **what** behind agentyk, not exhaustive **how** (link to source for exact
 fields, enum variants, and API shapes rather than duplicating them). Read the
-relevant spec before changing behavior in that area.
+relevant knowledge before changing behavior in that area and keep it current as part of the same change.
 
 This directory is an [Open Knowledge Format](https://okf.md) v0.1 bundle: each
 concept is one markdown file carrying a `type` in its YAML frontmatter, and this
@@ -13,6 +13,7 @@ not here — nothing in this bundle is a user-facing product doc.
 
 ## Concepts
 
+- [maintenance](maintenance.md) (`Process`) — the definition of done for keeping persistent repository memory current and internally coherent.
 - [plan](plan.md) (`Plan`) — direction and the phased roadmap: build agentyk
   value-first, harden for adoption, then rebuild everruns-core/runtime on top.
 - [everruns-adoption](everruns-adoption.md) (`Analysis`) — gap analysis of what
