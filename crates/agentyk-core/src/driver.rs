@@ -61,6 +61,7 @@ impl From<&str> for DriverId {
 /// Reasoning/thinking configuration for models that support it. Mirrors
 /// everruns' `ReasoningConfig`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[non_exhaustive]
 pub struct ReasoningConfig {
     /// Provider-defined effort level, e.g. `"low"` / `"medium"` / `"high"`.
     /// Honored by OpenAI-shaped drivers as `reasoning_effort`.
@@ -77,6 +78,7 @@ pub struct ReasoningConfig {
 /// that speaks its protocol, and optional credentials/endpoint. Build it
 /// inline and hand it to the agent — nothing to register.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct ModelSpec {
     pub driver: DriverId,
     pub model: String,
@@ -149,6 +151,7 @@ impl ModelSpec {
 /// One LLM completion request: everything a driver needs to produce the next
 /// assistant message.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct ChatRequest {
     pub model: ModelSpec,
     pub system_prompt: Option<String>,
@@ -156,13 +159,49 @@ pub struct ChatRequest {
     pub tools: Vec<ToolDefinition>,
 }
 
+impl ChatRequest {
+    pub fn new(model: ModelSpec, messages: Vec<Message>) -> Self {
+        Self {
+            model,
+            system_prompt: None,
+            messages,
+            tools: Vec::new(),
+        }
+    }
+
+    pub fn system_prompt(mut self, prompt: impl Into<String>) -> Self {
+        self.system_prompt = Some(prompt.into());
+        self
+    }
+
+    pub fn maybe_system_prompt(mut self, prompt: Option<String>) -> Self {
+        self.system_prompt = prompt;
+        self
+    }
+
+    pub fn tools(mut self, tools: Vec<ToolDefinition>) -> Self {
+        self.tools = tools;
+        self
+    }
+}
+
+/// Token counts for one completion. Providers report more than this (cache
+/// reads, reasoning tokens); the fields here are the two every provider has.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Usage {
     pub input_tokens: u64,
     pub output_tokens: u64,
 }
 
 impl Usage {
+    pub fn new(input_tokens: u64, output_tokens: u64) -> Self {
+        Self {
+            input_tokens,
+            output_tokens,
+        }
+    }
+
     pub fn add(&mut self, other: Usage) {
         self.input_tokens += other.input_tokens;
         self.output_tokens += other.output_tokens;
@@ -170,10 +209,17 @@ impl Usage {
 }
 
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct ChatResponse {
     /// The assistant message: final text and/or tool calls.
     pub message: Message,
     pub usage: Usage,
+}
+
+impl ChatResponse {
+    pub fn new(message: Message, usage: Usage) -> Self {
+        Self { message, usage }
+    }
 }
 
 /// Receives incremental text as a [`ChatDriver`] streams a completion.

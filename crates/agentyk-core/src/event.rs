@@ -42,6 +42,7 @@ pub mod event_types {
 /// Typed event payloads.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum EventData {
     TurnStarted,
     TurnCompleted {
@@ -172,6 +173,7 @@ impl EventData {
 /// original payload, rather than failing the read — see the custom
 /// [`Deserialize`] impl below.
 #[derive(Debug, Clone, PartialEq, Serialize)]
+#[non_exhaustive]
 pub struct Event {
     pub id: EventId,
     #[serde(rename = "type")]
@@ -235,6 +237,7 @@ impl<'de> Deserialize<'de> for Event {
 /// An event about to be emitted — same shape as [`Event`] minus the fields
 /// assigned on emission.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct EventRequest {
     pub session_id: SessionId,
     pub turn_id: Option<TurnId>,

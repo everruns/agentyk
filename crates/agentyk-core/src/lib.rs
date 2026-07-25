@@ -22,6 +22,24 @@
 //! This crate is deliberately lean: no tokio, no HTTP, no process spawning —
 //! pure data, traits, and std-only implementations (like
 //! [`event_log::InMemoryEventLog`]).
+//!
+//! ## `#[non_exhaustive]`, and where it is deliberately absent
+//!
+//! Core is the surface third parties implement against, so growing a type
+//! must not be a breaking change — *unless* silence would be a bug. The rule:
+//!
+//! - **Data types are `#[non_exhaustive]`** — [`event::EventData`],
+//!   [`error::Error`], [`driver::ModelSpec`], [`driver::ChatRequest`],
+//!   [`driver::Usage`], [`tool::ToolDefinition`], [`executor::TurnResult`],
+//!   and friends. They gain fields and variants as providers and hosts grow;
+//!   each has a constructor plus setters, so adding one costs downstream
+//!   nothing.
+//! - **Contract types are exhaustive on purpose** — [`turn::TurnAction`],
+//!   [`turn::TurnOutcome`], [`message::Role`], [`message::ContentPart`],
+//!   [`hooks::PreToolUseDecision`]. A host that does not handle a new turn
+//!   action, or a driver that does not translate a new content part, is
+//!   *wrong*; the compile error is the feature. Adding a variant here is a
+//!   deliberate breaking change and belongs in a release note.
 
 pub mod atoms;
 pub mod budget;

@@ -21,6 +21,27 @@ release — every release bumps the patch component (`0.1.z`). See
 
 ### Changed — packaging and API-stability guardrails
 
+- **Public data types are `#[non_exhaustive]`**, so core can grow fields and
+  variants without a breaking change: `EventData`, `Error`, `LlmErrorKind`,
+  `Event`, `EventRequest`, `ModelSpec`, `ReasoningConfig`, `ChatRequest`,
+  `ChatResponse`, `Usage`, `ToolDefinition`, `ToolOutput`, `ToolContext`,
+  `ToolPolicy`, `TurnState`, `PendingCall`, `TurnResult`,
+  `CommandDescriptor`, `CommandContext`, `SystemPromptContext`, `FileEntry`,
+  `McpServer`, `RunOptions`, `SimTurn`, `SimToolCall`. Each gained a
+  constructor (and setters where it has optional parts) — e.g.
+  `ChatRequest::new(model, messages).system_prompt(..).tools(..)`,
+  `ToolContext::new(session, turn).with_extensions(..)`,
+  `Usage::new(..)`, `FileEntry::file(..)` / `FileEntry::dir(..)`,
+  `RunOptions::new().cancellation(..).controls(..)`.
+
+  The **contract** types stay deliberately exhaustive — `TurnAction`,
+  `TurnOutcome`, `Role`, `ContentPart`, `PreToolUseDecision`. A host that
+  doesn't handle a new turn action, or a driver that doesn't translate a new
+  content part, is wrong, and the compile error is the point. The rule is
+  documented on `agentyk_core`'s crate docs.
+- `SimTurn::tool_calls([..])` scripts a multi-tool batch in one turn, which
+  previously required a struct literal.
+
 - **`agentyk` defaults to no features.** `tokio` is now an optional dependency
   pulled in only by the features that use it (`mcp`, `fs`), each enabling just
   the tokio features it needs. Previously `tokio` — including `process` and

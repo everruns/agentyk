@@ -75,19 +75,10 @@ async fn narration_surfaces_hints_and_redaction_from_custom_events() -> Result<(
     let agent = Agent::builder()
         .model(ModelSpec::llmsim())
         .driver(SimDriver::new([
-            SimTurn {
-                text: String::new(),
-                tool_calls: vec![
-                    SimToolCall {
-                        name: "search".into(),
-                        arguments: json!({"q": "x"}),
-                    },
-                    SimToolCall {
-                        name: "save".into(),
-                        arguments: json!({"secret": "p@ss"}),
-                    },
-                ],
-            },
+            SimTurn::tool_calls([
+                SimToolCall::new("search", json!({"q": "x"})),
+                SimToolCall::new("save", json!({"secret": "p@ss"})),
+            ]),
             SimTurn::text("done"),
         ]))
         // Only a redactor in the chain — no approval guard, so the destructive

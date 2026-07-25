@@ -7,6 +7,7 @@ use std::fmt;
 /// worth retrying apart from a terminal one that will never succeed by
 /// itself. Mirrors the intent of everruns' `LlmErrorKind`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum LlmErrorKind {
     /// The provider rejected the request for being over its rate limit
     /// (HTTP 429). Retry after a backoff.
@@ -67,6 +68,7 @@ impl fmt::Display for LlmErrorKind {
 
 /// Errors surfaced by agentyk.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum Error {
     /// The agent was composed without a model, or is otherwise invalid.
     #[error("invalid agent: {0}")]

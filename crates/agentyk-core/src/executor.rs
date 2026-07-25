@@ -33,6 +33,7 @@ use std::sync::Arc;
 
 /// The outcome of one executed turn.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct TurnResult {
     pub turn_id: TurnId,
     /// The model's final text response.
@@ -42,6 +43,24 @@ pub struct TurnResult {
     /// Tool calls executed within the turn.
     pub tool_calls: usize,
     pub usage: Usage,
+}
+
+impl TurnResult {
+    pub fn new(
+        turn_id: TurnId,
+        response: impl Into<String>,
+        iterations: usize,
+        tool_calls: usize,
+        usage: Usage,
+    ) -> Self {
+        Self {
+            turn_id,
+            response: response.into(),
+            iterations,
+            tool_calls,
+            usage,
+        }
+    }
 }
 
 /// Everything a turn needs from its host: the agent's composition and the

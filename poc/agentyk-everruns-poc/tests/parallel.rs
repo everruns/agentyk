@@ -32,19 +32,10 @@ fn tool(name: &'static str, output: &'static str) -> FnTool {
 
 /// One assistant turn that requests two tools at once.
 fn two_call_turn() -> SimTurn {
-    SimTurn {
-        text: String::new(),
-        tool_calls: vec![
-            SimToolCall {
-                name: "safe_read".into(),
-                arguments: json!({}),
-            },
-            SimToolCall {
-                name: "danger_delete".into(),
-                arguments: json!({}),
-            },
-        ],
-    }
+    SimTurn::tool_calls([
+        SimToolCall::new("safe_read", json!({})),
+        SimToolCall::new("danger_delete", json!({})),
+    ])
 }
 
 #[tokio::test]

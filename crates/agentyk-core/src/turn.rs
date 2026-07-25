@@ -109,6 +109,7 @@ pub enum TurnOutcome {
 /// One tool call within a reason step's batch, tracked independently so a
 /// parallel executor can start/complete calls out of order.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct PendingCall {
     pub call: ToolCall,
     /// Whether `tool.started` was already recorded for this call — makes
@@ -145,6 +146,7 @@ pub enum TurnAction {
 /// credentials, assembled tools, message history — is environment the host
 /// provides per step; it is deliberately NOT part of this state.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct TurnState {
     pub session_id: SessionId,
     pub turn_id: TurnId,

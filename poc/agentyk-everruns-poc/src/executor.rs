@@ -232,11 +232,8 @@ impl TurnExecutor for EverrunsExecutor {
                         host.record(turn_id, effects).await?;
                     }
 
-                    let context = ToolContext {
-                        session_id: host.session_id,
-                        turn_id,
-                        extensions: host.extensions.clone(),
-                    };
+                    let context = ToolContext::new(host.session_id, turn_id)
+                        .with_extensions(host.extensions.clone());
 
                     // Run the batch concurrently. Each future runs the guard
                     // chain for its call (rewrites feed the next guard and the
@@ -314,13 +311,13 @@ impl TurnExecutor for EverrunsExecutor {
                 }
                 TurnAction::Complete(outcome) => {
                     return match outcome {
-                        TurnOutcome::Success { response } => Ok(TurnResult {
+                        TurnOutcome::Success { response } => Ok(TurnResult::new(
                             turn_id,
                             response,
-                            iterations: state.iterations,
-                            tool_calls: state.tool_calls_executed,
-                            usage: state.usage,
-                        }),
+                            state.iterations,
+                            state.tool_calls_executed,
+                            state.usage,
+                        )),
                         TurnOutcome::MaxIterations => {
                             Err(Error::MaxIterations(host.max_iterations))
                         }

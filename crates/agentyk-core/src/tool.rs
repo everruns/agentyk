@@ -14,6 +14,7 @@ use crate::id::{SessionId, TurnId};
 
 /// What the model sees: name, description, and a JSON-schema for arguments.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct ToolDefinition {
     pub name: String,
     pub description: String,
@@ -67,18 +68,41 @@ pub enum DeferrablePolicy {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub struct ToolPolicy {
     pub deferrable: DeferrablePolicy,
 }
 
+impl ToolPolicy {
+    pub fn new(deferrable: DeferrablePolicy) -> Self {
+        Self { deferrable }
+    }
+
+    /// Hide this tool from the model's tool list while keeping it callable —
+    /// see [`DeferrablePolicy::Deferred`].
+    pub fn deferred() -> Self {
+        Self::new(DeferrablePolicy::Deferred)
+    }
+}
+
 /// The result of executing a tool.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct ToolOutput {
     pub content: String,
     pub is_error: bool,
 }
 
 impl ToolOutput {
+    /// Build an output whose error-ness is only known at runtime; prefer
+    /// [`ToolOutput::text`] or [`ToolOutput::error`] when it is known.
+    pub fn new(content: impl Into<String>, is_error: bool) -> Self {
+        Self {
+            content: content.into(),
+            is_error,
+        }
+    }
+
     pub fn text(content: impl Into<String>) -> Self {
         Self {
             content: content.into(),
@@ -96,6 +120,7 @@ impl ToolOutput {
 
 /// Execution-time context handed to a tool.
 #[derive(Debug, Clone, Default)]
+#[non_exhaustive]
 pub struct ToolContext {
     pub session_id: SessionId,
     pub turn_id: TurnId,
@@ -103,6 +128,21 @@ pub struct ToolContext {
     /// [`crate::extensions::Extensions`]. Empty unless the agent's builder
     /// set some.
     pub extensions: crate::extensions::Extensions,
+}
+
+impl ToolContext {
+    pub fn new(session_id: SessionId, turn_id: TurnId) -> Self {
+        Self {
+            session_id,
+            turn_id,
+            extensions: crate::extensions::Extensions::new(),
+        }
+    }
+
+    pub fn with_extensions(mut self, extensions: crate::extensions::Extensions) -> Self {
+        self.extensions = extensions;
+        self
+    }
 }
 
 #[async_trait]

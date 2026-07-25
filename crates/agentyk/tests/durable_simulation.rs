@@ -118,11 +118,7 @@ async fn durable_host_drives_turn_across_a_crash() -> Result<()> {
             TurnAction::ExecuteTool { call } => {
                 let effects = state.on_tool_started(&call.id);
                 record(&log, &state, effects).await?;
-                let context = ToolContext {
-                    session_id: state.session_id,
-                    turn_id: state.turn_id,
-                    ..Default::default()
-                };
+                let context = ToolContext::new(state.session_id, state.turn_id);
                 let output = atoms::act(&assembled, &call, &context).await;
                 let effects = state.on_tool_completed(&call.id, &output);
                 record(&log, &state, effects).await?;
@@ -223,11 +219,7 @@ async fn manual_drive_matches_in_process_executor() -> Result<()> {
             TurnAction::ExecuteTool { call } => {
                 let effects = state.on_tool_started(&call.id);
                 record(&log, &state, effects).await?;
-                let context = ToolContext {
-                    session_id,
-                    turn_id: state.turn_id,
-                    ..Default::default()
-                };
+                let context = ToolContext::new(session_id, state.turn_id);
                 let output = atoms::act(&assembled, &call, &context).await;
                 let effects = state.on_tool_completed(&call.id, &output);
                 record(&log, &state, effects).await?;

@@ -344,15 +344,15 @@ impl ChatDriver for OpenAiDriver {
         let content = choice["content"].as_str().unwrap_or_default().to_string();
         let tool_calls = tool_calls_from_choice(choice);
 
-        let usage = Usage {
-            input_tokens: payload["usage"]["prompt_tokens"].as_u64().unwrap_or(0),
-            output_tokens: payload["usage"]["completion_tokens"].as_u64().unwrap_or(0),
-        };
+        let usage = Usage::new(
+            payload["usage"]["prompt_tokens"].as_u64().unwrap_or(0),
+            payload["usage"]["completion_tokens"].as_u64().unwrap_or(0),
+        );
 
-        Ok(ChatResponse {
-            message: Message::assistant_with_calls(content, tool_calls),
+        Ok(ChatResponse::new(
+            Message::assistant_with_calls(content, tool_calls),
             usage,
-        })
+        ))
     }
 
     async fn complete_streaming(
@@ -399,18 +399,15 @@ impl ChatDriver for OpenAiDriver {
                     }
                 }
                 if payload.get("usage").is_some_and(|u| !u.is_null()) {
-                    usage = Usage {
-                        input_tokens: payload["usage"]["prompt_tokens"].as_u64().unwrap_or(0),
-                        output_tokens: payload["usage"]["completion_tokens"].as_u64().unwrap_or(0),
-                    };
+                    usage = Usage::new(
+                        payload["usage"]["prompt_tokens"].as_u64().unwrap_or(0),
+                        payload["usage"]["completion_tokens"].as_u64().unwrap_or(0),
+                    );
                 }
             }
         }
 
-        Ok(ChatResponse {
-            message: accumulator.into_message(),
-            usage,
-        })
+        Ok(ChatResponse::new(accumulator.into_message(), usage))
     }
 }
 
@@ -466,24 +463,17 @@ mod tests {
     fn reasoning_effort_is_forwarded_when_set() {
         let mut model = agentyk_core::driver::ModelSpec::openai("gpt-5.5");
         model = model.reasoning_effort("high");
-        let request = ChatRequest {
-            model,
-            system_prompt: None,
-            messages: vec![Message::user("hi")],
-            tools: vec![],
-        };
+        let request = ChatRequest::new(model, vec![Message::user("hi")]);
         let body = build_body(&request);
         assert_eq!(body["reasoning_effort"], "high");
     }
 
     #[test]
     fn reasoning_effort_omitted_when_unset() {
-        let request = ChatRequest {
-            model: agentyk_core::driver::ModelSpec::openai("gpt-5.5"),
-            system_prompt: None,
-            messages: vec![Message::user("hi")],
-            tools: vec![],
-        };
+        let request = ChatRequest::new(
+            agentyk_core::driver::ModelSpec::openai("gpt-5.5"),
+            vec![Message::user("hi")],
+        );
         let body = build_body(&request);
         assert!(body.get("reasoning_effort").is_none());
     }
@@ -618,10 +608,10 @@ mod tests {
                 }
             }
             if payload.get("usage").is_some_and(|u| !u.is_null()) {
-                usage = Usage {
-                    input_tokens: payload["usage"]["prompt_tokens"].as_u64().unwrap_or(0),
-                    output_tokens: payload["usage"]["completion_tokens"].as_u64().unwrap_or(0),
-                };
+                usage = Usage::new(
+                    payload["usage"]["prompt_tokens"].as_u64().unwrap_or(0),
+                    payload["usage"]["completion_tokens"].as_u64().unwrap_or(0),
+                );
             }
         }
 

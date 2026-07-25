@@ -18,8 +18,8 @@ fn a_batch_can_be_dispatched_concurrently_and_completed_out_of_order() -> Result
     let (mut state, _) = TurnState::start(session_id, 8, &Message::user("go"));
 
     // Simulate a reason step's response requesting three concurrent calls.
-    let response = ChatResponse {
-        message: Message::assistant_with_calls(
+    let response = ChatResponse::new(
+        Message::assistant_with_calls(
             "",
             vec![
                 ToolCall {
@@ -39,8 +39,8 @@ fn a_batch_can_be_dispatched_concurrently_and_completed_out_of_order() -> Result
                 },
             ],
         ),
-        usage: Usage::default(),
-    };
+        Usage::default(),
+    );
     state.on_reason_completed(&response);
 
     // A parallel executor fans out the whole ready batch at once...
@@ -70,11 +70,7 @@ fn a_batch_can_be_dispatched_concurrently_and_completed_out_of_order() -> Result
     // ...and completes them in an order that has nothing to do with how
     // they were dispatched (call_c first, call_a last) — proving
     // completion order doesn't matter to the state machine.
-    let _context = ToolContext {
-        session_id,
-        turn_id: state.turn_id,
-        ..Default::default()
-    };
+    let _context = ToolContext::new(session_id, state.turn_id);
     for call in [&calls[2], &calls[1], &calls[0]] {
         let output = ToolOutput::text(format!("echoed {}", call.id));
         let effects = state.on_tool_completed(&call.id, &output);

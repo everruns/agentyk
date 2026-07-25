@@ -413,15 +413,12 @@ impl ChatDriver for AnthropicDriver {
             )
         })?;
 
-        let usage = Usage {
-            input_tokens: payload["usage"]["input_tokens"].as_u64().unwrap_or(0),
-            output_tokens: payload["usage"]["output_tokens"].as_u64().unwrap_or(0),
-        };
+        let usage = Usage::new(
+            payload["usage"]["input_tokens"].as_u64().unwrap_or(0),
+            payload["usage"]["output_tokens"].as_u64().unwrap_or(0),
+        );
 
-        Ok(ChatResponse {
-            message: parse_message(&payload),
-            usage,
-        })
+        Ok(ChatResponse::new(parse_message(&payload), usage))
     }
 
     async fn complete_streaming(
@@ -466,10 +463,7 @@ impl ChatDriver for AnthropicDriver {
         }
 
         let usage = accumulator.usage;
-        Ok(ChatResponse {
-            message: accumulator.into_message(),
-            usage,
-        })
+        Ok(ChatResponse::new(accumulator.into_message(), usage))
     }
 }
 
@@ -562,12 +556,7 @@ mod tests {
     #[test]
     fn thinking_budget_enables_thinking_and_grows_max_tokens() {
         let model = agentyk_core::driver::ModelSpec::anthropic("claude-x").thinking_budget(12000);
-        let request = ChatRequest {
-            model,
-            system_prompt: None,
-            messages: vec![Message::user("hi")],
-            tools: Vec::new(),
-        };
+        let request = ChatRequest::new(model, vec![Message::user("hi")]);
         let body = build_body(&request, DEFAULT_MAX_TOKENS);
         assert_eq!(body["thinking"]["type"], "enabled");
         assert_eq!(body["thinking"]["budget_tokens"], 12000);
@@ -577,12 +566,10 @@ mod tests {
 
     #[test]
     fn no_thinking_param_without_a_budget() {
-        let request = ChatRequest {
-            model: agentyk_core::driver::ModelSpec::anthropic("claude-x"),
-            system_prompt: None,
-            messages: vec![Message::user("hi")],
-            tools: Vec::new(),
-        };
+        let request = ChatRequest::new(
+            agentyk_core::driver::ModelSpec::anthropic("claude-x"),
+            vec![Message::user("hi")],
+        );
         let body = build_body(&request, DEFAULT_MAX_TOKENS);
         assert!(body.get("thinking").is_none());
         assert_eq!(body["max_tokens"], DEFAULT_MAX_TOKENS);

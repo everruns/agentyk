@@ -41,6 +41,7 @@ const PROTOCOL_VERSION: &str = "2025-06-18";
 
 /// Configuration for a stdio MCP server.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct McpServer {
     pub name: String,
     pub command: String,
@@ -239,16 +240,15 @@ pub(crate) fn parse_tool_list(result: &Value) -> Vec<ToolDefinition> {
             tools
                 .iter()
                 .filter_map(|tool| {
-                    Some(ToolDefinition {
-                        name: tool["name"].as_str()?.to_string(),
-                        description: tool["description"].as_str().unwrap_or_default().to_string(),
-                        parameters: if tool["inputSchema"].is_object() {
+                    Some(ToolDefinition::new(
+                        tool["name"].as_str()?,
+                        tool["description"].as_str().unwrap_or_default(),
+                        if tool["inputSchema"].is_object() {
                             tool["inputSchema"].clone()
                         } else {
                             json!({"type": "object"})
                         },
-                        ..Default::default()
-                    })
+                    ))
                 })
                 .collect()
         })
@@ -269,10 +269,7 @@ pub(crate) fn parse_tool_result(result: &Value) -> ToolOutput {
                 .join("\n")
         })
         .unwrap_or_default();
-    ToolOutput {
-        content,
-        is_error: result["isError"].as_bool().unwrap_or(false),
-    }
+    ToolOutput::new(content, result["isError"].as_bool().unwrap_or(false))
 }
 
 struct McpTool {

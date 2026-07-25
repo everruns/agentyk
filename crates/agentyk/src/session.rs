@@ -29,12 +29,31 @@ use crate::agent::Agent;
 /// (`RunOptions::default()`) reproduce plain [`Session::run`]: an
 /// uncancellable turn on the agent's default model.
 #[derive(Default)]
+#[non_exhaustive]
 pub struct RunOptions {
     /// Clone this before calling and cancel the clone from elsewhere to
     /// stop the turn — see [`CancellationToken`].
     pub cancellation: CancellationToken,
     /// Per-turn model/reasoning overrides — see [`TurnControls`].
     pub controls: TurnControls,
+}
+
+impl RunOptions {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Stop the turn from elsewhere — see [`CancellationToken`].
+    pub fn cancellation(mut self, token: CancellationToken) -> Self {
+        self.cancellation = token;
+        self
+    }
+
+    /// Per-turn model/reasoning overrides — see [`TurnControls`].
+    pub fn controls(mut self, controls: TurnControls) -> Self {
+        self.controls = controls;
+        self
+    }
 }
 
 pub struct Session {
@@ -102,9 +121,7 @@ impl Session {
     /// whose `execute_command` returns `Some(..)` wins. Errors with an
     /// "unknown command" message if none claims it.
     pub async fn execute_command(&self, name: &str, args: &str) -> Result<ToolOutput> {
-        let context = CommandContext {
-            session_id: self.id,
-        };
+        let context = CommandContext::new(self.id);
         for capability in &self.agent.inner.capabilities {
             if capability.commands().iter().any(|c| c.name == name)
                 && let Some(output) = capability.execute_command(name, args, &context).await
@@ -132,14 +149,8 @@ impl Session {
         input: impl Into<String>,
         token: CancellationToken,
     ) -> Result<TurnResult> {
-        self.run_with_options(
-            input,
-            RunOptions {
-                cancellation: token,
-                ..Default::default()
-            },
-        )
-        .await
+        self.run_with_options(input, RunOptions::new().cancellation(token))
+            .await
     }
 
     /// Run one turn with per-turn model/reasoning overrides, without
@@ -149,14 +160,8 @@ impl Session {
         input: impl Into<String>,
         controls: TurnControls,
     ) -> Result<TurnResult> {
-        self.run_with_options(
-            input,
-            RunOptions {
-                controls,
-                ..Default::default()
-            },
-        )
-        .await
+        self.run_with_options(input, RunOptions::new().controls(controls))
+            .await
     }
 
     /// Run one turn with full control over cancellation and per-turn

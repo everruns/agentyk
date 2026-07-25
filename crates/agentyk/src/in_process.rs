@@ -128,11 +128,8 @@ impl TurnExecutor for InProcessExecutor {
                 TurnAction::ExecuteTool { call } => {
                     let effects = state.on_tool_started(&call.id);
                     host.record(turn_id, effects).await?;
-                    let context = ToolContext {
-                        session_id: host.session_id,
-                        turn_id,
-                        extensions: host.extensions.clone(),
-                    };
+                    let context = ToolContext::new(host.session_id, turn_id)
+                        .with_extensions(host.extensions.clone());
 
                     let mut denial: Option<String> = None;
                     for hook in host.pre_tool_hooks {
@@ -168,13 +165,13 @@ impl TurnExecutor for InProcessExecutor {
                 }
                 TurnAction::Complete(outcome) => {
                     return match outcome {
-                        TurnOutcome::Success { response } => Ok(TurnResult {
+                        TurnOutcome::Success { response } => Ok(TurnResult::new(
                             turn_id,
                             response,
-                            iterations: state.iterations,
-                            tool_calls: state.tool_calls_executed,
-                            usage: state.usage,
-                        }),
+                            state.iterations,
+                            state.tool_calls_executed,
+                            state.usage,
+                        )),
                         TurnOutcome::MaxIterations => {
                             Err(Error::MaxIterations(host.max_iterations))
                         }

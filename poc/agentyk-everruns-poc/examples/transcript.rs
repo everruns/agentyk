@@ -74,13 +74,10 @@ async fn main() -> Result<()> {
         .model(ModelSpec::llmsim())
         .driver(SimDriver::new([
             // A batch: one safe read + one destructive delete, dispatched together.
-            SimTurn {
-                text: String::new(),
-                tool_calls: vec![
-                    SimToolCall { name: "search".into(), arguments: json!({"q": "cats"}) },
-                    SimToolCall { name: "delete_all".into(), arguments: json!({"path": "/"}) },
-                ],
-            },
+            SimTurn::tool_calls([
+                SimToolCall::new("search", json!({"q": "cats"})),
+                SimToolCall::new("delete_all", json!({"path": "/"})),
+            ]),
             // Then a tool whose secret argument is redacted before it runs.
             SimTurn::tool_call("save_note", json!({"note": "hi", "secret": "p@ssw0rd"})),
             SimTurn::text("All done — one search ran, the delete was blocked, and the secret never reached the tool."),

@@ -12,14 +12,25 @@ use agentyk_core::error::Result;
 use agentyk_core::message::{Message, ToolCall};
 
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct SimToolCall {
     pub name: String,
     pub arguments: serde_json::Value,
 }
 
+impl SimToolCall {
+    pub fn new(name: impl Into<String>, arguments: serde_json::Value) -> Self {
+        Self {
+            name: name.into(),
+            arguments,
+        }
+    }
+}
+
 /// One scripted completion. If `tool_calls` is non-empty the simulated model
 /// requests those tools; otherwise it answers with `text`.
 #[derive(Debug, Clone, Default)]
+#[non_exhaustive]
 pub struct SimTurn {
     pub text: String,
     pub tool_calls: Vec<SimToolCall>,
@@ -36,10 +47,16 @@ impl SimTurn {
     pub fn tool_call(name: impl Into<String>, arguments: serde_json::Value) -> Self {
         Self {
             text: String::new(),
-            tool_calls: vec![SimToolCall {
-                name: name.into(),
-                arguments,
-            }],
+            tool_calls: vec![SimToolCall::new(name, arguments)],
+        }
+    }
+
+    /// A turn requesting several tools at once — what a parallel-capable
+    /// executor fans out as one batch.
+    pub fn tool_calls(calls: impl IntoIterator<Item = SimToolCall>) -> Self {
+        Self {
+            text: String::new(),
+            tool_calls: calls.into_iter().collect(),
         }
     }
 }
@@ -100,9 +117,6 @@ impl ChatDriver for SimDriver {
             Message::assistant_with_calls(turn.text, calls)
         };
 
-        Ok(ChatResponse {
-            message,
-            usage: Usage::default(),
-        })
+        Ok(ChatResponse::new(message, Usage::default()))
     }
 }

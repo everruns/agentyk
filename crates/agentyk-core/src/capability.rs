@@ -19,25 +19,49 @@ use crate::tool::{Tool, ToolOutput};
 
 /// Context available while assembling the system prompt.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct SystemPromptContext {
     pub session_id: SessionId,
+}
+
+impl SystemPromptContext {
+    pub fn new(session_id: SessionId) -> Self {
+        Self { session_id }
+    }
 }
 
 /// One slash-command a capability exposes — everruns' `CommandDescriptor`,
 /// pared down to what a host needs to list and invoke it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct CommandDescriptor {
     /// Invoked as `/{name}` (no leading slash here).
     pub name: String,
     pub description: String,
 }
 
+impl CommandDescriptor {
+    pub fn new(name: impl Into<String>, description: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            description: description.into(),
+        }
+    }
+}
+
 /// Context available while executing a command. Commands are host-invoked
 /// directly (e.g. a user typing `/goal set X`) and bypass the turn loop
 /// entirely, so there's no `turn_id` — only a session.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct CommandContext {
     pub session_id: SessionId,
+}
+
+impl CommandContext {
+    pub fn new(session_id: SessionId) -> Self {
+        Self { session_id }
+    }
 }
 
 #[async_trait]

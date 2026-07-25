@@ -37,10 +37,29 @@ use agentyk_core::tool::{Tool, ToolContext, ToolDefinition, ToolOutput};
 
 /// One entry in a [`FileSystem::list_directory`] listing.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct FileEntry {
     pub name: String,
     pub is_dir: bool,
     pub size: u64,
+}
+
+impl FileEntry {
+    pub fn file(name: impl Into<String>, size: u64) -> Self {
+        Self {
+            name: name.into(),
+            is_dir: false,
+            size,
+        }
+    }
+
+    pub fn dir(name: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            is_dir: true,
+            size: 0,
+        }
+    }
 }
 
 /// A workspace a [`FileSystemCapability`] reads and writes. Mirrors
@@ -110,10 +129,11 @@ impl FileSystem for RealDiskFileSystem {
         let mut read_dir = tokio::fs::read_dir(full).await?;
         while let Some(entry) = read_dir.next_entry().await? {
             let metadata = entry.metadata().await?;
-            entries.push(FileEntry {
-                name: entry.file_name().to_string_lossy().into_owned(),
-                is_dir: metadata.is_dir(),
-                size: metadata.len(),
+            let name = entry.file_name().to_string_lossy().into_owned();
+            entries.push(if metadata.is_dir() {
+                FileEntry::dir(name)
+            } else {
+                FileEntry::file(name, metadata.len())
             });
         }
         entries.sort_by(|a, b| a.name.cmp(&b.name));
@@ -193,20 +213,12 @@ impl FileSystem for InMemoryFileSystem {
             }
             match rest.split_once('/') {
                 Some((dir, _)) => {
-                    seen.entry(dir.to_string()).or_insert(FileEntry {
-                        name: dir.to_string(),
-                        is_dir: true,
-                        size: 0,
-                    });
+                    seen.entry(dir.to_string()).or_insert(FileEntry::dir(dir));
                 }
                 None => {
                     seen.insert(
                         rest.to_string(),
-                        FileEntry {
-                            name: rest.to_string(),
-                            is_dir: false,
-                            size: content.len() as u64,
-                        },
+                        FileEntry::file(rest, content.len() as u64),
                     );
                 }
             }
@@ -309,18 +321,17 @@ struct ReadFileTool {
 #[async_trait]
 impl Tool for ReadFileTool {
     fn definition(&self) -> ToolDefinition {
-        ToolDefinition {
-            name: "read_file".into(),
-            description: "Read a file's full text content.".into(),
-            parameters: json!({
+        ToolDefinition::new(
+            "read_file",
+            "Read a file's full text content.",
+            json!({
                 "type": "object",
                 "properties": {
                     "path": {"type": "string", "description": "Path relative to the workspace root."}
                 },
                 "required": ["path"],
             }),
-            ..Default::default()
-        }
+        )
     }
 
     async fn execute(&self, arguments: Value, _context: &ToolContext) -> ToolOutput {
@@ -341,10 +352,10 @@ struct WriteFileTool {
 #[async_trait]
 impl Tool for WriteFileTool {
     fn definition(&self) -> ToolDefinition {
-        ToolDefinition {
-            name: "write_file".into(),
-            description: "Write (creating or overwriting) a file's full text content.".into(),
-            parameters: json!({
+        ToolDefinition::new(
+            "write_file",
+            "Write (creating or overwriting) a file's full text content.",
+            json!({
                 "type": "object",
                 "properties": {
                     "path": {"type": "string", "description": "Path relative to the workspace root."},
@@ -352,8 +363,7 @@ impl Tool for WriteFileTool {
                 },
                 "required": ["path", "content"],
             }),
-            ..Default::default()
-        }
+        )
     }
 
     async fn execute(&self, arguments: Value, _context: &ToolContext) -> ToolOutput {
@@ -377,17 +387,16 @@ struct ListDirectoryTool {
 #[async_trait]
 impl Tool for ListDirectoryTool {
     fn definition(&self) -> ToolDefinition {
-        ToolDefinition {
-            name: "list_directory".into(),
-            description: "List the files and directories directly inside a directory.".into(),
-            parameters: json!({
+        ToolDefinition::new(
+            "list_directory",
+            "List the files and directories directly inside a directory.",
+            json!({
                 "type": "object",
                 "properties": {
                     "path": {"type": "string", "description": "Path relative to the workspace root. Defaults to the root."},
                 },
             }),
-            ..Default::default()
-        }
+        )
     }
 
     async fn execute(&self, arguments: Value, _context: &ToolContext) -> ToolOutput {
@@ -422,10 +431,10 @@ struct DeleteFileTool {
 #[async_trait]
 impl Tool for DeleteFileTool {
     fn definition(&self) -> ToolDefinition {
-        ToolDefinition {
-            name: "delete_file".into(),
-            description: "Delete a file or (with recursive=true) a directory.".into(),
-            parameters: json!({
+        ToolDefinition::new(
+            "delete_file",
+            "Delete a file or (with recursive=true) a directory.",
+            json!({
                 "type": "object",
                 "properties": {
                     "path": {"type": "string", "description": "Path relative to the workspace root."},
@@ -433,8 +442,7 @@ impl Tool for DeleteFileTool {
                 },
                 "required": ["path"],
             }),
-            ..Default::default()
-        }
+        )
     }
 
     async fn execute(&self, arguments: Value, _context: &ToolContext) -> ToolOutput {
