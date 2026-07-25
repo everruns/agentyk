@@ -23,6 +23,9 @@ not here — nothing in this bundle is a user-facing product doc.
 - [everruns-adoption](everruns-adoption.md) (`Analysis`) — gap analysis of what
   agentyk still lacks before everruns-core/runtime can re-base onto it, tiered by
   where each gap must land (core / framework / everruns layer).
+- [yolop-adoption](yolop-adoption.md) (`Analysis`) — gaps found by actually
+  porting yolop's execution story onto agentyk's seams, ordered by how hard
+  each blocks a shipping coding agent.
 - [extensibility](extensibility.md) (`Design`) — the rule for what earns a
   first-class core field versus a generic `metadata` hatch: behavior is external,
   data extensibility is core.

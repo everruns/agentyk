@@ -12,6 +12,10 @@ What agentyk is still missing before `everruns-core`/`everruns-runtime` can be
 rebuilt on top of it (Phase 2). Grounded in a survey of everruns' actual
 public surface (`crates/core`, `crates/runtime`) against agentyk `0.1.0`.
 
+A companion analysis, [`yolop-adoption.md`](yolop-adoption.md), records what a
+real coding agent hits when it is actually built on these seams; where the two
+overlap they agree, and it orders by adopter pain rather than by layer.
+
 Gaps are tiered by *where* they must land. The packaging rule applies
 throughout: contract changes go to `agentyk-core`, canonical machinery to
 `agentyk-engine`, bundled implementations to `agentyk`, and anything
