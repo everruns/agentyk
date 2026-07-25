@@ -1,28 +1,32 @@
 //! A satellite [`TurnExecutor`] proving everruns-style act-loop behavior lives
-//! in the executor layer, not in agentyk-core's hook trait. Built entirely
-//! over core's public seams (`atoms` + [`TurnState`] + [`TurnHost`]).
+//! outside agentyk-core. Built entirely over core's public seams (`atoms` +
+//! [`TurnState`] + [`TurnHost`] + [`TurnMiddleware`]).
 //!
-//! It shows the three shapes of adoption "gap 4" that core's
-//! `PreToolUseHook`/`PreToolUseDecision` can't express, all in a satellite:
+//! The division it demonstrates:
 //!
-//! - **Deny with a user-facing message** — [`ApprovalDecision::Deny`] /
-//!   [`GuardOutcome::Deny`] carry a `user_message`.
-//! - **Mutate a call before it runs** — [`GuardOutcome::Rewrite`] (e.g. a
-//!   guard that redacts a secret argument).
-//! - **Capability-contributed guards** — a satellite capability bundles a tool
-//!   *and* the [`PreToolGuard`] that governs it; the host attaches the tool as
-//!   a `Capability` and the guard to the executor.
-//!
-//! It also **dispatches a tool batch concurrently** (via
-//! [`TurnState::pending_tool_actions`](agentyk_core::turn::TurnState::pending_tool_actions)),
-//! which the built-in `InProcessExecutor` deliberately doesn't. Otherwise
-//! minimal (non-streaming, no budget seam).
+//! - **Policy is middleware, not an executor.** [`ApprovalMiddleware`] denies
+//!   a risky call with a user-facing message, reading the tool's risk from the
+//!   `metadata` hatch that core hands to middleware without knowing its
+//!   schema. Compose it with a redaction middleware that rewrites a call, and
+//!   with a capability that contributes the middleware governing its own tool
+//!   — the three shapes of adoption gap 4, none of them requiring this type.
+//! - **Strategy is the executor.** [`EverrunsExecutor`] exists for one reason:
+//!   it **dispatches a tool batch concurrently** (via
+//!   [`TurnState::pending_tool_actions`](agentyk_core::turn::TurnState::pending_tool_actions)),
+//!   which the built-in `InProcessExecutor` deliberately does not. It applies
+//!   the same core middleware chain the built-in executor does, so the two
+//!   cannot disagree about what middleware means. Otherwise minimal
+//!   (non-streaming, no budget seam).
 
 use agentyk_core::atoms;
 use agentyk_core::error::{Error, Result};
 use agentyk_core::event::EventData;
 use agentyk_core::executor::{TurnExecutor, TurnHost, TurnResult};
 use agentyk_core::message::{Message, ToolCall};
+use agentyk_core::middleware::{
+    ToolCallDecision, ToolChainOutcome, ToolInvocation, TurnMiddleware, after_tool_chain,
+    before_tool_chain,
+};
 use agentyk_core::tool::{ToolContext, ToolOutput};
 use agentyk_core::turn::{TurnAction, TurnOutcome, TurnState};
 use async_trait::async_trait;
@@ -35,46 +39,27 @@ use crate::hints::ToolHints;
 /// carried back so the (sequential) recording phase can emit `tool.denied`
 /// for the blocked ones and `tool.rewritten` for the redacted ones.
 enum Resolved {
-    Ran { output: ToolOutput, rewritten: bool },
+    Ran {
+        call: ToolCall,
+        output: ToolOutput,
+        rewritten: bool,
+    },
     Denied(String),
 }
 
-/// What a [`PreToolGuard`] decides for a call. Richer than core's
-/// `PreToolUseDecision` (`Allow | Deny`): a guard can also **rewrite** the
-/// call — the everruns redaction/mutation shape — and a denial carries a
-/// user-facing message.
-#[derive(Debug, Clone, PartialEq)]
-pub enum GuardOutcome {
-    Allow,
-    /// Proceed, but with this (mutated) call — e.g. a redacted argument. The
-    /// call keeps its id (the batch is keyed by it); rewrite name/arguments.
-    Rewrite(ToolCall),
-    Deny {
-        user_message: String,
-    },
-}
-
-/// Runs before each tool call in [`EverrunsExecutor`]'s act loop; guards run
-/// in order, a `Rewrite` feeds the next guard and the execution, and the first
-/// `Deny` short-circuits. This is where a satellite puts mutating / approval /
-/// capability-contributed guardrails.
-#[async_trait]
-pub trait PreToolGuard: Send + Sync {
-    async fn inspect(
-        &self,
-        call: &ToolCall,
-        hints: &ToolHints,
-        context: &ToolContext,
-    ) -> GuardOutcome;
-}
-
 /// What an [`Approver`] decides for a risky tool call — the simple
-/// allow/deny-with-message case, wrapped into a [`PreToolGuard`] by
-/// [`EverrunsExecutor::new`].
+/// allow/deny-with-message case, wrapped into middleware by
+/// [`ApprovalMiddleware`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ApprovalDecision {
+    /// Let the call run.
     Allow,
-    Deny { user_message: String },
+    /// Block it.
+    Deny {
+        /// Shown to the user and handed to the model as the result — the
+        /// everruns shape core's plain deny could not express.
+        user_message: String,
+    },
 }
 
 /// Consulted before a tool whose [`ToolHints`] say it
@@ -82,6 +67,8 @@ pub enum ApprovalDecision {
 /// to pause for a human, apply a policy, etc.
 #[async_trait]
 pub trait Approver: Send + Sync {
+    /// Decide whether one risky call may run. A real host would pause here
+    /// for a human; the tests answer by policy.
     async fn approve(&self, call: &ToolCall, hints: &ToolHints) -> ApprovalDecision;
 }
 
@@ -95,74 +82,79 @@ impl Approver for AllowAll {
     }
 }
 
-/// Adapts an [`Approver`] into a [`PreToolGuard`] that only consults it for
+/// Adapts an [`Approver`] into core [`TurnMiddleware`], consulting it only for
 /// tools whose hints say they [`need approval`](ToolHints::needs_approval).
-struct ApprovalGuard(Arc<dyn Approver>);
+///
+/// This used to be a satellite-only `PreToolGuard` trait plus a forked act
+/// loop to run it, because core's hooks could only allow or deny. Core
+/// middleware covers deny *and* rewrite, so the whole parallel trait
+/// hierarchy is gone — what is left here is a policy, attached with
+/// `AgentBuilder::middleware`.
+pub struct ApprovalMiddleware(Arc<dyn Approver>);
+
+impl ApprovalMiddleware {
+    /// Gate risky tools through this approver.
+    pub fn new(approver: impl Approver + 'static) -> Self {
+        Self(Arc::new(approver))
+    }
+}
 
 #[async_trait]
-impl PreToolGuard for ApprovalGuard {
-    async fn inspect(
-        &self,
-        call: &ToolCall,
-        hints: &ToolHints,
-        _context: &ToolContext,
-    ) -> GuardOutcome {
+impl TurnMiddleware for ApprovalMiddleware {
+    fn name(&self) -> &str {
+        "everruns-approval"
+    }
+
+    async fn before_tool(&self, invocation: &ToolInvocation<'_>) -> ToolCallDecision {
+        // Hints ride `ToolDefinition.metadata`, which core hands to
+        // middleware without knowing the schema — the metadata hatch and the
+        // middleware seam meeting exactly where they should.
+        let hints = invocation
+            .definition
+            .and_then(ToolHints::from_definition)
+            .unwrap_or_default();
         if !hints.needs_approval() {
-            return GuardOutcome::Allow;
+            return ToolCallDecision::Proceed;
         }
-        match self.0.approve(call, hints).await {
-            ApprovalDecision::Allow => GuardOutcome::Allow,
-            ApprovalDecision::Deny { user_message } => GuardOutcome::Deny { user_message },
-        }
-    }
-}
-
-/// A [`TurnExecutor`] that runs a chain of [`PreToolGuard`]s before each tool
-/// call, reading each tool's risk from the `ToolDefinition.metadata` hints
-/// hatch. Everything else follows the standard reason/act loop.
-pub struct EverrunsExecutor {
-    guards: Vec<Arc<dyn PreToolGuard>>,
-}
-
-impl EverrunsExecutor {
-    /// An executor whose only guard is hint-based approval via `approver`.
-    pub fn new(approver: impl Approver + 'static) -> Self {
-        Self {
-            guards: vec![Arc::new(ApprovalGuard(Arc::new(approver)))],
+        match self.0.approve(invocation.call, &hints).await {
+            ApprovalDecision::Allow => ToolCallDecision::Proceed,
+            ApprovalDecision::Deny { user_message } => ToolCallDecision::Deny {
+                reason: user_message,
+            },
         }
     }
-
-    /// An executor with an explicit guard chain (approval, redaction,
-    /// capability-contributed guards — in order).
-    pub fn with_guards(guards: Vec<Arc<dyn PreToolGuard>>) -> Self {
-        Self { guards }
-    }
-
-    /// Append a guard (runs after existing ones).
-    pub fn guard(mut self, guard: impl PreToolGuard + 'static) -> Self {
-        self.guards.push(Arc::new(guard));
-        self
-    }
 }
 
-impl Default for EverrunsExecutor {
-    fn default() -> Self {
-        Self::new(AllowAll)
-    }
-}
+/// A [`TurnExecutor`] that dispatches a tool batch **concurrently**, which the
+/// built-in `InProcessExecutor` deliberately does not, and narrates tool risk
+/// hints onto the event stream as custom events.
+///
+/// Guard policy is no longer part of it: denial and rewriting are core
+/// [`TurnMiddleware`], read from the agent's config and applied through
+/// [`before_tool_chain`], so this executor and the built-in one cannot drift
+/// on what a chain of middleware means. Dispatch strategy is the only reason
+/// this type still exists — which is what an executor should be for.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct EverrunsExecutor;
 
 #[async_trait]
 impl TurnExecutor for EverrunsExecutor {
     async fn run_turn(&self, host: &mut TurnHost<'_>, input: Message) -> Result<TurnResult> {
-        let assembled =
-            atoms::assemble(host.system_prompt, host.capabilities, host.session_id).await?;
+        let assembled = atoms::assemble(
+            host.config.system_prompt.as_str(),
+            &host.config.capabilities,
+            host.session_id,
+        )
+        .await?;
         let driver = host
+            .config
             .drivers
             .get(&host.model.driver)
             .ok_or_else(|| Error::UnknownDriver(host.model.driver.to_string()))?;
         let model = host.model.clone();
 
-        let (mut state, effects) = TurnState::start(host.session_id, host.max_iterations, &input);
+        let (mut state, effects) =
+            TurnState::start(host.session_id, host.config.max_iterations, &input);
         let turn_id = state.turn_id;
         host.record(turn_id, effects).await?;
 
@@ -178,8 +170,9 @@ impl TurnExecutor for EverrunsExecutor {
                     let started = state.on_reason_started(Some(&model.model));
                     host.record(turn_id, started).await?;
                     let messages = host
+                        .config
                         .context_assembler
-                        .assemble(host.session_id, host.messages)
+                        .assemble(host.session_id, host.history.messages())
                         .await;
                     match atoms::reason(driver.as_ref(), &model, &assembled, messages).await {
                         Ok(response) => {
@@ -228,74 +221,74 @@ impl TurnExecutor for EverrunsExecutor {
                             )
                             .await?;
                         }
-                        let effects = state.on_tool_started(&call.id);
-                        host.record(turn_id, effects).await?;
                     }
 
-                    let context = ToolContext {
-                        session_id: host.session_id,
-                        turn_id,
-                        extensions: host.extensions.clone(),
-                    };
+                    let context = ToolContext::new(host.session_id, turn_id)
+                        .with_extensions(host.config.extensions.clone());
 
-                    // Run the batch concurrently. Each future runs the guard
-                    // chain for its call (rewrites feed the next guard and the
-                    // execution; the first deny short-circuits), then acts —
-                    // no `&mut host` inside, so they compose under `join_all`.
+                    // Run the batch concurrently. Each future resolves its own
+                    // middleware chain via core's `before_tool_chain`, then
+                    // acts — no `&mut host` inside, so they compose under
+                    // `join_all`. The chain semantics (rewrite feeds the next,
+                    // first deny wins) are core's, not this executor's.
                     let assembled = &assembled;
                     let context = &context;
-                    let guards = &self.guards;
+                    let middleware = &host.config.middleware;
                     let resolved = join_all(calls.iter().map(|call| {
-                        let hints = assembled
-                            .tool(&call.name)
-                            .map(|tool| tool.definition())
-                            .as_ref()
-                            .and_then(ToolHints::from_definition)
-                            .unwrap_or_default();
+                        let definition = assembled.tool(&call.name).map(|tool| tool.definition());
                         async move {
-                            let mut effective = call.clone();
-                            let mut rewritten = false;
-                            for guard in guards {
-                                match guard.inspect(&effective, &hints, context).await {
-                                    GuardOutcome::Allow => {}
-                                    GuardOutcome::Rewrite(next) => {
-                                        effective = next;
-                                        rewritten = true;
-                                    }
-                                    GuardOutcome::Deny { user_message } => {
-                                        return Resolved::Denied(user_message);
+                            match before_tool_chain(middleware, call, definition.as_ref(), context)
+                                .await
+                            {
+                                ToolChainOutcome::Deny { reason } => Resolved::Denied(reason),
+                                ToolChainOutcome::Proceed {
+                                    call: executed,
+                                    rewritten,
+                                } => {
+                                    let output = atoms::act(assembled, &executed, context).await;
+                                    let output = after_tool_chain(
+                                        middleware,
+                                        &executed,
+                                        definition.as_ref(),
+                                        context,
+                                        output,
+                                    )
+                                    .await;
+                                    Resolved::Ran {
+                                        call: executed,
+                                        output,
+                                        rewritten,
                                     }
                                 }
-                            }
-                            Resolved::Ran {
-                                output: atoms::act(assembled, &effective, context).await,
-                                rewritten,
                             }
                         }
                     }))
                     .await;
 
-                    // Record completions (and any denials) sequentially, in
-                    // batch order — by each call's original id.
+                    // Record starts and completions sequentially, in batch
+                    // order — `record` needs `&mut host`.
                     for (call, outcome) in calls.iter().zip(resolved) {
                         let output = match outcome {
-                            Resolved::Ran { output, rewritten } => {
-                                // A guard mutated the call before it ran (e.g.
-                                // redaction) — announce it on the event stream
-                                // so observers can show the redaction happened.
+                            Resolved::Ran {
+                                call: executed,
+                                output,
+                                rewritten,
+                            } => {
                                 if rewritten {
-                                    host.record(
-                                        turn_id,
-                                        vec![EventData::custom(
-                                            "tool.rewritten",
-                                            serde_json::json!({ "name": call.name }),
-                                        )],
-                                    )
-                                    .await?;
+                                    let effects = state.on_tool_rewritten(
+                                        &call.id,
+                                        executed,
+                                        Some("everruns-guard".into()),
+                                    );
+                                    host.record(turn_id, effects).await?;
                                 }
+                                let effects = state.on_tool_started(&call.id);
+                                host.record(turn_id, effects).await?;
                                 output
                             }
                             Resolved::Denied(user_message) => {
+                                let effects = state.on_tool_started(&call.id);
+                                host.record(turn_id, effects).await?;
                                 host.record(
                                     turn_id,
                                     vec![EventData::ToolDenied {
@@ -314,15 +307,15 @@ impl TurnExecutor for EverrunsExecutor {
                 }
                 TurnAction::Complete(outcome) => {
                     return match outcome {
-                        TurnOutcome::Success { response } => Ok(TurnResult {
+                        TurnOutcome::Success { response } => Ok(TurnResult::new(
                             turn_id,
                             response,
-                            iterations: state.iterations,
-                            tool_calls: state.tool_calls_executed,
-                            usage: state.usage,
-                        }),
+                            state.iterations,
+                            state.tool_calls_executed,
+                            state.usage,
+                        )),
                         TurnOutcome::MaxIterations => {
-                            Err(Error::MaxIterations(host.max_iterations))
+                            Err(Error::MaxIterations(host.config.max_iterations))
                         }
                         TurnOutcome::Failed { error } => Err(Error::Other(error)),
                         TurnOutcome::Cancelled => Err(Error::Cancelled),

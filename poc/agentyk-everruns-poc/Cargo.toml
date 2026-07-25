@@ -3,12 +3,16 @@ name = "agentyk-everruns-poc"
 description = "Proof of concept: everruns-flavored behavior as a satellite over agentyk-core's seams — proof that the extensibility boundary holds with no core change."
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true
 readme = "README.md"
 # A proof-of-boundary prototype, not a shipped crate.
 publish = false
+
+[lints]
+workspace = true
 
 # The library depends ONLY on the contract crate — the whole point: a satellite
 # reproduces everruns behavior over agentyk-core's public seams, no framework,

@@ -13,10 +13,10 @@ impl agentyk::Capability for GoalCapability {
     }
 
     fn commands(&self) -> Vec<CommandDescriptor> {
-        vec![CommandDescriptor {
-            name: "goal".into(),
-            description: "Set or show the session goal.".into(),
-        }]
+        vec![CommandDescriptor::new(
+            "goal",
+            "Set or show the session goal.",
+        )]
     }
 
     async fn execute_command(

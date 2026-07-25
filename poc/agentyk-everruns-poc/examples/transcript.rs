@@ -15,10 +15,10 @@ use std::sync::Arc;
 
 use agentyk::{Agent, FnTool, ModelSpec, Result, SimDriver, SimToolCall, SimTurn, ToolOutput};
 use agentyk_core::message::ToolCall;
-use agentyk_core::tool::ToolContext;
+use agentyk_core::middleware::{ToolCallDecision, ToolInvocation, TurnMiddleware};
 use agentyk_everruns_poc::{
-    ApprovalDecision, Approver, EverrunsExecutor, GuardOutcome, HintedTool, NarrationListener,
-    PreToolGuard, ToolHints,
+    ApprovalDecision, ApprovalMiddleware, Approver, EverrunsExecutor, HintedTool,
+    NarrationListener, ToolHints,
 };
 use async_trait::async_trait;
 use serde_json::json;
@@ -27,18 +27,14 @@ use serde_json::json;
 struct RedactSecret;
 
 #[async_trait]
-impl PreToolGuard for RedactSecret {
-    async fn inspect(&self, call: &ToolCall, _h: &ToolHints, _c: &ToolContext) -> GuardOutcome {
-        if call.arguments.get("secret").is_some() {
-            let mut arguments = call.arguments.clone();
-            arguments["secret"] = json!("***");
-            return GuardOutcome::Rewrite(ToolCall {
-                id: call.id.clone(),
-                name: call.name.clone(),
-                arguments,
-            });
+impl TurnMiddleware for RedactSecret {
+    async fn before_tool(&self, invocation: &ToolInvocation<'_>) -> ToolCallDecision {
+        if invocation.call.arguments.get("secret").is_some() {
+            let mut call = invocation.call.clone();
+            call.arguments["secret"] = json!("***");
+            return ToolCallDecision::Rewrite(call);
         }
-        GuardOutcome::Allow
+        ToolCallDecision::Proceed
     }
 }
 
@@ -74,23 +70,20 @@ async fn main() -> Result<()> {
         .model(ModelSpec::llmsim())
         .driver(SimDriver::new([
             // A batch: one safe read + one destructive delete, dispatched together.
-            SimTurn {
-                text: String::new(),
-                tool_calls: vec![
-                    SimToolCall { name: "search".into(), arguments: json!({"q": "cats"}) },
-                    SimToolCall { name: "delete_all".into(), arguments: json!({"path": "/"}) },
-                ],
-            },
+            SimTurn::tool_calls([
+                SimToolCall::new("search", json!({"q": "cats"})),
+                SimToolCall::new("delete_all", json!({"path": "/"})),
+            ]),
             // Then a tool whose secret argument is redacted before it runs.
             SimTurn::tool_call("save_note", json!({"note": "hi", "secret": "p@ssw0rd"})),
             SimTurn::text("All done — one search ran, the delete was blocked, and the secret never reached the tool."),
         ]))
-        // The satellite executor: a two-guard chain — redact first, then gate
-        // risky tools through the approval policy.
-        .executor(
-            EverrunsExecutor::with_guards(vec![Arc::new(RedactSecret)])
-                .guard(ApprovalOf(Arc::new(BlockRisky))),
-        )
+        // The satellite executor supplies concurrent dispatch; the guardrails
+        // are ordinary core middleware — redact first, then gate risky tools
+        // through the approval policy.
+        .executor(EverrunsExecutor)
+        .middleware(RedactSecret)
+        .middleware(ApprovalMiddleware::new(BlockRisky))
         .listener_arc(narration.clone())
         .tool(HintedTool::new(echo("search"), ToolHints::readonly()))
         .tool(HintedTool::new(echo("delete_all"), ToolHints::destructive()))
@@ -108,21 +101,4 @@ async fn main() -> Result<()> {
     println!("───────────────────────────────────────────");
     println!("final: {}", turn.response);
     Ok(())
-}
-
-/// Adapts an `Approver` into a `PreToolGuard` (the executor's `::new` does this
-/// internally; here we do it explicitly to compose it after the redactor).
-struct ApprovalOf(Arc<dyn Approver>);
-
-#[async_trait]
-impl PreToolGuard for ApprovalOf {
-    async fn inspect(&self, call: &ToolCall, hints: &ToolHints, _c: &ToolContext) -> GuardOutcome {
-        if !hints.needs_approval() {
-            return GuardOutcome::Allow;
-        }
-        match self.0.approve(call, hints).await {
-            ApprovalDecision::Allow => GuardOutcome::Allow,
-            ApprovalDecision::Deny { user_message } => GuardOutcome::Deny { user_message },
-        }
-    }
 }

@@ -55,6 +55,26 @@ New drivers and capabilities start as feature-gated modules in `agentyk`; a
 module graduates to its own `agentyk-<name>` crate (depending only on core)
 when it grows a heavy dependency.
 
+## Features
+
+`agentyk` ships with **no features on by default**: the bare crate gives you
+the turn loop, the event logs, and the offline `SimDriver`, and pulls in
+nothing that can open a socket or spawn a process. Opt in to what you need.
+
+| Feature | Adds | Pulls in |
+| --- | --- | --- |
+| *(none)* | turn loop, `InMemoryEventLog`, `JsonlEventLog`, `SimDriver` | — |
+| `http` | `OpenAiDriver`, `AnthropicDriver` (SSE streaming) | `reqwest`, `futures-util` |
+| `mcp` | `McpCapability` / `McpClient` over stdio | `tokio` (rt, process, io-util, sync, time) |
+| `fs` | `FileSystemCapability`, real-disk and in-memory stores | `tokio` (fs, sync) |
+| `full` | all of the above | all of the above |
+
+```toml
+agentyk = { version = "0.1", features = ["http", "fs"] }
+```
+
+For scale: the default build resolves 28 crates, `full` resolves 100.
+
 ## Try it (offline, no API key)
 
 ```sh

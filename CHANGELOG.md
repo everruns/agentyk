@@ -9,6 +9,209 @@ release — every release bumps the patch component (`0.1.z`). See
 
 ## [Unreleased]
 
+### Fixed
+
+- **A log written by a newer agentyk is readable by an older one.**
+  `EventData` is internally tagged, so an unrecognized `kind` aborted
+  deserialization of the line — and `JsonlEventLog::read` turned that into a
+  failed read of the *whole session*, making it unresumable. `Event` now
+  deserializes tolerantly: an unknown kind degrades to `EventData::Custom`
+  carrying the original payload. Replay stays sufficient to resume a session
+  across versions, which is the point of the persistence seam.
+
+### Added — the HTTP drivers are tested over a real socket
+
+- `crates/agentyk/tests/http_drivers.rs` serves canned provider responses from
+  a local `TcpListener` and drives the real `ChatDriver` through
+  `ModelSpec::base_url`, so the request goes out over a socket and comes back
+  through the shared HTTP layer. Covers both providers, both the streaming and
+  non-streaming paths, endpoint and auth-header construction, HTTP-error
+  classification, and the shape-change error end to end. No new dependency —
+  tokio is already a dev-dependency.
+- What it still does not prove is that the canned bodies match what the
+  providers send *today*; only a live call does that.
+
+### Added — every public item is documented, and stays that way
+
+- **270 undocumented public items now carry documentation** — enum variants,
+  struct fields, trait methods, constructors — across both published crates
+  and the proof-of-concept satellite. Field docs say what a field is *for*,
+  not what it is named: why `ToolOutput::is_error` is a result rather than a
+  turn failure, why `Message.thinking` must round-trip, what an `EventListener`
+  can and cannot do.
+- **`missing_docs = "deny"`** at the workspace level, so an undocumented
+  public item fails `cargo check` locally at the same moment it would fail CI
+  — rather than accumulating until someone runs a docs pass.
+
+### Changed — provider wire types are typed, so a shape change is diagnosable
+
+- **Both drivers deserialize provider payloads into typed structs** instead of
+  indexing a `serde_json::Value` with `.unwrap_or_default()`. A renamed or
+  missing field used to produce an empty assistant message with nothing to
+  debug; it now produces
+  `anthropic response did not match the expected shape: missing field 'content' at line 1 column 42`.
+  The error is classified non-retryable, because replaying the same request
+  cannot fix a shape change.
+- Typed **both** paths, not just the non-streaming one — `complete_streaming`
+  is what the default executor actually calls, so that is where a silent empty
+  message was most likely.
+- Tolerant where tolerance is right, strict where it is not: unknown *event
+  types* and unknown *content-block types* deserialize to an ignored variant
+  (providers add them routinely), while a known block or event whose fields
+  changed fails. An empty OpenAI `choices` array is now an error rather than a
+  blank turn.
+- Error messages deliberately do not echo the response body — it holds the
+  conversation. Serde's field name and position are enough to diagnose.
+- `SseDecoder` yields raw `data:` payloads; decoding belongs to the
+  accumulator, which is the only thing that knows the expected shape.
+  OpenAI's `[DONE]` is recognized by `StreamAccumulator::is_terminator`
+  instead of being silently swallowed as "not JSON".
+- `serde` became an optional dependency of `agentyk`, enabled by `http`.
+
+### Changed — module layout and an explicit public surface
+
+- **`agentyk-core`'s files are grouped** into `protocol/` (event, event_log,
+  message, id, error, driver), `agent/` (config, capability, tool,
+  middleware, context, controls, budget, extensions) and `runtime/` (turn,
+  atoms, executor, replay, cancellation). Every module is re-exported at the
+  crate root, so **no public path changed** — `agentyk_core::event` is still
+  `agentyk_core::event` — and the grouping can be re-cut later without
+  breaking anyone.
+- **`agentyk` lists its re-exports instead of `pub use agentyk_core::*`.**
+  A glob means every future core item silently widens this crate's surface,
+  including names that collide with one it already owns. `scripts/check_reexports.py`
+  (wired into CI) fails if core exports something `agentyk` does not, so the
+  explicit list cannot develop the mirror-image problem of a silent omission.
+- **New `agentyk::prelude`** for the names most applications want at once.
+
+### Changed — history is a projection, not a second source
+
+- **`replay::History` (new) replaces the raw `Vec<Message>`** on `TurnHost`
+  and `Session`. The log is the truth; a running turn still needs the history
+  in memory rather than a log read per reason step, so a projection exists —
+  but the only way to grow one is `History::apply(&EventData)`. A message that
+  never became an event cannot enter history, so the projection and a fresh
+  replay agree by construction rather than by an executor remembering to keep
+  them in sync.
+- `History::from_events` is the fold; `messages_from_events` stays as
+  shorthand.
+- Pinned by tests at both levels: in core, applying events one by one equals
+  replaying the same log; end to end, `session.messages()` equals
+  `messages_from_events(session.events())` after a multi-turn run with tool
+  calls.
+
+### Changed — HTTP drivers are wire mapping only
+
+- **New crate-internal `drivers::http` layer** carrying what every HTTP
+  provider shares: sending, HTTP-status and transport-error classification,
+  SSE framing (`SseDecoder`), and the streaming loop. A provider now
+  implements `HttpProvider` + `StreamAccumulator` and its `ChatDriver` impl is
+  two delegations.
+- The two drivers previously carried private copies of `classify_status`,
+  `network_error`, `drain_lines` and `parse_sse_data_line`, plus their own
+  send/status/decode dance and streaming loop — the parts most likely to
+  drift apart. Per-provider production code: anthropic 469 → 408 lines,
+  openai 413 → 339.
+- **The streaming loop is now actually tested.** Both drivers' streaming tests
+  used to re-implement the chunk loop in the test body, so the loop that ran
+  in production had no coverage. Tests now drive the real loop via
+  `drive_stream`, with bodies deliberately split mid-line to exercise
+  reassembly.
+- `AnthropicDriver::with_client` / `OpenAiDriver::with_client` take a
+  `reqwest::Client`, so timeouts, proxies and pooling are configurable instead
+  of hardcoded to `Client::new()`.
+- OpenAI's `[DONE]` sentinel needs no special case: it simply is not JSON, and
+  the shared decoder skips non-JSON payloads.
+
+### Changed — one middleware seam instead of a trait per interception point
+
+- **`TurnMiddleware` (new, in `agentyk-core`) replaces `PreToolUseHook` and
+  `PostToolExecHook`.** One trait with defaulted methods — `before_tool`
+  returning `ToolCallDecision::{Proceed, Rewrite, Deny}`, and `after_tool`
+  transforming the result — attached with `AgentBuilder::middleware`.
+  A new interception point becomes a defaulted method rather than a new trait,
+  a new config field, a new builder setter, and new code in every executor.
+- **Middleware can rewrite a call**, which the old hooks could not. Argument
+  redaction and path rewriting previously forced a satellite to fork the whole
+  executor loop just to get at the act phase.
+- A rewrite is a **state transition** (`TurnState::on_tool_rewritten`), not
+  just an event: `tool.started` announces the call as it will actually run,
+  and a durable host resuming mid-turn executes the rewrite rather than the
+  model's original call. New durable `tool.rewritten` event.
+- `before_tool_chain` / `after_tool_chain` in core define the chain semantics
+  once — a rewrite feeds the next middleware, the first deny short-circuits —
+  so built-in, satellite and durable executors cannot drift on them.
+- **Known limit, documented on `ToolCallDecision::Rewrite`:** middleware
+  governs the act phase. Redacting a tool argument keeps the value out of the
+  tool and out of every act-phase event, but `output.message.completed` still
+  records the call the model generated. Redacting that needs a reason-phase
+  interception point (everruns' `output.message.replaced`), which agentyk
+  does not have.
+- The `agentyk-everruns-poc` satellite lost its private `PreToolGuard` /
+  `GuardOutcome` traits entirely; its `EverrunsExecutor` is now a unit struct
+  whose only difference from the built-in executor is concurrent dispatch —
+  which is what an executor should be for.
+
+### Changed — composition lives in one value
+
+- **`AgentConfig` (new, in `agentyk-core`) is an agent's whole composition** —
+  prompt, model, capabilities, drivers, listeners, hooks, budget checker,
+  context assembler, extensions. `AgentBuilder` fills one in and `Agent` holds
+  it behind an `Arc`; `Agent::config()` exposes it.
+- **`TurnHost` went from 15 public fields to 6**: `session_id`, `config`,
+  `model` (the per-turn effective one), `log`, `messages`, `cancellation`,
+  built with `TurnHost::new(..).model(..).cancellation(..)`.
+
+  Adding a composition knob used to mean seven mechanical edits across four
+  files — builder field, builder setter, `AgentInner` field, `build()` copy,
+  `Agent` accessor, `TurnHost` field, session wiring — and the `TurnHost`
+  field made it a breaking change for every third-party `TurnExecutor`. It is
+  now a field on `AgentConfig` plus a builder setter, and reaches every
+  executor for free.
+- Executors read composition through `host.config.*`. Per-field `Agent`
+  accessors are gone except `name()`, `model()`, `capabilities()` and
+  `driver_for_model()`; use `agent.config()` for the rest.
+
+### Changed — packaging and API-stability guardrails
+
+- **Public data types are `#[non_exhaustive]`**, so core can grow fields and
+  variants without a breaking change: `EventData`, `Error`, `LlmErrorKind`,
+  `Event`, `EventRequest`, `ModelSpec`, `ReasoningConfig`, `ChatRequest`,
+  `ChatResponse`, `Usage`, `ToolDefinition`, `ToolOutput`, `ToolContext`,
+  `ToolPolicy`, `TurnState`, `PendingCall`, `TurnResult`,
+  `CommandDescriptor`, `CommandContext`, `SystemPromptContext`, `FileEntry`,
+  `McpServer`, `RunOptions`, `SimTurn`, `SimToolCall`. Each gained a
+  constructor (and setters where it has optional parts) — e.g.
+  `ChatRequest::new(model, messages).system_prompt(..).tools(..)`,
+  `ToolContext::new(session, turn).with_extensions(..)`,
+  `Usage::new(..)`, `FileEntry::file(..)` / `FileEntry::dir(..)`,
+  `RunOptions::new().cancellation(..).controls(..)`.
+
+  The **contract** types stay deliberately exhaustive — `TurnAction`,
+  `TurnOutcome`, `Role`, `ContentPart`, `PreToolUseDecision`. A host that
+  doesn't handle a new turn action, or a driver that doesn't translate a new
+  content part, is wrong, and the compile error is the point. The rule is
+  documented on `agentyk_core`'s crate docs.
+- `SimTurn::tool_calls([..])` scripts a multi-tool batch in one turn, which
+  previously required a struct literal.
+
+- **`agentyk` defaults to no features.** `tokio` is now an optional dependency
+  pulled in only by the features that use it (`mcp`, `fs`), each enabling just
+  the tokio features it needs. Previously `tokio` — including `process` and
+  `fs` support — was unconditional, so the documented "lean build" was not
+  actually lean. Default build: 28 crates; `full`: 100. Use
+  `features = ["full"]` for the previous batteries-included surface.
+- **MSRV is declared and verified.** `rust-version = "1.88"` on every member,
+  with a CI job that builds on exactly that toolchain, so the promise cannot
+  silently drift.
+- **`unsafe_code = "forbid"`** workspace-wide.
+- **CI feature matrix** — each feature is built alone, not only in the
+  all-features build, so `#[cfg]` gating stays honest as features grow.
+- **`cargo-semver-checks` gates publishing** against the last crates.io
+  release (in `publish.yml`, where a baseline exists; skipped for a crate's
+  first publish).
+- Feature-gated items carry `doc(cfg(...))` badges on docs.rs.
+
 ### Added — protocol extensibility (from an audit against everruns 0.17.16)
 
 - **Reasoning round-trip**: `Message.thinking` and `Message.thinking_signature`

@@ -4,7 +4,9 @@
 
 use agentyk::{Agent, EventData, FnTool, ModelSpec, Result, SimDriver, SimTurn, ToolOutput};
 use agentyk_core::message::ToolCall;
-use agentyk_everruns_poc::{ApprovalDecision, Approver, EverrunsExecutor, HintedTool, ToolHints};
+use agentyk_everruns_poc::{
+    ApprovalDecision, ApprovalMiddleware, Approver, EverrunsExecutor, HintedTool, ToolHints,
+};
 use async_trait::async_trait;
 use serde_json::json;
 
@@ -38,7 +40,8 @@ fn agent_with(approver: impl Approver + 'static, hints: ToolHints) -> Result<Age
             SimTurn::tool_call("delete", json!({})),
             SimTurn::text("done"),
         ]))
-        .executor(EverrunsExecutor::new(approver))
+        .executor(EverrunsExecutor)
+        .middleware(ApprovalMiddleware::new(approver))
         .tool(HintedTool::new(delete_tool(), hints))
         .build()
 }

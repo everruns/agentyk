@@ -12,12 +12,11 @@ struct Greeter;
 #[async_trait::async_trait]
 impl agentyk::Tool for Greeter {
     fn definition(&self) -> agentyk::ToolDefinition {
-        agentyk::ToolDefinition {
-            name: "greet".to_string(),
-            description: "Greet using the configured prefix.".to_string(),
-            parameters: json!({"type": "object", "properties": {"name": {"type": "string"}}}),
-            ..Default::default()
-        }
+        agentyk::ToolDefinition::new(
+            "greet",
+            "Greet using the configured prefix.",
+            json!({"type": "object", "properties": {"name": {"type": "string"}}}),
+        )
     }
 
     async fn execute(

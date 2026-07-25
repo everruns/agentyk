@@ -4,11 +4,8 @@
 use std::sync::Arc;
 
 use agentyk::{Agent, FnTool, ModelSpec, Result, SimDriver, SimToolCall, SimTurn, ToolOutput};
-use agentyk_core::message::ToolCall;
-use agentyk_core::tool::ToolContext;
-use agentyk_everruns_poc::{
-    EverrunsExecutor, GuardOutcome, HintedTool, NarrationListener, PreToolGuard, ToolHints,
-};
+use agentyk_core::middleware::{ToolCallDecision, ToolInvocation, TurnMiddleware};
+use agentyk_everruns_poc::{EverrunsExecutor, HintedTool, NarrationListener, ToolHints};
 use async_trait::async_trait;
 use serde_json::json;
 
@@ -48,18 +45,14 @@ async fn narration_renders_the_event_stream() -> Result<()> {
 struct RedactSecret;
 
 #[async_trait]
-impl PreToolGuard for RedactSecret {
-    async fn inspect(&self, call: &ToolCall, _h: &ToolHints, _c: &ToolContext) -> GuardOutcome {
-        if call.arguments.get("secret").is_some() {
-            let mut arguments = call.arguments.clone();
-            arguments["secret"] = json!("***");
-            return GuardOutcome::Rewrite(ToolCall {
-                id: call.id.clone(),
-                name: call.name.clone(),
-                arguments,
-            });
+impl TurnMiddleware for RedactSecret {
+    async fn before_tool(&self, invocation: &ToolInvocation<'_>) -> ToolCallDecision {
+        if invocation.call.arguments.get("secret").is_some() {
+            let mut call = invocation.call.clone();
+            call.arguments["secret"] = json!("***");
+            return ToolCallDecision::Rewrite(call);
         }
-        GuardOutcome::Allow
+        ToolCallDecision::Proceed
     }
 }
 
@@ -75,25 +68,17 @@ async fn narration_surfaces_hints_and_redaction_from_custom_events() -> Result<(
     let agent = Agent::builder()
         .model(ModelSpec::llmsim())
         .driver(SimDriver::new([
-            SimTurn {
-                text: String::new(),
-                tool_calls: vec![
-                    SimToolCall {
-                        name: "search".into(),
-                        arguments: json!({"q": "x"}),
-                    },
-                    SimToolCall {
-                        name: "save".into(),
-                        arguments: json!({"secret": "p@ss"}),
-                    },
-                ],
-            },
+            SimTurn::tool_calls([
+                SimToolCall::new("search", json!({"q": "x"})),
+                SimToolCall::new("save", json!({"secret": "p@ss"})),
+            ]),
             SimTurn::text("done"),
         ]))
         // Only a redactor in the chain — no approval guard, so the destructive
         // tool still runs; the readonly/destructive hints and the redaction
         // ride the event stream as custom events regardless.
-        .executor(EverrunsExecutor::with_guards(vec![Arc::new(RedactSecret)]))
+        .executor(EverrunsExecutor)
+        .middleware(RedactSecret)
         .listener_arc(narration.clone())
         .tool(HintedTool::new(echo("search"), ToolHints::readonly()))
         .tool(HintedTool::new(echo("save"), ToolHints::destructive()))

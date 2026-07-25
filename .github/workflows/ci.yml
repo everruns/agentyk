@@ -34,13 +34,64 @@ jobs:
       - name: Clippy (all features)
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
-      - name: Clippy (agentyk, no default features — lean build, no mcp/fs)
-        run: cargo clippy -p agentyk --no-default-features --lib --tests -- -D warnings
+      # An explicit re-export list beats a glob, but only while it stays
+      # complete — this is what catches a core item added and forgotten.
+      - name: Check agentyk re-exports all of agentyk-core
+        run: python3 scripts/check_reexports.py
 
       - name: Build documentation
         run: cargo doc --workspace --no-deps --all-features
         env:
           RUSTDOCFLAGS: "-D warnings"
+
+  features:
+    name: Feature matrix
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Each feature must build on its own, not just in the all-features
+        # build — that is what keeps `#[cfg]` gating honest as features grow.
+        features: ["", "http", "mcp", "fs", "full"]
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+
+      - name: Clippy (agentyk, features "${{ matrix.features }}")
+        run: |
+          cargo clippy -p agentyk --all-targets \
+            --no-default-features --features "${{ matrix.features }}" -- -D warnings
+
+  msrv:
+    name: MSRV
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      # The declared `rust-version` is a promise; this job is what keeps it
+      # true. Bump both together, never one alone.
+      - name: Read MSRV from Cargo.toml
+        id: msrv
+        run: |
+          MSRV=$(grep '^rust-version' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          echo "version=$MSRV" >> "$GITHUB_OUTPUT"
+          echo "Declared MSRV: $MSRV"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.msrv.outputs.version }}
+
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+
+      - name: Check (all features)
+        run: cargo check --workspace --all-features
 
   test:
     name: Test

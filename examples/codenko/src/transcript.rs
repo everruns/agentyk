@@ -119,6 +119,10 @@ impl Transcript {
             EventData::TurnStarted | EventData::TurnCompleted { .. } => {}
             EventData::InputMessage { .. } => {}
             EventData::Custom { event_type, .. } => self.notice(format!("event: {event_type}")),
+            // `EventData` is non-exhaustive, and for a transcript that is the
+            // right default: an event type this build predates should leave
+            // the display alone rather than break it.
+            _ => {}
         }
     }
 

@@ -66,10 +66,10 @@ impl ChatDriver for CancelMidStreamDriver {
         self.token.cancel();
         sink.delta(" second chunk", "first chunk second chunk")
             .await?;
-        Ok(ChatResponse {
-            message: agentyk::Message::assistant("first chunk second chunk"),
-            usage: Usage::default(),
-        })
+        Ok(ChatResponse::new(
+            agentyk::Message::assistant("first chunk second chunk"),
+            Usage::default(),
+        ))
     }
 }
 

@@ -22,6 +22,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 pub struct CancellationToken(Arc<AtomicBool>);
 
 impl CancellationToken {
+    /// A fresh, uncancelled token. Clone it to hold a handle you can cancel
+    /// from elsewhere.
     pub fn new() -> Self {
         Self::default()
     }
@@ -31,6 +33,8 @@ impl CancellationToken {
         self.0.store(true, Ordering::SeqCst);
     }
 
+    /// Whether [`CancellationToken::cancel`] has been called on this token
+    /// or any of its clones.
     pub fn is_cancelled(&self) -> bool {
         self.0.load(Ordering::SeqCst)
     }

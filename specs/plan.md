@@ -98,7 +98,7 @@ everruns concept must be expressible on top of the agentyk primitive.
 | stream reconnect, provider streaming | `atoms::reason_streaming` + `ChatDriver::complete_streaming` + `DeltaSink` | default streams as one full-text delta; OpenAI/Anthropic drivers stream real SSE increments; deltas never touch `TurnState` — `on_reason_started` is the only state transition, purely informational |
 | `Controls` (per-input model override, `ReasoningConfig`) | `controls::TurnControls` + `ModelSpec.reasoning` | `Session::run_controlled`/`run_with_options`; reasoning wired for OpenAI, not yet for Anthropic (needs a token budget, not an effort string) |
 | `RuntimeHostAdapter` + `plan_next_host_turn` (turn strategy) | `executor::TurnExecutor` + `TurnHost` | `InProcessExecutor` default; a durable host maps each `TurnAction` to a retryable activity and checkpoints `TurnState` between them |
-| `PreToolUseHook`/`PostToolExecHook`/`PostActHook`/`ClientSideToolHook` | `hooks::{PreToolUseHook, PostToolExecHook}` on `AgentBuilder` | orchestrated by the executor around `atoms::act`, not inside it; `require-approval`, `PostActHook`, `ClientSideToolHook` not yet ported (see `everruns-adoption.md`) |
+| `PreToolUseHook`/`PostToolExecHook`/`PostActHook`/`ClientSideToolHook` | `middleware::TurnMiddleware` on `AgentBuilder` | one trait with defaulted methods instead of one trait per point; `before_tool` covers deny **and rewrite** (a rewrite is a `TurnState` transition, so it survives replay); orchestrated by the executor around `atoms::act`, not inside it; `PostActHook`/`ClientSideToolHook` not yet ported (see `everruns-adoption.md`) |
 | `TurnOutcome::Sealed(SealReason)` (no-progress/budget), `HardLimitStopRule`/`BudgetChecker` | `turn::{TurnOutcome::Sealed, SealReason}` + `budget::BudgetChecker` | checked once per action, like cancellation; `NoProgress` exists but nothing sets it (needs a durable crash-reclaim host) |
 | `tool.denied` (implicit in approval/guardrail flows) | `event_types::TOOL_DENIED` | durable; recorded alongside `tool.started`/`tool.completed` when a pre-hook denies |
 | MCP merge/discovery (runtime `mcp.rs`) | `McpCapability` / `McpClient` / `McpServer` | MCP is just a capability; stdio transport built in |
@@ -109,7 +109,8 @@ everruns concept must be expressible on top of the agentyk primitive.
 | `Message.thinking` / `thinking_signature` (extended thinking round-trip) | same field names on `message::Message` | typed (universal reasoning, must round-trip to the provider); populated by a driver, not yet wired for Anthropic |
 | `MessageId` on `output.message.*` (streaming lifecycle correlation) | `id::MessageId` on `OutputMessage{Started,Delta,Completed}`, held on `TurnState::current_message_id` | typed; allocated in `on_reason_started`, `#[serde(default)]` so pre-0.1.1 logs still load |
 | `ToolHints`, capability `status`/`category`/`icon`, `Message.phase`, narration hints | generic `metadata` hatches: `ToolDefinition.metadata`, `Capability::metadata()`, `Message.metadata` | everruns-flavored richness rides an opaque `serde_json::Value` (the data analogue of `EventData::Custom`); a satellite owns the schema — see [`extensibility.md`](extensibility.md) |
-| guardrail mutation / approval / capability-contributed hooks, parallel dispatch | a satellite `executor::TurnExecutor` over `atoms` + `TurnState` | **behavior, not core** — the executor seam owns the act loop; agentyk's built-in `PreToolUseHook` stays denial-only |
+| guardrail mutation / approval / capability-contributed hooks | `middleware::TurnMiddleware` (`Rewrite`/`Deny`), attached on the builder | mutation and approval no longer need a forked act loop |
+| parallel dispatch | a satellite `executor::TurnExecutor` over `atoms` + `TurnState` | dispatch **strategy** is what the executor seam is for; the built-in one stays sequential |
 
 Deliberate omissions from Phase 1 (Phase-2+ territory): org/tenant scoping,
 provider catalog + credential encryption, durable execution, streaming deltas,
@@ -155,9 +156,13 @@ server):
 - Error retryability — `LlmErrorKind`, `Error::Driver { kind, message }`,
   `Error::is_retryable()`; both HTTP drivers classify by status code and
   transport-failure kind.
-- Act hooks — `PreToolUseHook` (deny), `PostToolExecHook` (transform),
-  orchestrated by the executor around `atoms::act`. `require-approval`,
-  `PostActHook`, `ClientSideToolHook` deferred — see
+- Turn middleware — one `TurnMiddleware` trait with defaulted `before_tool`
+  (`Proceed`/`Rewrite`/`Deny`) and `after_tool` (transform), orchestrated by
+  the executor around `atoms::act` via core's shared `before_tool_chain` /
+  `after_tool_chain` so executors cannot drift on the semantics. A rewrite is
+  a `TurnState` transition (`on_tool_rewritten`), so it is durable and
+  `tool.started` announces the executed call. `PostActHook`,
+  `ClientSideToolHook` deferred — see
   [`everruns-adoption.md`](everruns-adoption.md#tier-2).
 - Per-turn controls — `TurnControls { model, reasoning }`,
   `Session::run_controlled`/`run_with_options`. Reasoning effort wired for

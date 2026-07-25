@@ -7,6 +7,7 @@ use std::fmt;
 /// worth retrying apart from a terminal one that will never succeed by
 /// itself. Mirrors the intent of everruns' `LlmErrorKind`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum LlmErrorKind {
     /// The provider rejected the request for being over its rate limit
     /// (HTTP 429). Retry after a backoff.
@@ -67,6 +68,7 @@ impl fmt::Display for LlmErrorKind {
 
 /// Errors surfaced by agentyk.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum Error {
     /// The agent was composed without a model, or is otherwise invalid.
     #[error("invalid agent: {0}")]
@@ -91,7 +93,12 @@ pub enum Error {
     /// An LLM driver failed. `kind` classifies whether retrying is worth it
     /// — see [`Error::is_retryable`].
     #[error("driver error ({kind}): {message}")]
-    Driver { kind: LlmErrorKind, message: String },
+    Driver {
+        /// Whether retrying is worth it.
+        kind: LlmErrorKind,
+        /// What the provider or transport reported.
+        message: String,
+    },
 
     /// An MCP server or transport failed.
     #[error("mcp error: {0}")]
@@ -101,12 +108,15 @@ pub enum Error {
     #[error("event log error: {0}")]
     EventLog(String),
 
+    /// Local I/O failed — an event log file, a workspace read.
     #[error(transparent)]
     Io(#[from] std::io::Error),
 
+    /// Serialization or deserialization failed.
     #[error(transparent)]
     Json(#[from] serde_json::Error),
 
+    /// Anything without a more specific variant.
     #[error("{0}")]
     Other(String),
 }
@@ -131,6 +141,7 @@ impl Error {
     }
 }
 
+/// `Result` with this crate's [`Error`].
 pub type Result<T> = std::result::Result<T, Error>;
 
 #[cfg(test)]

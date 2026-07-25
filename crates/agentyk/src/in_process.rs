@@ -7,9 +7,9 @@ use agentyk_core::cancellation::CancellationToken;
 use agentyk_core::error::{Error, Result};
 use agentyk_core::event::EventData;
 use agentyk_core::executor::{TurnExecutor, TurnHost, TurnResult};
-use agentyk_core::hooks::PreToolUseDecision;
 use agentyk_core::id::{MessageId, TurnId};
 use agentyk_core::message::Message;
+use agentyk_core::middleware::{self, ToolChainOutcome};
 use agentyk_core::tool::{ToolContext, ToolOutput};
 use agentyk_core::turn::{SealReason, TurnAction, TurnOutcome, TurnState};
 use async_trait::async_trait;
@@ -51,15 +51,21 @@ pub struct InProcessExecutor;
 #[async_trait]
 impl TurnExecutor for InProcessExecutor {
     async fn run_turn(&self, host: &mut TurnHost<'_>, input: Message) -> Result<TurnResult> {
-        let assembled =
-            atoms::assemble(host.system_prompt, host.capabilities, host.session_id).await?;
+        let assembled = atoms::assemble(
+            host.config.system_prompt.as_str(),
+            &host.config.capabilities,
+            host.session_id,
+        )
+        .await?;
         let driver = host
+            .config
             .drivers
             .get(&host.model.driver)
             .ok_or_else(|| Error::UnknownDriver(host.model.driver.to_string()))?;
         let model = host.model.clone();
 
-        let (mut state, effects) = TurnState::start(host.session_id, host.max_iterations, &input);
+        let (mut state, effects) =
+            TurnState::start(host.session_id, host.config.max_iterations, &input);
         let turn_id = state.turn_id;
         host.record(turn_id, effects).await?;
 
@@ -72,7 +78,7 @@ impl TurnExecutor for InProcessExecutor {
                 host.record(turn_id, effects).await?;
                 return Err(Error::Cancelled);
             }
-            if let Some(checker) = &host.budget_checker
+            if let Some(checker) = &host.config.budget_checker
                 && checker.check(host.session_id).await == BudgetDecision::Seal
             {
                 let effects = state.on_seal(SealReason::BudgetExhausted);
@@ -89,8 +95,9 @@ impl TurnExecutor for InProcessExecutor {
                     let message_id = state.current_message_id.unwrap_or_default();
 
                     let messages = host
+                        .config
                         .context_assembler
-                        .assemble(host.session_id, host.messages)
+                        .assemble(host.session_id, host.history.messages())
                         .await;
                     let cancellation = host.cancellation.clone();
                     let mut sink = RecordingDeltaSink {
@@ -126,57 +133,76 @@ impl TurnExecutor for InProcessExecutor {
                     }
                 }
                 TurnAction::ExecuteTool { call } => {
-                    let effects = state.on_tool_started(&call.id);
-                    host.record(turn_id, effects).await?;
-                    let context = ToolContext {
-                        session_id: host.session_id,
-                        turn_id,
-                        extensions: host.extensions.clone(),
+                    let context = ToolContext::new(host.session_id, turn_id)
+                        .with_extensions(host.config.extensions.clone());
+                    let definition = assembled.tool(&call.name).map(|tool| tool.definition());
+
+                    // The middleware chain resolves first, so `tool.started`
+                    // records the call as it will actually run — a rewritten
+                    // call is never announced under its original arguments.
+                    let outcome = middleware::before_tool_chain(
+                        &host.config.middleware,
+                        &call,
+                        definition.as_ref(),
+                        &context,
+                    )
+                    .await;
+
+                    let (executed, output) = match outcome {
+                        ToolChainOutcome::Deny { reason } => {
+                            let effects = state.on_tool_started(&call.id);
+                            host.record(turn_id, effects).await?;
+                            host.record(
+                                turn_id,
+                                vec![EventData::ToolDenied {
+                                    call_id: call.id.clone(),
+                                    name: call.name.clone(),
+                                    reason: reason.clone(),
+                                }],
+                            )
+                            .await?;
+                            (call.clone(), ToolOutput::error(reason))
+                        }
+                        ToolChainOutcome::Proceed {
+                            call: executed,
+                            rewritten,
+                        } => {
+                            if rewritten {
+                                // Into the state, not just the event stream:
+                                // a resumed host must run the rewrite.
+                                let effects =
+                                    state.on_tool_rewritten(&executed.id, executed.clone(), None);
+                                host.record(turn_id, effects).await?;
+                            }
+                            let effects = state.on_tool_started(&executed.id);
+                            host.record(turn_id, effects).await?;
+                            let output = atoms::act(&assembled, &executed, &context).await;
+                            let output = middleware::after_tool_chain(
+                                &host.config.middleware,
+                                &executed,
+                                definition.as_ref(),
+                                &context,
+                                output,
+                            )
+                            .await;
+                            (executed, output)
+                        }
                     };
 
-                    let mut denial: Option<String> = None;
-                    for hook in host.pre_tool_hooks {
-                        if let PreToolUseDecision::Deny { reason } =
-                            hook.before_tool_use(&call, &context).await
-                        {
-                            denial = Some(reason);
-                            break;
-                        }
-                    }
-
-                    let output = if let Some(reason) = &denial {
-                        host.record(
-                            turn_id,
-                            vec![EventData::ToolDenied {
-                                call_id: call.id.clone(),
-                                name: call.name.clone(),
-                                reason: reason.clone(),
-                            }],
-                        )
-                        .await?;
-                        ToolOutput::error(reason.clone())
-                    } else {
-                        let mut output = atoms::act(&assembled, &call, &context).await;
-                        for hook in host.post_tool_hooks {
-                            output = hook.after_tool_exec(&call, output, &context).await;
-                        }
-                        output
-                    };
-
-                    let effects = state.on_tool_completed(&call.id, &output);
+                    let effects = state.on_tool_completed(&executed.id, &output);
                     host.record(turn_id, effects).await?;
                 }
                 TurnAction::Complete(outcome) => {
                     return match outcome {
-                        TurnOutcome::Success { response } => Ok(TurnResult {
+                        TurnOutcome::Success { response } => Ok(TurnResult::new(
                             turn_id,
                             response,
-                            iterations: state.iterations,
-                            tool_calls: state.tool_calls_executed,
-                            usage: state.usage,
-                        }),
+                            state.iterations,
+                            state.tool_calls_executed,
+                            state.usage,
+                        )),
                         TurnOutcome::MaxIterations => {
-                            Err(Error::MaxIterations(host.max_iterations))
+                            Err(Error::MaxIterations(host.config.max_iterations))
                         }
                         TurnOutcome::Failed { error } => Err(Error::Other(error)),
                         TurnOutcome::Cancelled => Err(Error::Cancelled),

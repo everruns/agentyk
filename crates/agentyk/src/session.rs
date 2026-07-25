@@ -20,7 +20,7 @@ use agentyk_core::event_log::EventLog;
 use agentyk_core::executor::{TurnHost, TurnResult};
 use agentyk_core::id::SessionId;
 use agentyk_core::message::Message;
-use agentyk_core::replay::messages_from_events;
+use agentyk_core::replay::History;
 use agentyk_core::tool::ToolOutput;
 
 use crate::agent::Agent;
@@ -29,6 +29,7 @@ use crate::agent::Agent;
 /// (`RunOptions::default()`) reproduce plain [`Session::run`]: an
 /// uncancellable turn on the agent's default model.
 #[derive(Default)]
+#[non_exhaustive]
 pub struct RunOptions {
     /// Clone this before calling and cancel the clone from elsewhere to
     /// stop the turn — see [`CancellationToken`].
@@ -37,11 +38,35 @@ pub struct RunOptions {
     pub controls: TurnControls,
 }
 
+impl RunOptions {
+    /// Defaults: uncancellable, on the agent's own model.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Stop the turn from elsewhere — see [`CancellationToken`].
+    pub fn cancellation(mut self, token: CancellationToken) -> Self {
+        self.cancellation = token;
+        self
+    }
+
+    /// Per-turn model/reasoning overrides — see [`TurnControls`].
+    pub fn controls(mut self, controls: TurnControls) -> Self {
+        self.controls = controls;
+        self
+    }
+}
+
+/// A conversation with an agent.
+///
+/// Holds the session id, the event log, and the message history — which is a
+/// projection of that log, never a separate source. Sessions are created from
+/// an [`Agent`] and can be resumed from a log alone.
 pub struct Session {
     agent: Agent,
     id: SessionId,
     log: Arc<dyn EventLog>,
-    messages: Vec<Message>,
+    history: History,
 }
 
 impl Session {
@@ -50,7 +75,7 @@ impl Session {
             agent,
             id: SessionId::new(),
             log,
-            messages: Vec::new(),
+            history: History::new(),
         }
     }
 
@@ -60,12 +85,11 @@ impl Session {
         session_id: SessionId,
     ) -> Result<Self> {
         let events = log.read(session_id).await?;
-        let messages = messages_from_events(&events);
         Ok(Self {
             agent,
             id: session_id,
             log,
-            messages,
+            history: History::from_events(&events),
         })
     }
 
@@ -75,9 +99,10 @@ impl Session {
         self.id
     }
 
-    /// The reconstructed-or-live message history.
+    /// The reconstructed-or-live message history — always equal to a replay
+    /// of this session's log.
     pub fn messages(&self) -> &[Message] {
-        &self.messages
+        self.history.messages()
     }
 
     /// All events recorded for this session, ordered by sequence.
@@ -89,7 +114,7 @@ impl Session {
     /// [`agentyk_core::capability::Capability::commands`].
     pub fn commands(&self) -> Vec<CommandDescriptor> {
         self.agent
-            .inner
+            .config
             .capabilities
             .iter()
             .flat_map(|capability| capability.commands())
@@ -102,10 +127,8 @@ impl Session {
     /// whose `execute_command` returns `Some(..)` wins. Errors with an
     /// "unknown command" message if none claims it.
     pub async fn execute_command(&self, name: &str, args: &str) -> Result<ToolOutput> {
-        let context = CommandContext {
-            session_id: self.id,
-        };
-        for capability in &self.agent.inner.capabilities {
+        let context = CommandContext::new(self.id);
+        for capability in &self.agent.config.capabilities {
             if capability.commands().iter().any(|c| c.name == name)
                 && let Some(output) = capability.execute_command(name, args, &context).await
             {
@@ -132,14 +155,8 @@ impl Session {
         input: impl Into<String>,
         token: CancellationToken,
     ) -> Result<TurnResult> {
-        self.run_with_options(
-            input,
-            RunOptions {
-                cancellation: token,
-                ..Default::default()
-            },
-        )
-        .await
+        self.run_with_options(input, RunOptions::new().cancellation(token))
+            .await
     }
 
     /// Run one turn with per-turn model/reasoning overrides, without
@@ -149,14 +166,8 @@ impl Session {
         input: impl Into<String>,
         controls: TurnControls,
     ) -> Result<TurnResult> {
-        self.run_with_options(
-            input,
-            RunOptions {
-                controls,
-                ..Default::default()
-            },
-        )
-        .await
+        self.run_with_options(input, RunOptions::new().controls(controls))
+            .await
     }
 
     /// Run one turn with full control over cancellation and per-turn
@@ -167,26 +178,14 @@ impl Session {
         input: impl Into<String>,
         options: RunOptions,
     ) -> Result<TurnResult> {
-        let agent = self.agent.inner.clone();
-        let executor = agent.executor.clone();
-        let effective_model = options.controls.resolve(&agent.model);
-        let mut host = TurnHost {
-            session_id: self.id,
-            system_prompt: &agent.system_prompt,
-            model: &effective_model,
-            capabilities: &agent.capabilities,
-            drivers: &agent.drivers,
-            listeners: &agent.listeners,
-            max_iterations: agent.max_iterations,
-            log: self.log.as_ref(),
-            messages: &mut self.messages,
-            cancellation: options.cancellation,
-            pre_tool_hooks: &agent.pre_tool_hooks,
-            post_tool_hooks: &agent.post_tool_hooks,
-            budget_checker: agent.budget_checker.clone(),
-            context_assembler: agent.context_assembler.as_ref(),
-            extensions: &agent.extensions,
-        };
+        let config = self.agent.config.clone();
+        let executor = self.agent.executor.clone();
+        let effective_model = options.controls.resolve(config.model());
+        // Composition travels as one value; only the genuinely per-run parts
+        // are set here. Adding a composition knob does not touch this call.
+        let mut host = TurnHost::new(self.id, &config, self.log.as_ref(), &mut self.history)
+            .model(&effective_model)
+            .cancellation(options.cancellation);
         executor.run_turn(&mut host, Message::user(input)).await
     }
 }

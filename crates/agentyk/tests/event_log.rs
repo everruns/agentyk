@@ -49,6 +49,67 @@ async fn jsonl_log_persists_and_resumes_across_reopen() -> Result<()> {
     Ok(())
 }
 
+/// A log written by a newer agentyk must stay readable — and *resumable* — by
+/// an older one. Before `Event` grew a tolerant `Deserialize`, one unknown
+/// `kind` failed the whole `read()`, taking every other event in the session
+/// with it and making the session unresumable.
+#[tokio::test]
+async fn a_log_containing_a_future_event_kind_still_reads_and_resumes() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let path = dir.path().join("events.jsonl");
+
+    let agent = Agent::builder()
+        .model(ModelSpec::llmsim())
+        .driver(SimDriver::new([SimTurn::text("first")]))
+        .build()?;
+
+    let session_id = {
+        let log = Arc::new(JsonlEventLog::new(&path)?);
+        let mut session = agent.session_with_log(log);
+        session.run("go").await?;
+        session.id()
+    };
+
+    // Splice in an event this build has no variant for, as a future version
+    // would have written it.
+    let known = std::fs::read_to_string(&path)?;
+    let last: serde_json::Value = serde_json::from_str(known.lines().last().unwrap())?;
+    let future_event = json!({
+        "id": "event_0199c4a70000700080008000800080ab",
+        "type": "turn.compacted",
+        "ts": last["ts"],
+        "session_id": last["session_id"],
+        "sequence": last["sequence"].as_u64().unwrap() + 1,
+        "data": {"kind": "turn_compacted", "removed_messages": 4},
+    });
+    std::fs::write(&path, format!("{known}{future_event}\n"))?;
+
+    let log = Arc::new(JsonlEventLog::new(&path)?);
+    let events = log.read(session_id).await?;
+
+    // Every known event survives, and the unknown one is preserved rather
+    // than dropped — a host can still forward what it can't interpret.
+    assert!(events.iter().any(|e| e.event_type == "turn.completed"));
+    let unknown = events
+        .iter()
+        .find(|e| e.event_type == "turn.compacted")
+        .expect("the future event should be readable");
+    assert!(matches!(
+        &unknown.data,
+        agentyk::EventData::Custom { payload, .. } if payload["removed_messages"] == 4
+    ));
+
+    // And the session still resumes: history replays past the unknown event.
+    let agent_two = Agent::builder()
+        .model(ModelSpec::llmsim())
+        .driver(SimDriver::new([SimTurn::text("second")]))
+        .build()?;
+    let mut resumed = agent_two.resume_session(log, session_id).await?;
+    assert_eq!(resumed.run("more").await?.response, "second");
+    assert!(resumed.messages().iter().any(|m| m.text() == "first"));
+    Ok(())
+}
+
 #[tokio::test]
 async fn two_sessions_share_one_file_with_independent_sequences() -> Result<()> {
     let dir = tempfile::tempdir()?;

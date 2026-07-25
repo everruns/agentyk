@@ -4,11 +4,20 @@
 
 use serde::{Deserialize, Serialize};
 
+/// Who a [`Message`] came from.
+///
+/// Deliberately exhaustive: a driver that failed to translate a new role
+/// would silently drop part of the conversation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Role {
+    /// Instructions framing the conversation. Most drivers send these
+    /// out-of-band rather than as a message — see
+    /// [`crate::driver::ChatRequest::system_prompt`].
     System,
+    /// Input from whoever is talking to the agent.
     User,
+    /// The model's own output: text, tool calls, or both.
     Assistant,
     /// A tool result addressed back to the model.
     Tool,
@@ -19,7 +28,11 @@ pub enum Role {
 pub struct ToolCall {
     /// Driver-assigned call id, echoed back in the tool result.
     pub id: String,
+    /// Which tool to run — matched against [`crate::tool::ToolDefinition`]
+    /// names.
     pub name: String,
+    /// Arguments as a JSON object. The model produces these, so treat them as
+    /// untrusted: a tool validates its own arguments.
     #[serde(default)]
     pub arguments: serde_json::Value,
 }
@@ -27,6 +40,7 @@ pub struct ToolCall {
 /// Text content.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TextContentPart {
+    /// The text itself.
     pub text: String,
 }
 
@@ -34,15 +48,21 @@ pub struct TextContentPart {
 /// `ImageContentPart`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ImageContentPart {
+    /// Where the image lives, for providers that fetch it themselves.
+    /// Mutually exclusive with [`ImageContentPart::base64`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
+    /// The image inline, base64-encoded.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub base64: Option<String>,
+    /// MIME type of the inline data, e.g. `"image/png"`. Required alongside
+    /// `base64`; drivers assume PNG without it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub media_type: Option<String>,
 }
 
 impl ImageContentPart {
+    /// An image the provider fetches for itself.
     pub fn from_url(url: impl Into<String>) -> Self {
         Self {
             url: Some(url.into()),
@@ -51,6 +71,7 @@ impl ImageContentPart {
         }
     }
 
+    /// An image sent inline, which needs no reachable URL.
     pub fn from_base64(base64: impl Into<String>, media_type: impl Into<String>) -> Self {
         Self {
             url: None,
@@ -66,23 +87,29 @@ impl ImageContentPart {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ContentPart {
+    /// Text.
     Text(TextContentPart),
+    /// An image, by URL or inline.
     Image(ImageContentPart),
 }
 
 impl ContentPart {
+    /// A text part.
     pub fn text(text: impl Into<String>) -> Self {
         ContentPart::Text(TextContentPart { text: text.into() })
     }
 
+    /// An image part the provider fetches by URL.
     pub fn image_url(url: impl Into<String>) -> Self {
         ContentPart::Image(ImageContentPart::from_url(url))
     }
 
+    /// An image part sent inline.
     pub fn image_base64(base64: impl Into<String>, media_type: impl Into<String>) -> Self {
         ContentPart::Image(ImageContentPart::from_base64(base64, media_type))
     }
 
+    /// The text of a text part, or `None` for anything else.
     pub fn as_text(&self) -> Option<&str> {
         match self {
             ContentPart::Text(part) => Some(&part.text),
@@ -91,8 +118,14 @@ impl ContentPart {
     }
 }
 
+/// One message in a conversation.
+///
+/// This is both what drivers send to a provider and what replaying the event
+/// log reconstructs, so anything that must survive a resume lives here rather
+/// than beside it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Message {
+    /// Who produced it.
     pub role: Role,
     /// Content parts, in order. Text-only messages carry a single `Text`
     /// part (or none, for an empty message) — see [`Message::text`].
@@ -147,6 +180,7 @@ impl Message {
         }
     }
 
+    /// A plain-text user message.
     pub fn user(text: impl Into<String>) -> Self {
         Self::new(Role::User, Self::text_content(text))
     }
@@ -156,10 +190,13 @@ impl Message {
         Self::new(Role::User, content)
     }
 
+    /// A plain-text assistant message.
     pub fn assistant(text: impl Into<String>) -> Self {
         Self::new(Role::Assistant, Self::text_content(text))
     }
 
+    /// An assistant message requesting tools, with optional accompanying
+    /// text. An empty `text` is normal: models often answer with calls alone.
     pub fn assistant_with_calls(text: impl Into<String>, tool_calls: Vec<ToolCall>) -> Self {
         Self {
             tool_calls,
@@ -167,6 +204,9 @@ impl Message {
         }
     }
 
+    /// A tool's result, addressed back to the call it answers. The turn loop
+    /// builds these from `tool.completed` events, so a resumed session
+    /// reconstructs them identically.
     pub fn tool_result(call_id: impl Into<String>, text: impl Into<String>) -> Self {
         Self {
             tool_call_id: Some(call_id.into()),

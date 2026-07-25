@@ -35,6 +35,7 @@ pub struct InMemoryEventLog {
 }
 
 impl InMemoryEventLog {
+    /// An empty log.
     pub fn new() -> Self {
         Self::default()
     }

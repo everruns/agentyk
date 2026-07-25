@@ -37,10 +37,34 @@ use agentyk_core::tool::{Tool, ToolContext, ToolDefinition, ToolOutput};
 
 /// One entry in a [`FileSystem::list_directory`] listing.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct FileEntry {
+    /// The entry's own name, not a path.
     pub name: String,
+    /// Whether it is a directory.
     pub is_dir: bool,
+    /// Size in bytes; `0` for directories.
     pub size: u64,
+}
+
+impl FileEntry {
+    /// A file entry.
+    pub fn file(name: impl Into<String>, size: u64) -> Self {
+        Self {
+            name: name.into(),
+            is_dir: false,
+            size,
+        }
+    }
+
+    /// A directory entry.
+    pub fn dir(name: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            is_dir: true,
+            size: 0,
+        }
+    }
 }
 
 /// A workspace a [`FileSystemCapability`] reads and writes. Mirrors
@@ -48,9 +72,15 @@ pub struct FileEntry {
 /// module docs.
 #[async_trait]
 pub trait FileSystem: Send + Sync {
+    /// Read a file's full contents. Paths are relative to the workspace
+    /// root; an implementation must refuse to escape it.
     async fn read_file(&self, path: &str) -> Result<String>;
+    /// Write a file's full contents, creating it and any parent directories.
     async fn write_file(&self, path: &str, content: &str) -> Result<()>;
+    /// List the entries directly inside a directory, not recursively.
     async fn list_directory(&self, path: &str) -> Result<Vec<FileEntry>>;
+    /// Delete a file, or a directory when `recursive` is set. Deleting a
+    /// non-empty directory without it must fail.
     async fn delete_file(&self, path: &str, recursive: bool) -> Result<()>;
 }
 
@@ -110,10 +140,11 @@ impl FileSystem for RealDiskFileSystem {
         let mut read_dir = tokio::fs::read_dir(full).await?;
         while let Some(entry) = read_dir.next_entry().await? {
             let metadata = entry.metadata().await?;
-            entries.push(FileEntry {
-                name: entry.file_name().to_string_lossy().into_owned(),
-                is_dir: metadata.is_dir(),
-                size: metadata.len(),
+            let name = entry.file_name().to_string_lossy().into_owned();
+            entries.push(if metadata.is_dir() {
+                FileEntry::dir(name)
+            } else {
+                FileEntry::file(name, metadata.len())
             });
         }
         entries.sort_by(|a, b| a.name.cmp(&b.name));
@@ -145,6 +176,7 @@ pub struct InMemoryFileSystem {
 }
 
 impl InMemoryFileSystem {
+    /// An empty workspace.
     pub fn new() -> Self {
         Self::default()
     }
@@ -193,20 +225,12 @@ impl FileSystem for InMemoryFileSystem {
             }
             match rest.split_once('/') {
                 Some((dir, _)) => {
-                    seen.entry(dir.to_string()).or_insert(FileEntry {
-                        name: dir.to_string(),
-                        is_dir: true,
-                        size: 0,
-                    });
+                    seen.entry(dir.to_string()).or_insert(FileEntry::dir(dir));
                 }
                 None => {
                     seen.insert(
                         rest.to_string(),
-                        FileEntry {
-                            name: rest.to_string(),
-                            is_dir: false,
-                            size: content.len() as u64,
-                        },
+                        FileEntry::file(rest, content.len() as u64),
                     );
                 }
             }
@@ -252,10 +276,13 @@ pub struct WriteBlocklistFileSystem {
 }
 
 impl WriteBlocklistFileSystem {
+    /// Guard a store with the default blocklist: `.git`, `node_modules`,
+    /// `target`, `dist`, `build`.
     pub fn wrap(inner: Arc<dyn FileSystem>) -> Self {
         Self::with_blocklist(inner, DEFAULT_WRITE_BLOCKLIST.iter().copied())
     }
 
+    /// Guard a store with your own list of protected path components.
     pub fn with_blocklist(
         inner: Arc<dyn FileSystem>,
         blocklist: impl IntoIterator<Item = impl Into<String>>,
@@ -309,18 +336,17 @@ struct ReadFileTool {
 #[async_trait]
 impl Tool for ReadFileTool {
     fn definition(&self) -> ToolDefinition {
-        ToolDefinition {
-            name: "read_file".into(),
-            description: "Read a file's full text content.".into(),
-            parameters: json!({
+        ToolDefinition::new(
+            "read_file",
+            "Read a file's full text content.",
+            json!({
                 "type": "object",
                 "properties": {
                     "path": {"type": "string", "description": "Path relative to the workspace root."}
                 },
                 "required": ["path"],
             }),
-            ..Default::default()
-        }
+        )
     }
 
     async fn execute(&self, arguments: Value, _context: &ToolContext) -> ToolOutput {
@@ -341,10 +367,10 @@ struct WriteFileTool {
 #[async_trait]
 impl Tool for WriteFileTool {
     fn definition(&self) -> ToolDefinition {
-        ToolDefinition {
-            name: "write_file".into(),
-            description: "Write (creating or overwriting) a file's full text content.".into(),
-            parameters: json!({
+        ToolDefinition::new(
+            "write_file",
+            "Write (creating or overwriting) a file's full text content.",
+            json!({
                 "type": "object",
                 "properties": {
                     "path": {"type": "string", "description": "Path relative to the workspace root."},
@@ -352,8 +378,7 @@ impl Tool for WriteFileTool {
                 },
                 "required": ["path", "content"],
             }),
-            ..Default::default()
-        }
+        )
     }
 
     async fn execute(&self, arguments: Value, _context: &ToolContext) -> ToolOutput {
@@ -377,17 +402,16 @@ struct ListDirectoryTool {
 #[async_trait]
 impl Tool for ListDirectoryTool {
     fn definition(&self) -> ToolDefinition {
-        ToolDefinition {
-            name: "list_directory".into(),
-            description: "List the files and directories directly inside a directory.".into(),
-            parameters: json!({
+        ToolDefinition::new(
+            "list_directory",
+            "List the files and directories directly inside a directory.",
+            json!({
                 "type": "object",
                 "properties": {
                     "path": {"type": "string", "description": "Path relative to the workspace root. Defaults to the root."},
                 },
             }),
-            ..Default::default()
-        }
+        )
     }
 
     async fn execute(&self, arguments: Value, _context: &ToolContext) -> ToolOutput {
@@ -422,10 +446,10 @@ struct DeleteFileTool {
 #[async_trait]
 impl Tool for DeleteFileTool {
     fn definition(&self) -> ToolDefinition {
-        ToolDefinition {
-            name: "delete_file".into(),
-            description: "Delete a file or (with recursive=true) a directory.".into(),
-            parameters: json!({
+        ToolDefinition::new(
+            "delete_file",
+            "Delete a file or (with recursive=true) a directory.",
+            json!({
                 "type": "object",
                 "properties": {
                     "path": {"type": "string", "description": "Path relative to the workspace root."},
@@ -433,8 +457,7 @@ impl Tool for DeleteFileTool {
                 },
                 "required": ["path"],
             }),
-            ..Default::default()
-        }
+        )
     }
 
     async fn execute(&self, arguments: Value, _context: &ToolContext) -> ToolOutput {
@@ -459,12 +482,15 @@ pub struct FileSystemCapability {
 }
 
 impl FileSystemCapability {
+    /// Expose a workspace to the model.
     pub fn new(store: impl FileSystem + 'static) -> Self {
         Self {
             store: Arc::new(store),
         }
     }
 
+    /// Expose a workspace you already hold as an `Arc` — e.g. one shared
+    /// with the rest of the host.
     pub fn from_arc(store: Arc<dyn FileSystem>) -> Self {
         Self { store }
     }

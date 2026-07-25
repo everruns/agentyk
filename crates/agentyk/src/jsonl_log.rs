@@ -26,6 +26,10 @@ pub struct JsonlEventLog {
 }
 
 impl JsonlEventLog {
+    /// Open or create a log at `path`, creating parent directories as
+    /// needed. An existing file is read once so sequence numbering resumes
+    /// where it left off; a corrupt line fails the open rather than silently
+    /// restarting a session's numbering.
     pub fn new(path: impl Into<PathBuf>) -> Result<Self> {
         let path = path.into();
         if let Some(parent) = path.parent()
@@ -68,6 +72,7 @@ impl JsonlEventLog {
         })
     }
 
+    /// Where this log is written.
     pub fn path(&self) -> &std::path::Path {
         &self.path
     }

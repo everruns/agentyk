@@ -12,24 +12,25 @@ example harness.
 
 ## What it demonstrates
 
-- **Behavior lives in a custom `TurnExecutor`.** `EverrunsExecutor` drives the
-  same `atoms` + `TurnState` as the built-in executor, and adds what
-  agentyk-core's `PreToolUseHook` can't express:
-  - a **`PreToolGuard` chain** with `GuardOutcome::{Allow, Rewrite, Deny}` —
-    deny with a user-facing message, **rewrite/redact** a call before it runs,
-    and guards **compose** (first-deny wins);
-  - **capability-contributed guards** — a capability bundles a tool and the
-    guard governing it;
-  - **concurrent tool dispatch** via `TurnState::pending_tool_actions`, closing
-    agentyk's item-9 "concurrent dispatch is a deferred follow-up" note.
+- **Guardrails are core `TurnMiddleware`.** `ApprovalMiddleware` denies with a
+  user-facing message; a redaction middleware **rewrites** a call before it
+  runs; they **compose** (a rewrite feeds the next, first deny wins); and a
+  capability can bundle a tool with the middleware governing it. None of it
+  needs a custom executor — it did before core middleware could express a
+  rewrite.
+- **Strategy lives in a custom `TurnExecutor`.** `EverrunsExecutor` drives the
+  same `atoms` + `TurnState` as the built-in executor and differs only in
+  **concurrent tool dispatch** via `TurnState::pending_tool_actions`, closing
+  agentyk's item-9 "concurrent dispatch is a deferred follow-up" note.
 - **Everruns-flavored data rides the `metadata` hatch.** `ToolHints`
   (`readonly`/`destructive`/`open_world`) live in `ToolDefinition.metadata`
   under a `"hints"` key — core never learns the schema.
 - **The transcript surface is a pure observer.** `NarrationListener` renders
   the event stream into readable lines — an `EventListener`, not a turn-loop
-  concern. It also surfaces the everruns-flavored richness the executor emits as
-  `EventData::Custom` events — a tool's **risk hint** (`🔎 readonly` / `⚠
-  destructive`) and pre-run **redaction** (`✎ … redacted before it ran`) — plus
+  concern. It also surfaces a tool's **risk hint** (`🔎 readonly` / `⚠ destructive`),
+  which the executor emits as an `EventData::Custom` event, and pre-run
+  **redaction** (`✎ … redacted before it ran`) from the first-class
+  `tool.rewritten` event — plus
   provider **extended thinking** (`💭 …`, the typed `Message::thinking` field),
   all without core learning any new variant.
 

@@ -35,11 +35,22 @@ Therefore:
   field for it.
 - **Behavior → a satellite [`TurnExecutor`] + capabilities.** Never core.
 
+## Where a new knob goes
+
+Composition — anything an agent *is* — is a field on `AgentConfig` in core,
+plus a setter on `AgentBuilder`. Nothing else. `TurnHost` carries
+`&AgentConfig` rather than one field per knob, so a new knob reaches every
+`TurnExecutor` (including third-party and durable ones) without changing a
+public struct they construct or match on. Per-run state — the effective model,
+cancellation, the log, the live history — stays on `TurnHost`, because it is
+not part of the agent.
+
 ## What already composes over existing seams (no core change)
 
 | everruns capability | Build it with |
 | --- | --- |
-| Guardrails that **mutate/redact** a call, **approval** pauses, **parallel** tool dispatch, capability-contributed hooks | A custom [`TurnExecutor`] — it owns the whole reason/act loop over `atoms` + [`TurnState`]; `InProcessExecutor` is just one policy |
+| Guardrails that **mutate/redact** a call, **approval** pauses, capability-contributed hooks | `middleware::TurnMiddleware` — `before_tool` returns `Proceed`/`Rewrite`/`Deny`, `after_tool` transforms the result; attached with `AgentBuilder::middleware` |
+| **Parallel** tool dispatch, or any other execution strategy | A custom [`TurnExecutor`] — it owns the reason/act loop over `atoms` + [`TurnState`]; `InProcessExecutor` is just one policy |
 | MCP server merging (`mcp_servers()`) | A `Capability` whose `tools()` connects and returns the servers' tools (see the bundled `McpCapability`) |
 | Tool risk taxonomy / `ToolHints` | The satellite's tool wrapper + its executor's approval step; hints are host-side, never sent to the model — carry them in `ToolDefinition.metadata` |
 | Narration, `status()`/`category()`/`icon()`, `facts()`, richer command results | Capabilities + `EventListener`s (narration is a listener over the event stream); `Capability::metadata()` for status/category |
@@ -48,16 +59,32 @@ Therefore:
 | Host services reaching tools | `ToolContext.extensions` (typed, `TypeId`-keyed bag) |
 | A domain event core lacks | `EventData::Custom { event_type, payload }` |
 
-The **[`TurnExecutor`] seam is the lever** that makes hooks/approval/parallel
-external. Because the machine is sans-IO — pure [`TurnState`] transitions plus
-stateless `atoms` — a satellite `EverrunsExecutor` can run its own act loop:
-consult capability-contributed hooks, mutate or deny a call, await an approver,
-fan out the batch concurrently ([`TurnState::pending_tool_actions`] returns the
-whole not-started batch for exactly this), and record whatever events it wants
-via `TurnHost::record`. It does **not** have to use agentyk's built-in
-`PreToolUseHook`. That is the intended resolution of the "mutating /
-capability-contributed guardrails" gap: it lives in the executor layer, not in
-core's hook trait.
+`Custom` also carries a second, load-bearing job: it is the **forward
+compatibility floor for the event log**. `EventData` is internally tagged, so
+an unrecognized `kind` would abort deserialization of the line — and, through
+`JsonlEventLog::read`, of the entire session. `Event` therefore deserializes
+tolerantly: an unknown kind degrades to `Custom` carrying the original
+payload, so a log written by a newer agentyk stays readable *and resumable* by
+an older one. This is what keeps "replay is sufficient to resume a session"
+true across versions, and it is why new event types may be added freely while
+existing ones may not change shape.
+
+Two seams, with a deliberate division of labour. **Middleware** owns *policy*
+about a call — deny it, rewrite it, transform its result — and is one trait
+with defaulted methods, so a new interception point is a method rather than a
+new trait plus a new config field plus new executor code. **The
+[`TurnExecutor`] seam** owns *strategy*: how the loop runs. Because the machine
+is sans-IO — pure [`TurnState`] transitions plus stateless `atoms` — a
+satellite executor can fan a batch out concurrently
+([`TurnState::pending_tool_actions`] returns the whole not-started batch for
+exactly this) and record whatever events it wants via `TurnHost::record`.
+
+Getting that division wrong is expensive, and we got it wrong once: because
+core's hooks could only allow or deny, a satellite that merely wanted to redact
+an argument had to fork the entire act loop, duplicating the cancel check, the
+delta sink, and the outcome mapping — code that then drifts. Both executors now
+call core's `before_tool_chain`/`after_tool_chain`, so what a chain of
+middleware *means* is defined once.
 
 ## What needed a core change (0.1.1)
 
@@ -106,14 +133,18 @@ framework, no tokio, no HTTP (`cargo tree -p agentyk-everruns-poc --edges normal
 shows just core + async-trait/serde). It ships:
 
 - `EverrunsExecutor` — a custom [`TurnExecutor`] over `atoms` + [`TurnState`]
-  that runs a chain of `PreToolGuard`s before each call, demonstrating **all
-  three shapes of gap 4** that core's `PreToolUseHook`/`PreToolUseDecision`
-  can't express: **deny with a user-facing message**, **rewrite a call before
-  it runs** (`GuardOutcome::Rewrite`, e.g. redacting a secret argument), and
-  **capability-contributed guards** (a satellite capability bundles a tool and
-  the guard governing it). It **also dispatches a tool batch concurrently** via
+  whose only remaining difference from the built-in one is **dispatch
+  strategy**: it fans a tool batch out concurrently via
   `TurnState::pending_tool_actions`, closing agentyk's item-9 "concurrent
-  dispatch is a deferred follow-up" note without touching core.
+  dispatch is a deferred follow-up" note without touching core. It once also
+  carried a private `PreToolGuard` chain; that became core
+  `TurnMiddleware`, and the executor now applies the same
+  `before_tool_chain` the built-in one does.
+- `ApprovalMiddleware` — hint-based approval as ordinary core middleware:
+  **deny with a user-facing message**, composed with a redaction middleware
+  that **rewrites a call before it runs**, plus **capability-contributed
+  guards** (a satellite capability bundles a tool and the middleware governing
+  it). All three shapes of gap 4, none of them needing a forked act loop.
 - `ToolHints` (`readonly`/`destructive`/`open_world`) carried in
   `ToolDefinition.metadata` under a `"hints"` key — the metadata hatch driving
   real behavior, with core none the wiser.

@@ -23,6 +23,7 @@ pub struct ToolHints {
 }
 
 impl ToolHints {
+    /// A tool that only reads — never gated.
     pub fn readonly() -> Self {
         Self {
             readonly: true,
@@ -30,6 +31,7 @@ impl ToolHints {
         }
     }
 
+    /// A tool that can destroy something — gated by approval.
     pub fn destructive() -> Self {
         Self {
             destructive: true,
@@ -82,6 +84,7 @@ pub struct HintedTool {
 }
 
 impl HintedTool {
+    /// Tag a tool with risk hints, which ride its definition's `metadata`.
     pub fn new(inner: impl Tool + 'static, hints: ToolHints) -> Self {
         Self {
             inner: Arc::new(inner),
@@ -89,6 +92,7 @@ impl HintedTool {
         }
     }
 
+    /// Tag a tool you already hold as an `Arc`.
     pub fn wrap(inner: Arc<dyn Tool>, hints: ToolHints) -> Self {
         Self { inner, hints }
     }

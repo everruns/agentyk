@@ -6,7 +6,9 @@ use agentyk::{
     Agent, EventData, FnTool, ModelSpec, Result, SimDriver, SimToolCall, SimTurn, ToolOutput,
 };
 use agentyk_core::message::ToolCall;
-use agentyk_everruns_poc::{ApprovalDecision, Approver, EverrunsExecutor, HintedTool, ToolHints};
+use agentyk_everruns_poc::{
+    ApprovalDecision, ApprovalMiddleware, Approver, EverrunsExecutor, HintedTool, ToolHints,
+};
 use async_trait::async_trait;
 use serde_json::json;
 
@@ -32,19 +34,10 @@ fn tool(name: &'static str, output: &'static str) -> FnTool {
 
 /// One assistant turn that requests two tools at once.
 fn two_call_turn() -> SimTurn {
-    SimTurn {
-        text: String::new(),
-        tool_calls: vec![
-            SimToolCall {
-                name: "safe_read".into(),
-                arguments: json!({}),
-            },
-            SimToolCall {
-                name: "danger_delete".into(),
-                arguments: json!({}),
-            },
-        ],
-    }
+    SimTurn::tool_calls([
+        SimToolCall::new("safe_read", json!({})),
+        SimToolCall::new("danger_delete", json!({})),
+    ])
 }
 
 #[tokio::test]
@@ -52,7 +45,8 @@ async fn a_batch_is_dispatched_and_gated_per_call() -> Result<()> {
     let agent = Agent::builder()
         .model(ModelSpec::llmsim())
         .driver(SimDriver::new([two_call_turn(), SimTurn::text("done")]))
-        .executor(EverrunsExecutor::new(DenyDestructive))
+        .executor(EverrunsExecutor)
+        .middleware(ApprovalMiddleware::new(DenyDestructive))
         .tool(HintedTool::new(
             tool("safe_read", "file contents"),
             ToolHints::readonly(),

@@ -92,12 +92,18 @@ pub enum SealReason {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum TurnOutcome {
+    /// The model produced a final answer.
     Success {
+        /// Its text — what a caller shows the user.
         response: String,
     },
+    /// Something went wrong: a driver error, or a host abort.
     Failed {
+        /// What happened.
         error: String,
     },
+    /// The turn kept asking for tools until it hit the iteration ceiling,
+    /// without ever answering.
     MaxIterations,
     /// Stopped cooperatively via a
     /// [`crate::cancellation::CancellationToken`] rather than failing.
@@ -109,7 +115,9 @@ pub enum TurnOutcome {
 /// One tool call within a reason step's batch, tracked independently so a
 /// parallel executor can start/complete calls out of order.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct PendingCall {
+    /// The call to run — the rewritten one, if middleware changed it.
     pub call: ToolCall,
     /// Whether `tool.started` was already recorded for this call — makes
     /// `on_tool_started` idempotent per call id across crash/retry.
@@ -124,8 +132,14 @@ pub struct PendingCall {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "phase", rename_all = "snake_case")]
 pub enum TurnPhase {
+    /// Waiting on the model.
     PendingReason,
-    PendingAct { calls: Vec<PendingCall> },
+    /// Waiting on tools: the batch the last reason step asked for.
+    PendingAct {
+        /// Every call in the batch, each tracked independently.
+        calls: Vec<PendingCall>,
+    },
+    /// Finished.
     Completed(TurnOutcome),
 }
 
@@ -136,7 +150,10 @@ pub enum TurnAction {
     /// Run the LLM (the reason atom) over the current history.
     Reason,
     /// Execute one tool call (the act atom).
-    ExecuteTool { call: ToolCall },
+    ExecuteTool {
+        /// Which call to run.
+        call: ToolCall,
+    },
     /// The turn is finished.
     Complete(TurnOutcome),
 }
@@ -145,15 +162,21 @@ pub enum TurnAction {
 /// credentials, assembled tools, message history — is environment the host
 /// provides per step; it is deliberately NOT part of this state.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct TurnState {
+    /// The session this turn belongs to.
     pub session_id: SessionId,
+    /// This turn's id, minted at [`TurnState::start`].
     pub turn_id: TurnId,
+    /// Ceiling on reason steps before the turn gives up.
     pub max_iterations: usize,
+    /// Where the turn currently is.
     pub phase: TurnPhase,
     /// Completed reason (LLM) calls.
     pub iterations: usize,
     /// Executed tool calls.
     pub tool_calls_executed: usize,
+    /// Tokens spent so far in this turn.
     pub usage: Usage,
     /// The id of the assistant message currently being generated, set by
     /// [`Self::on_reason_started`] and read by the executor (to tag streaming
@@ -294,6 +317,44 @@ impl TurnState {
         effects
     }
 
+    /// Replace the call a middleware rewrote, so the batch — and therefore
+    /// `tool.started`, the executed call, and a resumed host's
+    /// [`Self::next_action`] — carries what will actually run rather than
+    /// what the model originally asked for. Emits `tool.rewritten`.
+    ///
+    /// The rewrite lives in the state, not just in the event stream, because
+    /// a durable host must not re-run the *original* call after a crash
+    /// between the rewrite and the execution. Ignored once the call has
+    /// started, which makes it idempotent across a retry the same way
+    /// [`Self::on_tool_started`] is.
+    pub fn on_tool_rewritten(
+        &mut self,
+        call_id: &str,
+        rewritten: ToolCall,
+        by: Option<String>,
+    ) -> Vec<EventData> {
+        let TurnPhase::PendingAct { calls } = &mut self.phase else {
+            return Vec::new();
+        };
+        let Some(pending) = calls.iter_mut().find(|p| p.call.id == call_id) else {
+            return Vec::new();
+        };
+        if pending.started || pending.output.is_some() {
+            return Vec::new();
+        }
+        // The batch is keyed by id; a rewrite changes what runs, never which
+        // call it is.
+        pending.call = ToolCall {
+            id: pending.call.id.clone(),
+            ..rewritten
+        };
+        vec![EventData::ToolRewritten {
+            call_id: pending.call.id.clone(),
+            name: pending.call.name.clone(),
+            by,
+        }]
+    }
+
     /// Record that the call with this id is starting. Idempotent per call
     /// id: re-running after a crash records nothing twice.
     pub fn on_tool_started(&mut self, call_id: &str) -> Vec<EventData> {
@@ -364,10 +425,12 @@ impl TurnState {
         vec![EventData::TurnSealed { reason }]
     }
 
+    /// Whether the turn has finished, however it ended.
     pub fn is_complete(&self) -> bool {
         matches!(self.phase, TurnPhase::Completed(_))
     }
 
+    /// How the turn ended, or `None` while it is still running.
     pub fn outcome(&self) -> Option<&TurnOutcome> {
         match &self.phase {
             TurnPhase::Completed(outcome) => Some(outcome),
@@ -522,6 +585,47 @@ mod tests {
         };
         state.on_tool_started(&call.id);
         assert_eq!(state.pending_tool_actions().len(), 2);
+    }
+
+    #[test]
+    fn a_rewrite_changes_what_started_announces_and_what_a_resume_executes() {
+        let input = Message::user("hi");
+        let (mut state, _) = TurnState::start(SessionId::new(), 4, &input);
+        state.on_reason_completed(&tool_call_response(&["save"]));
+        let TurnAction::ExecuteTool { call } = state.next_action() else {
+            panic!("expected tool action");
+        };
+
+        let redacted = ToolCall {
+            id: "ignored — the batch is keyed by the original id".into(),
+            name: call.name.clone(),
+            arguments: json!({"secret": "[redacted]"}),
+        };
+        let effects = state.on_tool_rewritten(&call.id, redacted, Some("redactor".into()));
+        assert!(matches!(
+            effects.as_slice(),
+            [EventData::ToolRewritten { by: Some(by), .. }] if by == "redactor"
+        ));
+
+        // `tool.started` announces the call as it will actually run.
+        let started = state.on_tool_started(&call.id);
+        let [EventData::ToolStarted { call: announced }] = started.as_slice() else {
+            panic!("expected tool.started");
+        };
+        assert_eq!(announced.id, call.id, "a rewrite keeps the call id");
+        assert_eq!(announced.arguments, json!({"secret": "[redacted]"}));
+
+        // And a host resuming from this state runs the rewrite, not the
+        // original — the reason the rewrite is state and not just an event.
+        let restored: TurnState =
+            serde_json::from_str(&serde_json::to_string(&state).unwrap()).unwrap();
+        let TurnAction::ExecuteTool { call: resumed } = restored.next_action() else {
+            panic!("expected the rewritten call");
+        };
+        assert_eq!(resumed.arguments, json!({"secret": "[redacted]"}));
+
+        // Once started, a re-run of the chain cannot rewrite again.
+        assert!(state.on_tool_rewritten(&call.id, resumed, None).is_empty());
     }
 
     #[test]

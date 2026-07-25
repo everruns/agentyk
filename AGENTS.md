@@ -23,9 +23,14 @@ Cargo workspace, lockstep versions:
 - `crates/agentyk-core` — the contract: traits, event protocol, turn machine,
   atoms, replay. Lean by construction: **no tokio, no HTTP, no process
   spawning**. Anything a third party implements or serializes lives here.
+  Files are grouped into `protocol/`, `agent/` and `runtime/`, but every
+  module is re-exported at the crate root — directories organize the source,
+  they are never public paths.
 - `crates/agentyk` — the framework: builders, `InProcessExecutor`,
-  `JsonlEventLog`, bundled drivers (features `http`), MCP (feature `mcp`).
-  Re-exports all of core; applications depend only on `agentyk`.
+  `JsonlEventLog`, bundled drivers (feature `http`), MCP (feature `mcp`).
+  Re-exports all of core **explicitly, not by glob**; applications depend only
+  on `agentyk`. When you add a public item to core, add it to that list —
+  `python3 scripts/check_reexports.py` (and CI) fails otherwise.
 
 - `examples/<name>` — runnable applications (`publish = false`). Workspace
   members so they build and test in CI, but never a dependency of the crates.
@@ -37,6 +42,9 @@ they grow a heavy dependency. Do not add tokio/reqwest/process deps to core.
 
 ## Design rules (enforced in review)
 
+- Every public item is documented — `missing_docs` is `deny`, so this is
+  enforced by the compiler, not by review. Say what an item is *for*; a doc
+  that restates the name is worse than none.
 - Values first: no API that requires creating-then-referencing an entity by
   id. Ids are outputs, never inputs.
 - The event log is the persistence seam; replay must suffice to resume a session.
@@ -71,6 +79,7 @@ cargo test --workspace --all-features
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo fmt --all --check
 cargo run -p agentyk --example hello
+python3 scripts/check_reexports.py
 ```
 
 ## Git and commits

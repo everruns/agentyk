@@ -13,8 +13,8 @@
 //! - **Protocol data** — [`event`] (the event protocol), [`message`],
 //!   [`tool`] definitions, typed [`id`]s, [`error`].
 //! - **Seams** — the traits in [`capability`], [`tool`], [`driver`],
-//!   [`event_log`], [`event`] (listeners), [`executor`], and [`hooks`]
-//!   (pre/post tool interception).
+//!   [`event_log`], [`event`] (listeners), [`executor`], and [`middleware`]
+//!   (interception inside the turn loop).
 //! - **The turn machine** — [`turn`] (pure, serializable) and the stateless
 //!   [`atoms`] it sequences; [`replay`] folds an event log back into message
 //!   history.
@@ -22,29 +22,42 @@
 //! This crate is deliberately lean: no tokio, no HTTP, no process spawning —
 //! pure data, traits, and std-only implementations (like
 //! [`event_log::InMemoryEventLog`]).
+//!
+//! ## `#[non_exhaustive]`, and where it is deliberately absent
+//!
+//! Core is the surface third parties implement against, so growing a type
+//! must not be a breaking change — *unless* silence would be a bug. The rule:
+//!
+//! - **Data types are `#[non_exhaustive]`** — [`event::EventData`],
+//!   [`error::Error`], [`driver::ModelSpec`], [`driver::ChatRequest`],
+//!   [`driver::Usage`], [`tool::ToolDefinition`], [`executor::TurnResult`],
+//!   and friends. They gain fields and variants as providers and hosts grow;
+//!   each has a constructor plus setters, so adding one costs downstream
+//!   nothing.
+//! - **Contract types are exhaustive on purpose** — [`turn::TurnAction`],
+//!   [`turn::TurnOutcome`], [`message::Role`], [`message::ContentPart`],
+//!   [`middleware::ToolCallDecision`]. A host that does not handle a new turn
+//!   action, or a driver that does not translate a new content part, is
+//!   *wrong*; the compile error is the feature. Adding a variant here is a
+//!   deliberate breaking change and belongs in a release note.
 
-pub mod atoms;
-pub mod budget;
-pub mod cancellation;
-pub mod capability;
-pub mod context;
-pub mod controls;
-pub mod driver;
-pub mod error;
-pub mod event;
-pub mod event_log;
-pub mod executor;
-pub mod extensions;
-pub mod hooks;
-pub mod id;
-pub mod message;
-pub mod replay;
-pub mod tool;
-pub mod turn;
+// Files are grouped into three directories — `protocol/`, `agent/`,
+// `runtime/` — and every module is re-exported here, so a directory is an
+// organizing device and never a public path. `agentyk_core::event` is
+// `agentyk_core::event` whichever folder the file sits in, and the grouping
+// can be re-cut as the crate grows without breaking anyone.
+mod agent;
+mod protocol;
+mod runtime;
+
+pub use agent::{budget, capability, config, context, controls, extensions, middleware, tool};
+pub use protocol::{driver, error, event, event_log, id, message};
+pub use runtime::{atoms, cancellation, executor, replay, turn};
 
 pub use budget::{BudgetChecker, BudgetDecision};
 pub use cancellation::CancellationToken;
 pub use capability::{Capability, CommandContext, CommandDescriptor, SystemPromptContext};
+pub use config::{AgentConfig, DEFAULT_MAX_ITERATIONS};
 pub use context::{ContextAssembler, PassthroughContextAssembler};
 pub use controls::TurnControls;
 pub use driver::{
@@ -56,10 +69,13 @@ pub use event::{Event, EventData, EventListener, EventRequest, event_types};
 pub use event_log::{EventLog, InMemoryEventLog};
 pub use executor::{TurnExecutor, TurnHost, TurnResult};
 pub use extensions::Extensions;
-pub use hooks::{PostToolExecHook, PreToolUseDecision, PreToolUseHook};
 pub use id::{EventId, MessageId, SessionId, TurnId};
 pub use message::{ContentPart, ImageContentPart, Message, Role, TextContentPart, ToolCall};
-pub use replay::messages_from_events;
+pub use middleware::{
+    ToolCallDecision, ToolChainOutcome, ToolInvocation, TurnMiddleware, after_tool_chain,
+    before_tool_chain,
+};
+pub use replay::{History, messages_from_events};
 pub use tool::{
     DeferrablePolicy, FnTool, Tool, ToolContext, ToolDefinition, ToolOutput, ToolPolicy,
 };

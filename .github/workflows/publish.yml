@@ -12,10 +12,44 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  # Compare the public API against the last version on crates.io and fail if
+  # the version bump doesn't cover the change. Runs here rather than on every
+  # PR because that is where a published baseline exists — and because pre-0.1
+  # agentyk breaks its API deliberately between releases; what must not happen
+  # is shipping a break under a version that claims compatibility.
+  semver:
+    name: Semver check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+
+      - name: Install cargo-semver-checks
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-semver-checks
+
+      # No baseline on the very first publish of a crate — semver-checks
+      # reports that and exits non-zero, which is not a failure of this change.
+      - name: Check agentyk-core and agentyk against crates.io
+        run: |
+          for crate in agentyk-core agentyk; do
+            if ! curl -sSf "https://crates.io/api/v1/crates/$crate" -o /dev/null; then
+              echo "$crate is not published yet — no baseline to compare against, skipping"
+              continue
+            fi
+            cargo semver-checks check-release -p "$crate" --all-features
+          done
+
   # Publish agentyk-core (the contract crate; no internal deps).
   publish-core:
     name: Publish agentyk-core
     runs-on: ubuntu-latest
+    needs: semver
     environment: release
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0

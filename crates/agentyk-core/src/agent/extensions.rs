@@ -15,6 +15,7 @@ use std::sync::Arc;
 pub struct Extensions(HashMap<TypeId, Arc<dyn Any + Send + Sync>>);
 
 impl Extensions {
+    /// An empty bag.
     pub fn new() -> Self {
         Self::default()
     }
@@ -31,6 +32,7 @@ impl Extensions {
             .and_then(|value| value.clone().downcast::<T>().ok())
     }
 
+    /// Whether a value of type `T` has been inserted.
     pub fn contains<T: Send + Sync + 'static>(&self) -> bool {
         self.0.contains_key(&TypeId::of::<T>())
     }
