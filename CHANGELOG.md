@@ -35,8 +35,10 @@ see [`specs/extensibility.md`](specs/extensibility.md).
   terminal and no network). UI is [`tuika`](https://crates.io/crates/tuika).
   Runs on either driver — `--reasoning-effort` covers OpenAI's `gpt-5.6` family,
   which refuses function tools on chat completions unless the level is `none`.
-  `demo.tape` records the README GIF with `vhs`, at 2x density for a display
-  width of 880.
+  Flags are parsed with `clap` (derive), so `--flag=value`, `--version`, and
+  typo suggestions come for free; resolving them against the environment stays
+  hand-written and unit-tested. `demo.tape` records the README GIF with `vhs`,
+  at 2x density for a display width of 880.
 
 - **`agentyk-everruns-poc` proof of concept** (`poc/agentyk-everruns-poc`,
   `publish = false`)

@@ -8,14 +8,18 @@ use std::process::ExitCode;
 use std::sync::Arc;
 
 use agentyk::{EventLog, InMemoryEventLog, JsonlEventLog};
+use clap::Parser;
 use codenko::agent::{build_agent, spawn_agent_task};
-use codenko::config::{Args, Config, USAGE};
+use codenko::config::{Args, Config};
 use codenko::ui::App;
 use tokio::sync::mpsc;
 
 #[tokio::main]
 async fn main() -> ExitCode {
-    match run().await {
+    // clap reports its own errors and handles --help/--version, so what reaches
+    // `run` is a syntactically valid invocation.
+    let args = Args::parse();
+    match run(args).await {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("codenko: {error}");
@@ -24,12 +28,7 @@ async fn main() -> ExitCode {
     }
 }
 
-async fn run() -> Result<(), String> {
-    let args = Args::parse(std::env::args().skip(1))?;
-    if args.help {
-        print!("{USAGE}");
-        return Ok(());
-    }
+async fn run(args: Args) -> Result<(), String> {
     let config = Config::resolve(args, |name| std::env::var(name).ok())?;
 
     // The event log is the persistence seam: point `--log` at a file and the

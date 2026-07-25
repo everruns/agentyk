@@ -1,46 +1,46 @@
 //! Command-line configuration.
 //!
-//! Hand-rolled rather than pulling in an argument parser: the whole surface is
-//! five flags, and the example is meant to be readable end to end.
+//! Two stages, deliberately separate: [`Args`] is what the operator typed, and
+//! [`Config::resolve`] settles it against the environment. Resolution owns
+//! every default that depends on more than one input — which provider, which
+//! model, which endpoint — and takes its environment as a closure, so all of it
+//! is testable without touching the real one.
 
 use std::path::PathBuf;
 
 use agentyk::{DriverId, ModelSpec};
+use clap::{Parser, ValueEnum};
 
-pub const USAGE: &str = "\
-codenko — a small terminal coding agent
-
-Usage: codenko [options]
-
-Options:
-  -C, --dir <path>       Workspace directory the agent works in (default: .)
-      --provider <name>  anthropic | openai (default: whichever key is set)
-      --model <id>       Model id (default: per provider, see below)
-      --base-url <url>   Override the provider endpoint (compatible servers,
-                         gateways, local runtimes)
-      --reasoning-effort <level>
-                         Reasoning effort, where the driver supports it
-                         (openai: none | low | medium | high)
-      --log <path>       Append the session's JSONL event log here
-  -h, --help             Show this message
-
+/// Appended to `--help`. clap documents the flags from the struct below; the
+/// environment is the part it cannot see.
+const ENVIRONMENT: &str = "\
 Environment:
-  ANTHROPIC_API_KEY      Enables --provider anthropic (default claude-sonnet-5)
-  OPENAI_API_KEY         Enables --provider openai (default gpt-5.5)
-  ANTHROPIC_BASE_URL     Default for --base-url on --provider anthropic
-  OPENAI_BASE_URL        Default for --base-url on --provider openai
+  ANTHROPIC_API_KEY   Enables --provider anthropic (default claude-sonnet-5)
+  OPENAI_API_KEY      Enables --provider openai (default gpt-5.5)
+  ANTHROPIC_BASE_URL  Default for --base-url on --provider anthropic
+  OPENAI_BASE_URL     Default for --base-url on --provider openai\
 ";
 
 const ANTHROPIC_DEFAULT_MODEL: &str = "claude-sonnet-5";
 const OPENAI_DEFAULT_MODEL: &str = "gpt-5.5";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum Provider {
     Anthropic,
+    // Without this clap would spell the variant `open-ai`, which is nobody's
+    // name for it.
+    #[value(name = "openai")]
     OpenAi,
 }
 
 impl Provider {
+    fn name(self) -> &'static str {
+        match self {
+            Provider::Anthropic => "anthropic",
+            Provider::OpenAi => "openai",
+        }
+    }
+
     fn key_var(self) -> &'static str {
         match self {
             Provider::Anthropic => "ANTHROPIC_API_KEY",
@@ -71,56 +71,40 @@ impl Provider {
             Provider::OpenAi => DriverId::openai(),
         }
     }
-
-    fn parse(name: &str) -> Result<Self, String> {
-        match name {
-            "anthropic" => Ok(Provider::Anthropic),
-            "openai" => Ok(Provider::OpenAi),
-            other => Err(format!(
-                "unknown provider `{other}` (expected anthropic or openai)"
-            )),
-        }
-    }
 }
 
-/// Parsed flags, before any environment is read.
-#[derive(Debug, Default, PartialEq)]
+/// What the operator typed, before any environment is read. Every field is
+/// optional because the interesting defaults are resolved, not parsed — see
+/// [`Config::resolve`].
+#[derive(Debug, Default, PartialEq, Parser)]
+#[command(name = "codenko", version, about = "A small terminal coding agent.")]
+#[command(after_help = ENVIRONMENT)]
 pub struct Args {
+    /// Workspace directory the agent works in [default: .]
+    #[arg(short = 'C', long, value_name = "PATH")]
     pub dir: Option<PathBuf>,
-    pub provider: Option<Provider>,
-    pub model: Option<String>,
-    pub base_url: Option<String>,
-    pub reasoning_effort: Option<String>,
-    pub log: Option<PathBuf>,
-    pub help: bool,
-}
 
-impl Args {
-    pub fn parse<I>(arguments: I) -> Result<Self, String>
-    where
-        I: IntoIterator<Item = String>,
-    {
-        let mut args = Args::default();
-        let mut arguments = arguments.into_iter();
-        while let Some(flag) = arguments.next() {
-            let mut value = || {
-                arguments
-                    .next()
-                    .ok_or_else(|| format!("`{flag}` needs a value"))
-            };
-            match flag.as_str() {
-                "-h" | "--help" => args.help = true,
-                "-C" | "--dir" => args.dir = Some(PathBuf::from(value()?)),
-                "--provider" => args.provider = Some(Provider::parse(&value()?)?),
-                "--model" => args.model = Some(value()?),
-                "--base-url" => args.base_url = Some(value()?),
-                "--reasoning-effort" => args.reasoning_effort = Some(value()?),
-                "--log" => args.log = Some(PathBuf::from(value()?)),
-                other => return Err(format!("unknown argument `{other}`")),
-            }
-        }
-        Ok(args)
-    }
+    /// Provider to talk to [default: whichever API key is set]
+    #[arg(long, value_name = "NAME")]
+    pub provider: Option<Provider>,
+
+    /// Model id [default: per provider]
+    #[arg(long, value_name = "ID")]
+    pub model: Option<String>,
+
+    /// Override the provider endpoint (compatible servers, gateways, local
+    /// runtimes)
+    #[arg(long, value_name = "URL")]
+    pub base_url: Option<String>,
+
+    /// Reasoning effort, where the driver supports it (openai: none | low |
+    /// medium | high)
+    #[arg(long, value_name = "LEVEL")]
+    pub reasoning_effort: Option<String>,
+
+    /// Append the session's JSONL event log here
+    #[arg(long, value_name = "PATH")]
+    pub log: Option<PathBuf>,
 }
 
 /// A resolved run: where to work, which model to use, where to log.
@@ -151,10 +135,7 @@ impl Config {
         let api_key = lookup(provider.key_var()).ok_or_else(|| {
             format!(
                 "--provider {} needs {}",
-                match provider {
-                    Provider::Anthropic => "anthropic",
-                    Provider::OpenAi => "openai",
-                },
+                provider.name(),
                 provider.key_var()
             )
         })?;
@@ -193,8 +174,8 @@ impl Config {
 mod tests {
     use super::*;
 
-    fn args(input: &[&str]) -> Result<Args, String> {
-        Args::parse(input.iter().map(|s| s.to_string()))
+    fn args(input: &[&str]) -> Result<Args, clap::Error> {
+        Args::try_parse_from(std::iter::once("codenko").chain(input.iter().copied()))
     }
 
     #[test]
@@ -219,10 +200,26 @@ mod tests {
         );
     }
 
+    /// The form the hand-rolled parser this replaced used to reject.
+    #[test]
+    fn a_value_may_be_attached_with_an_equals_sign() {
+        let parsed = args(&["--model=gpt-5", "--provider=openai"]).unwrap();
+        assert_eq!(parsed.model.as_deref(), Some("gpt-5"));
+        assert_eq!(parsed.provider, Some(Provider::OpenAi));
+    }
+
     #[test]
     fn a_flag_without_a_value_is_an_error() {
         assert!(args(&["--model"]).is_err());
         assert!(args(&["--nope"]).is_err());
+        assert!(args(&["stray-positional"]).is_err());
+    }
+
+    #[test]
+    fn an_unknown_provider_lists_the_known_ones() {
+        let error = args(&["--provider", "bedrock"]).unwrap_err().to_string();
+        assert!(error.contains("anthropic"), "{error}");
+        assert!(error.contains("openai"), "{error}");
     }
 
     #[test]
