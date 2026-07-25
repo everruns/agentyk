@@ -14,6 +14,8 @@ release — every release bumps the patch component (`0.1.z`). See
 - Adopted the Everruns diagram system, with narrowly permitted semantic
   colors, and replaced the public architecture page's text sketches with
   co-located Mermaid sources and reviewed SVG renderings.
+- Fixed the execution-cycle diagram so sequence lifelines remain visible and
+  every message connects to its sender and receiver.
 
 ### Changed — one canonical engine, multiple execution hosts
 
