@@ -1,12 +1,12 @@
 //! The terminal UI, built on `tuika`'s [`AsyncRunner`].
 //!
 //! The loop is the runner's single `tokio::select!`: input events and a tick
-//! both land in [`App::update`], which drains the agent channel and mutates
+//! both land in `App::update`, which drains the agent channel and mutates
 //! state. Nothing here awaits a turn — the agent runs in its own task (see
 //! [`crate::agent`]), so the UI stays responsive while a tool is running and
 //! esc can interrupt it.
 //!
-//! Rows are laid out in [`App::update`] rather than in the view because
+//! Rows are laid out in `App::update` rather than in the view because
 //! wrapping needs a width and the view callback only gets `&App`. Tracking the
 //! terminal size in state keeps the two in agreement.
 

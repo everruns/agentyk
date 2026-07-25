@@ -1,7 +1,7 @@
 //! The agent half of codenko: how the agent is composed, and the task that
 //! owns its session.
 //!
-//! The UI never touches the [`Session`] — a session is `&mut self` for a
+//! The UI never touches the [`agentyk::Session`] — a session is `&mut self` for a
 //! whole turn, so it lives alone in [`spawn_agent_task`] and communicates
 //! with the UI over two channels: prompts in, [`AppEvent`]s out. Everything
 //! the UI shows is derived from the agentyk event stream, delivered by an
