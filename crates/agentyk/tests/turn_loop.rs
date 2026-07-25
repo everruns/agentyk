@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use agentyk::{
     Agent, Capability, EventData, FnTool, InMemoryEventLog, ModelSpec, Result, SimDriver, SimTurn,
-    SystemPromptContext, ToolOutput, event_types,
+    SystemPromptContext, ToolOutput, event_types, messages_from_events,
 };
 use async_trait::async_trait;
 use serde_json::json;
@@ -191,6 +191,35 @@ async fn resume_rebuilds_history_from_the_log() -> Result<()> {
     let turn = resumed.run("second question").await?;
     assert_eq!(turn.response, "second answer");
     assert_eq!(resumed.messages().len(), 4);
+    Ok(())
+}
+
+/// The live history a running turn sends to the model must be exactly what a
+/// replay of the log produces — otherwise a resumed session would silently
+/// see a different conversation than the one that ran. `History` exists to
+/// make the two impossible to diverge; this pins the property end to end,
+/// across a turn with tool calls and streaming.
+#[tokio::test]
+async fn live_history_always_equals_a_replay_of_the_log() -> Result<()> {
+    let agent = Agent::builder()
+        .model(ModelSpec::llmsim())
+        .driver(SimDriver::new([
+            SimTurn::tool_call("add", json!({"a": 2, "b": 3})),
+            SimTurn::tool_call("add", json!({"a": 10, "b": 1})),
+            SimTurn::text("11"),
+        ]))
+        .tool(add_tool())
+        .build()?;
+
+    let mut session = agent.session();
+    session.run("add things").await?;
+    session.run("again").await?;
+
+    let replayed = messages_from_events(&session.events().await?);
+    assert_eq!(session.messages(), replayed.as_slice());
+    // Not vacuous: the turn really did accumulate input, output and tool
+    // results.
+    assert!(replayed.len() > 4, "{replayed:?}");
     Ok(())
 }
 

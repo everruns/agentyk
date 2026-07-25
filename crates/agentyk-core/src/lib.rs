@@ -82,7 +82,7 @@ pub use middleware::{
     ToolCallDecision, ToolChainOutcome, ToolInvocation, TurnMiddleware, after_tool_chain,
     before_tool_chain,
 };
-pub use replay::messages_from_events;
+pub use replay::{History, messages_from_events};
 pub use tool::{
     DeferrablePolicy, FnTool, Tool, ToolContext, ToolDefinition, ToolOutput, ToolPolicy,
 };

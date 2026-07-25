@@ -20,7 +20,7 @@ use agentyk_core::event_log::EventLog;
 use agentyk_core::executor::{TurnHost, TurnResult};
 use agentyk_core::id::SessionId;
 use agentyk_core::message::Message;
-use agentyk_core::replay::messages_from_events;
+use agentyk_core::replay::History;
 use agentyk_core::tool::ToolOutput;
 
 use crate::agent::Agent;
@@ -60,7 +60,7 @@ pub struct Session {
     agent: Agent,
     id: SessionId,
     log: Arc<dyn EventLog>,
-    messages: Vec<Message>,
+    history: History,
 }
 
 impl Session {
@@ -69,7 +69,7 @@ impl Session {
             agent,
             id: SessionId::new(),
             log,
-            messages: Vec::new(),
+            history: History::new(),
         }
     }
 
@@ -79,12 +79,11 @@ impl Session {
         session_id: SessionId,
     ) -> Result<Self> {
         let events = log.read(session_id).await?;
-        let messages = messages_from_events(&events);
         Ok(Self {
             agent,
             id: session_id,
             log,
-            messages,
+            history: History::from_events(&events),
         })
     }
 
@@ -94,9 +93,10 @@ impl Session {
         self.id
     }
 
-    /// The reconstructed-or-live message history.
+    /// The reconstructed-or-live message history — always equal to a replay
+    /// of this session's log.
     pub fn messages(&self) -> &[Message] {
-        &self.messages
+        self.history.messages()
     }
 
     /// All events recorded for this session, ordered by sequence.
@@ -177,7 +177,7 @@ impl Session {
         let effective_model = options.controls.resolve(config.model());
         // Composition travels as one value; only the genuinely per-run parts
         // are set here. Adding a composition knob does not touch this call.
-        let mut host = TurnHost::new(self.id, &config, self.log.as_ref(), &mut self.messages)
+        let mut host = TurnHost::new(self.id, &config, self.log.as_ref(), &mut self.history)
             .model(&effective_model)
             .cancellation(options.cancellation);
         executor.run_turn(&mut host, Message::user(input)).await

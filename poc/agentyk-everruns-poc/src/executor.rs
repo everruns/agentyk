@@ -163,7 +163,7 @@ impl TurnExecutor for EverrunsExecutor {
                     let messages = host
                         .config
                         .context_assembler
-                        .assemble(host.session_id, host.messages)
+                        .assemble(host.session_id, host.history.messages())
                         .await;
                     match atoms::reason(driver.as_ref(), &model, &assembled, messages).await {
                         Ok(response) => {

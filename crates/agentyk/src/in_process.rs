@@ -97,7 +97,7 @@ impl TurnExecutor for InProcessExecutor {
                     let messages = host
                         .config
                         .context_assembler
-                        .assemble(host.session_id, host.messages)
+                        .assemble(host.session_id, host.history.messages())
                         .await;
                     let cancellation = host.cancellation.clone();
                     let mut sink = RecordingDeltaSink {

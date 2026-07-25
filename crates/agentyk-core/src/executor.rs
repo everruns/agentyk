@@ -24,7 +24,7 @@ use crate::event::{EventData, EventRequest};
 use crate::event_log::EventLog;
 use crate::id::{EventId, SessionId, TurnId};
 use crate::message::Message;
-use crate::replay::message_from_event_data;
+use crate::replay::History;
 
 /// The outcome of one executed turn.
 #[derive(Debug, Clone)]
@@ -74,9 +74,10 @@ pub struct TurnHost<'a> {
     /// [`crate::controls::TurnControls`] applied. Not `config.model()`.
     pub model: &'a ModelSpec,
     pub log: &'a dyn EventLog,
-    /// Live message history; the executor keeps it in sync with the events
-    /// it records.
-    pub messages: &'a mut Vec<Message>,
+    /// The session's message history. Advanced by [`TurnHost::record`] from
+    /// the events themselves — see [`History`] for why it is not a plain
+    /// `Vec<Message>`.
+    pub history: &'a mut History,
     /// Checked between turn actions (and, for streaming drivers, between
     /// chunks) so a caller can stop a running turn — see
     /// [`CancellationToken`].
@@ -90,14 +91,14 @@ impl<'a> TurnHost<'a> {
         session_id: SessionId,
         config: &'a AgentConfig,
         log: &'a dyn EventLog,
-        messages: &'a mut Vec<Message>,
+        history: &'a mut History,
     ) -> Self {
         Self {
             session_id,
             config,
             model: config.model(),
             log,
-            messages,
+            history,
             cancellation: CancellationToken::new(),
         }
     }
@@ -128,9 +129,7 @@ impl TurnHost<'_> {
             let event = if request.data.is_ephemeral() {
                 request.into_ephemeral_event(EventId::new(), Utc::now())
             } else {
-                if let Some(message) = message_from_event_data(&request.data) {
-                    self.messages.push(message);
-                }
+                self.history.apply(&request.data);
                 self.log.append(request).await?
             };
             for listener in &self.config.listeners {

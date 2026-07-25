@@ -19,6 +19,22 @@ release — every release bumps the patch component (`0.1.z`). See
   carrying the original payload. Replay stays sufficient to resume a session
   across versions, which is the point of the persistence seam.
 
+### Changed — history is a projection, not a second source
+
+- **`replay::History` (new) replaces the raw `Vec<Message>`** on `TurnHost`
+  and `Session`. The log is the truth; a running turn still needs the history
+  in memory rather than a log read per reason step, so a projection exists —
+  but the only way to grow one is `History::apply(&EventData)`. A message that
+  never became an event cannot enter history, so the projection and a fresh
+  replay agree by construction rather than by an executor remembering to keep
+  them in sync.
+- `History::from_events` is the fold; `messages_from_events` stays as
+  shorthand.
+- Pinned by tests at both levels: in core, applying events one by one equals
+  replaying the same log; end to end, `session.messages()` equals
+  `messages_from_events(session.events())` after a multi-turn run with tool
+  calls.
+
 ### Changed — HTTP drivers are wire mapping only
 
 - **New crate-internal `drivers::http` layer** carrying what every HTTP
