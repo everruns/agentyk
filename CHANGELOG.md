@@ -19,6 +19,29 @@ release — every release bumps the patch component (`0.1.z`). See
   carrying the original payload. Replay stays sufficient to resume a session
   across versions, which is the point of the persistence seam.
 
+### Changed — HTTP drivers are wire mapping only
+
+- **New crate-internal `drivers::http` layer** carrying what every HTTP
+  provider shares: sending, HTTP-status and transport-error classification,
+  SSE framing (`SseDecoder`), and the streaming loop. A provider now
+  implements `HttpProvider` + `StreamAccumulator` and its `ChatDriver` impl is
+  two delegations.
+- The two drivers previously carried private copies of `classify_status`,
+  `network_error`, `drain_lines` and `parse_sse_data_line`, plus their own
+  send/status/decode dance and streaming loop — the parts most likely to
+  drift apart. Per-provider production code: anthropic 469 → 408 lines,
+  openai 413 → 339.
+- **The streaming loop is now actually tested.** Both drivers' streaming tests
+  used to re-implement the chunk loop in the test body, so the loop that ran
+  in production had no coverage. Tests now drive the real loop via
+  `drive_stream`, with bodies deliberately split mid-line to exercise
+  reassembly.
+- `AnthropicDriver::with_client` / `OpenAiDriver::with_client` take a
+  `reqwest::Client`, so timeouts, proxies and pooling are configurable instead
+  of hardcoded to `Client::new()`.
+- OpenAI's `[DONE]` sentinel needs no special case: it simply is not JSON, and
+  the shared decoder skips non-JSON payloads.
+
 ### Changed — one middleware seam instead of a trait per interception point
 
 - **`TurnMiddleware` (new, in `agentyk-core`) replaces `PreToolUseHook` and

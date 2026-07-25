@@ -1,14 +1,20 @@
 //! Anthropic Messages API driver.
+//!
+//! Wire mapping only — sending, status/transport classification, and SSE
+//! framing live in the crate-internal `drivers::http` layer.
 
 use std::collections::HashMap;
 
 use async_trait::async_trait;
-use futures_util::StreamExt;
 use serde_json::{Value, json};
 
-use agentyk_core::driver::{ChatDriver, ChatRequest, ChatResponse, DeltaSink, DriverId, Usage};
+use agentyk_core::driver::{
+    ChatDriver, ChatRequest, ChatResponse, DeltaSink, DriverId, ModelSpec, Usage,
+};
 use agentyk_core::error::{Error, LlmErrorKind, Result};
 use agentyk_core::message::{ContentPart, Message, Role, ToolCall};
+
+use super::http::{self, HttpProvider, StreamAccumulator};
 
 const DEFAULT_BASE_URL: &str = "https://api.anthropic.com";
 const API_VERSION: &str = "2023-06-01";
@@ -21,8 +27,14 @@ pub struct AnthropicDriver {
 
 impl AnthropicDriver {
     pub fn new() -> Self {
+        Self::with_client(reqwest::Client::new())
+    }
+
+    /// Supply your own client — timeouts, proxies, and connection pooling are
+    /// its business, not the driver's.
+    pub fn with_client(client: reqwest::Client) -> Self {
         Self {
-            client: reqwest::Client::new(),
+            client,
             max_tokens: DEFAULT_MAX_TOKENS,
         }
     }
@@ -150,118 +162,6 @@ pub(crate) fn parse_message(payload: &Value) -> Message {
     }
 }
 
-/// The Messages API request body shared by `complete` and
-/// `complete_streaming`; the caller sets `"stream"` afterward.
-fn build_body(request: &ChatRequest, max_tokens: u64) -> Value {
-    // Extended thinking is enabled per-request with a token budget; the API
-    // requires max_tokens to exceed the budget, so grow it if needed.
-    let thinking_budget = request
-        .model
-        .reasoning
-        .as_ref()
-        .and_then(|r| r.budget_tokens);
-    let effective_max_tokens = match thinking_budget {
-        Some(budget) if u64::from(budget) >= max_tokens => u64::from(budget) + max_tokens,
-        _ => max_tokens,
-    };
-
-    let mut body = json!({
-        "model": request.model.model,
-        "max_tokens": effective_max_tokens,
-        "messages": to_wire_messages(&request.messages),
-    });
-    if let Some(budget) = thinking_budget {
-        body["thinking"] = json!({"type": "enabled", "budget_tokens": budget});
-    }
-    if let Some(system) = &request.system_prompt {
-        body["system"] = json!(system);
-    }
-    if !request.tools.is_empty() {
-        body["tools"] = Value::Array(
-            request
-                .tools
-                .iter()
-                .map(|t| {
-                    json!({
-                        "name": t.name,
-                        "description": t.description,
-                        "input_schema": t.parameters,
-                    })
-                })
-                .collect(),
-        );
-    }
-    body
-}
-
-fn request_builder(
-    client: &reqwest::Client,
-    model: &agentyk_core::driver::ModelSpec,
-    body: &Value,
-) -> Result<reqwest::RequestBuilder> {
-    let base_url = model
-        .base_url
-        .clone()
-        .unwrap_or_else(|| DEFAULT_BASE_URL.to_string());
-    let api_key = model.api_key.clone().ok_or_else(|| {
-        Error::driver(
-            LlmErrorKind::Authentication,
-            "anthropic driver requires an api key",
-        )
-    })?;
-    Ok(client
-        .post(format!("{}/v1/messages", base_url.trim_end_matches('/')))
-        .header("x-api-key", api_key)
-        .header("anthropic-version", API_VERSION)
-        .json(body))
-}
-
-/// Classifies an HTTP error status so a host can decide whether retrying is
-/// worth it — see [`LlmErrorKind`]. Anthropic's 529 is its own "overloaded"
-/// code, in addition to the generic 503.
-fn classify_status(status: reqwest::StatusCode) -> LlmErrorKind {
-    match status.as_u16() {
-        401 | 403 => LlmErrorKind::Authentication,
-        429 => LlmErrorKind::RateLimited,
-        503 | 529 => LlmErrorKind::Overloaded,
-        400 | 404 | 422 => LlmErrorKind::InvalidRequest,
-        500..=599 => LlmErrorKind::ServerError,
-        400..=499 => LlmErrorKind::InvalidRequest,
-        _ => LlmErrorKind::Unknown,
-    }
-}
-
-/// Classifies a transport-level failure (the request never got an HTTP
-/// response at all).
-fn network_error(context: &str, error: &reqwest::Error) -> Error {
-    let kind = if error.is_timeout() {
-        LlmErrorKind::Timeout
-    } else {
-        LlmErrorKind::Network
-    };
-    Error::driver(kind, format!("{context}: {error}"))
-}
-
-/// Extracts the JSON payload from one SSE `data: ...` line. Anthropic also
-/// sends `event: ...` lines, but each payload's own `"type"` field is
-/// sufficient to interpret it, so non-`data:` lines are simply skipped.
-pub(crate) fn parse_sse_data_line(line: &str) -> Option<&str> {
-    line.trim_end_matches('\r')
-        .strip_prefix("data:")
-        .map(str::trim_start)
-}
-
-/// Drains complete `\n`-terminated lines from `buffer`, leaving any trailing
-/// partial line for the next chunk.
-fn drain_lines(buffer: &mut String) -> Vec<String> {
-    let mut lines = Vec::new();
-    while let Some(pos) = buffer.find('\n') {
-        lines.push(buffer[..pos].to_string());
-        buffer.drain(..=pos);
-    }
-    lines
-}
-
 #[derive(Default)]
 struct PartialBlock {
     is_tool_use: bool,
@@ -274,7 +174,7 @@ struct PartialBlock {
 /// `message_start` / `content_block_start` / `content_block_delta` /
 /// `message_delta` events.
 #[derive(Default)]
-struct StreamAccumulator {
+pub(crate) struct AnthropicStream {
     text: String,
     /// Extended-thinking text + signature, accumulated separately from the
     /// answer text and never forwarded to the delta sink (it's reasoning, not
@@ -285,10 +185,8 @@ struct StreamAccumulator {
     usage: Usage,
 }
 
-impl StreamAccumulator {
-    /// Applies one decoded SSE event payload, returning the text delta (if
-    /// any) so the caller can forward it to a [`DeltaSink`].
-    fn apply_event(&mut self, payload: &Value) -> Option<String> {
+impl StreamAccumulator for AnthropicStream {
+    fn apply(&mut self, payload: &Value) -> Option<String> {
         match payload["type"].as_str() {
             Some("message_start") => {
                 self.usage.input_tokens = payload["message"]["usage"]["input_tokens"]
@@ -356,7 +254,11 @@ impl StreamAccumulator {
         }
     }
 
-    fn into_message(self) -> Message {
+    fn text(&self) -> &str {
+        &self.text
+    }
+
+    fn finish(self) -> ChatResponse {
         let mut indices: Vec<u64> = self.blocks.keys().copied().collect();
         indices.sort_unstable();
         let tool_calls: Vec<ToolCall> = indices
@@ -378,10 +280,109 @@ impl StreamAccumulator {
         } else {
             Message::assistant_with_calls(self.text, tool_calls)
         };
-        if self.thinking.is_empty() {
+        let message = if self.thinking.is_empty() {
             message
         } else {
             message.with_thinking(self.thinking, self.thinking_signature)
+        };
+        ChatResponse::new(message, self.usage)
+    }
+}
+
+impl HttpProvider for AnthropicDriver {
+    type Accumulator = AnthropicStream;
+
+    fn label(&self) -> &str {
+        "anthropic"
+    }
+
+    fn default_base_url(&self) -> &str {
+        DEFAULT_BASE_URL
+    }
+
+    fn endpoint(&self) -> &str {
+        "/v1/messages"
+    }
+
+    fn authorize(
+        &self,
+        builder: reqwest::RequestBuilder,
+        model: &ModelSpec,
+    ) -> Result<reqwest::RequestBuilder> {
+        let api_key = model.api_key.clone().ok_or_else(|| {
+            Error::driver(
+                LlmErrorKind::Authentication,
+                "anthropic driver requires an api key",
+            )
+        })?;
+        Ok(builder
+            .header("x-api-key", api_key)
+            .header("anthropic-version", API_VERSION))
+    }
+
+    fn build_body(&self, request: &ChatRequest) -> Value {
+        // Extended thinking is enabled per-request with a token budget; the
+        // API requires max_tokens to exceed the budget, so grow it if needed.
+        let thinking_budget = request
+            .model
+            .reasoning
+            .as_ref()
+            .and_then(|r| r.budget_tokens);
+        let effective_max_tokens = match thinking_budget {
+            Some(budget) if u64::from(budget) >= self.max_tokens => {
+                u64::from(budget) + self.max_tokens
+            }
+            _ => self.max_tokens,
+        };
+
+        let mut body = json!({
+            "model": request.model.model,
+            "max_tokens": effective_max_tokens,
+            "messages": to_wire_messages(&request.messages),
+        });
+        if let Some(budget) = thinking_budget {
+            body["thinking"] = json!({"type": "enabled", "budget_tokens": budget});
+        }
+        if let Some(system) = &request.system_prompt {
+            body["system"] = json!(system);
+        }
+        if !request.tools.is_empty() {
+            body["tools"] = Value::Array(
+                request
+                    .tools
+                    .iter()
+                    .map(|t| {
+                        json!({
+                            "name": t.name,
+                            "description": t.description,
+                            "input_schema": t.parameters,
+                        })
+                    })
+                    .collect(),
+            );
+        }
+        body
+    }
+
+    fn enable_streaming(&self, body: &mut Value) {
+        body["stream"] = json!(true);
+    }
+
+    fn parse_response(&self, payload: &Value) -> ChatResponse {
+        ChatResponse::new(
+            parse_message(payload),
+            Usage::new(
+                payload["usage"]["input_tokens"].as_u64().unwrap_or(0),
+                payload["usage"]["output_tokens"].as_u64().unwrap_or(0),
+            ),
+        )
+    }
+
+    /// 529 is Anthropic's own "overloaded" code, on top of the generic 503.
+    fn classify_status(&self, status: reqwest::StatusCode) -> LlmErrorKind {
+        match status.as_u16() {
+            529 => LlmErrorKind::Overloaded,
+            _ => http::classify_status(status),
         }
     }
 }
@@ -393,32 +394,7 @@ impl ChatDriver for AnthropicDriver {
     }
 
     async fn complete(&self, request: ChatRequest) -> Result<ChatResponse> {
-        let body = build_body(&request, self.max_tokens);
-        let response = request_builder(&self.client, &request.model, &body)?
-            .send()
-            .await
-            .map_err(|e| network_error("anthropic request failed", &e))?;
-        let status = response.status();
-        if !status.is_success() {
-            let payload: Value = response.json().await.unwrap_or(Value::Null);
-            return Err(Error::driver(
-                classify_status(status),
-                format!("anthropic http {status}: {payload}"),
-            ));
-        }
-        let payload: Value = response.json().await.map_err(|e| {
-            Error::driver(
-                LlmErrorKind::Unknown,
-                format!("anthropic response decode failed: {e}"),
-            )
-        })?;
-
-        let usage = Usage::new(
-            payload["usage"]["input_tokens"].as_u64().unwrap_or(0),
-            payload["usage"]["output_tokens"].as_u64().unwrap_or(0),
-        );
-
-        Ok(ChatResponse::new(parse_message(&payload), usage))
+        http::complete(self, &self.client, request).await
     }
 
     async fn complete_streaming(
@@ -426,81 +402,40 @@ impl ChatDriver for AnthropicDriver {
         request: ChatRequest,
         sink: &mut dyn DeltaSink,
     ) -> Result<ChatResponse> {
-        let mut body = build_body(&request, self.max_tokens);
-        body["stream"] = json!(true);
-
-        let response = request_builder(&self.client, &request.model, &body)?
-            .send()
-            .await
-            .map_err(|e| network_error("anthropic request failed", &e))?;
-        let status = response.status();
-        if !status.is_success() {
-            let payload: Value = response.json().await.unwrap_or(Value::Null);
-            return Err(Error::driver(
-                classify_status(status),
-                format!("anthropic http {status}: {payload}"),
-            ));
-        }
-
-        let mut byte_stream = response.bytes_stream();
-        let mut buffer = String::new();
-        let mut accumulator = StreamAccumulator::default();
-
-        while let Some(chunk) = byte_stream.next().await {
-            let chunk = chunk.map_err(|e| network_error("anthropic stream read failed", &e))?;
-            buffer.push_str(&String::from_utf8_lossy(&chunk));
-            for line in drain_lines(&mut buffer) {
-                let Some(data) = parse_sse_data_line(&line) else {
-                    continue;
-                };
-                let Ok(payload) = serde_json::from_str::<Value>(data) else {
-                    continue;
-                };
-                if let Some(text) = accumulator.apply_event(&payload) {
-                    sink.delta(&text, &accumulator.text).await?;
-                }
-            }
-        }
-
-        let usage = accumulator.usage;
-        Ok(ChatResponse::new(accumulator.into_message(), usage))
+        http::complete_streaming(self, &self.client, request, sink).await
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::drivers::http::{RecordingSink, drive_stream};
+
+    fn request(model: ModelSpec) -> ChatRequest {
+        ChatRequest::new(model, vec![Message::user("hi")])
+    }
 
     #[test]
-    fn status_codes_classify_by_retryability() {
+    fn anthropics_own_overloaded_code_is_classified_as_retryable() {
         use reqwest::StatusCode;
+        let driver = AnthropicDriver::new();
+        let overloaded = StatusCode::from_u16(529).unwrap();
+        assert_eq!(driver.classify_status(overloaded), LlmErrorKind::Overloaded);
+        assert!(driver.classify_status(overloaded).is_retryable());
+        // Everything else falls through to the shared classification.
         assert_eq!(
-            classify_status(StatusCode::UNAUTHORIZED),
+            driver.classify_status(StatusCode::UNAUTHORIZED),
             LlmErrorKind::Authentication
-        );
-        assert_eq!(
-            classify_status(StatusCode::TOO_MANY_REQUESTS),
-            LlmErrorKind::RateLimited
-        );
-        assert_eq!(
-            classify_status(StatusCode::SERVICE_UNAVAILABLE),
-            LlmErrorKind::Overloaded
-        );
-        // Anthropic's own overloaded code.
-        assert_eq!(
-            classify_status(StatusCode::from_u16(529).unwrap()),
-            LlmErrorKind::Overloaded
-        );
-        assert_eq!(
-            classify_status(StatusCode::BAD_REQUEST),
-            LlmErrorKind::InvalidRequest
         );
     }
 
     #[test]
     fn missing_api_key_is_an_authentication_error() {
-        let model = agentyk_core::driver::ModelSpec::anthropic("claude-x");
-        let error = request_builder(&reqwest::Client::new(), &model, &json!({})).unwrap_err();
+        let driver = AnthropicDriver::new();
+        let builder = reqwest::Client::new().post("https://example.invalid");
+        let error = driver
+            .authorize(builder, &ModelSpec::anthropic("claude-x"))
+            .unwrap_err();
         assert!(!error.is_retryable());
         assert!(matches!(
             error,
@@ -555,9 +490,10 @@ mod tests {
 
     #[test]
     fn thinking_budget_enables_thinking_and_grows_max_tokens() {
-        let model = agentyk_core::driver::ModelSpec::anthropic("claude-x").thinking_budget(12000);
-        let request = ChatRequest::new(model, vec![Message::user("hi")]);
-        let body = build_body(&request, DEFAULT_MAX_TOKENS);
+        let driver = AnthropicDriver::new();
+        let body = driver.build_body(&request(
+            ModelSpec::anthropic("claude-x").thinking_budget(12000),
+        ));
         assert_eq!(body["thinking"]["type"], "enabled");
         assert_eq!(body["thinking"]["budget_tokens"], 12000);
         // max_tokens must exceed the budget.
@@ -566,11 +502,8 @@ mod tests {
 
     #[test]
     fn no_thinking_param_without_a_budget() {
-        let request = ChatRequest::new(
-            agentyk_core::driver::ModelSpec::anthropic("claude-x"),
-            vec![Message::user("hi")],
-        );
-        let body = build_body(&request, DEFAULT_MAX_TOKENS);
+        let driver = AnthropicDriver::new();
+        let body = driver.build_body(&request(ModelSpec::anthropic("claude-x")));
         assert!(body.get("thinking").is_none());
         assert_eq!(body["max_tokens"], DEFAULT_MAX_TOKENS);
     }
@@ -597,158 +530,95 @@ mod tests {
     }
 
     #[test]
-    fn parse_message_extracts_thinking_text_and_calls() {
+    fn parse_response_extracts_thinking_text_calls_and_usage() {
         let payload = json!({
             "content": [
                 {"type": "thinking", "thinking": "let me see", "signature": "sig-1"},
                 {"type": "text", "text": "done"},
                 {"type": "tool_use", "id": "t1", "name": "add", "input": {"a": 1}},
-            ]
+            ],
+            "usage": {"input_tokens": 11, "output_tokens": 3},
         });
-        let message = parse_message(&payload);
-        assert_eq!(message.text(), "done");
-        assert_eq!(message.thinking.as_deref(), Some("let me see"));
-        assert_eq!(message.thinking_signature.as_deref(), Some("sig-1"));
-        assert_eq!(message.tool_calls.len(), 1);
-    }
-
-    #[test]
-    fn stream_accumulator_collects_thinking_without_polluting_the_answer() {
-        let mut acc = StreamAccumulator::default();
-        acc.apply_event(&json!({
-            "type": "content_block_start", "index": 0,
-            "content_block": {"type": "thinking", "thinking": ""}
-        }));
-        // Thinking deltas accumulate but are NOT surfaced to the sink...
+        let response = AnthropicDriver::new().parse_response(&payload);
+        assert_eq!(response.message.text(), "done");
+        assert_eq!(response.message.thinking.as_deref(), Some("let me see"));
         assert_eq!(
-            acc.apply_event(&json!({
-                "type": "content_block_delta", "index": 0,
-                "delta": {"type": "thinking_delta", "thinking": "hmm"}
-            })),
-            None
+            response.message.thinking_signature.as_deref(),
+            Some("sig-1")
         );
-        acc.apply_event(&json!({
-            "type": "content_block_delta", "index": 0,
-            "delta": {"type": "signature_delta", "signature": "sig-stream"}
-        }));
-        // ...while the answer text streams normally.
-        assert_eq!(
-            acc.apply_event(&json!({
-                "type": "content_block_delta", "index": 1,
-                "delta": {"type": "text_delta", "text": "answer"}
-            })),
-            Some("answer".to_string())
-        );
-
-        let message = acc.into_message();
-        assert_eq!(message.text(), "answer");
-        assert_eq!(message.thinking.as_deref(), Some("hmm"));
-        assert_eq!(message.thinking_signature.as_deref(), Some("sig-stream"));
-    }
-
-    #[test]
-    fn sse_data_line_parsing() {
-        assert_eq!(parse_sse_data_line("data: {\"a\":1}"), Some("{\"a\":1}"));
-        assert_eq!(parse_sse_data_line("event: message_start"), None);
-        assert_eq!(parse_sse_data_line(""), None);
-    }
-
-    #[test]
-    fn stream_accumulator_assembles_text_deltas_and_usage() {
-        let mut acc = StreamAccumulator::default();
-        acc.apply_event(
-            &json!({"type": "message_start", "message": {"usage": {"input_tokens": 10}}}),
-        );
-        assert_eq!(
-            acc.apply_event(&json!({
-                "type": "content_block_delta", "index": 0,
-                "delta": {"type": "text_delta", "text": "Hel"}
-            })),
-            Some("Hel".to_string())
-        );
-        assert_eq!(
-            acc.apply_event(&json!({
-                "type": "content_block_delta", "index": 0,
-                "delta": {"type": "text_delta", "text": "lo"}
-            })),
-            Some("lo".to_string())
-        );
-        acc.apply_event(&json!({"type": "message_delta", "usage": {"output_tokens": 5}}));
-
-        assert_eq!(acc.usage.input_tokens, 10);
-        assert_eq!(acc.usage.output_tokens, 5);
-        let message = acc.into_message();
-        assert_eq!(message.text(), "Hello");
-        assert!(message.tool_calls.is_empty());
-    }
-
-    #[test]
-    fn stream_accumulator_assembles_tool_use_from_json_deltas() {
-        let mut acc = StreamAccumulator::default();
-        acc.apply_event(&json!({
-            "type": "content_block_start", "index": 0,
-            "content_block": {"type": "tool_use", "id": "toolu_1", "name": "add", "input": {}}
-        }));
-        acc.apply_event(&json!({
-            "type": "content_block_delta", "index": 0,
-            "delta": {"type": "input_json_delta", "partial_json": "{\"a\":"}
-        }));
-        acc.apply_event(&json!({
-            "type": "content_block_delta", "index": 0,
-            "delta": {"type": "input_json_delta", "partial_json": "1}"}
-        }));
-        let message = acc.into_message();
-        assert_eq!(message.tool_calls.len(), 1);
-        assert_eq!(message.tool_calls[0].id, "toolu_1");
-        assert_eq!(message.tool_calls[0].name, "add");
-        assert_eq!(message.tool_calls[0].arguments, json!({"a": 1}));
+        assert_eq!(response.message.tool_calls.len(), 1);
+        assert_eq!(response.usage, Usage::new(11, 3));
     }
 
     #[tokio::test]
-    async fn complete_streaming_reports_deltas_in_order() {
-        use agentyk_core::error::Result as CoreResult;
+    async fn streaming_reports_text_deltas_in_order_and_collects_usage() {
+        let mut sink = RecordingSink::default();
+        let response = drive_stream::<AnthropicStream>(
+            &[
+                "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":7}}}\n",
+                "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Hi\"}}\n",
+                // Split mid-line, to prove reassembly through the real loop.
+                "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"del",
+                "ta\":{\"type\":\"text_delta\",\"text\":\"!\"}}\n",
+                "data: {\"type\":\"message_delta\",\"usage\":{\"output_tokens\":2}}\n",
+                "data: {\"type\":\"message_stop\"}\n",
+            ],
+            &mut sink,
+        )
+        .await
+        .unwrap();
 
-        struct RecordingSink {
-            deltas: Vec<String>,
-        }
-        #[async_trait]
-        impl DeltaSink for RecordingSink {
-            async fn delta(&mut self, delta: &str, _accumulated: &str) -> CoreResult<()> {
-                self.deltas.push(delta.to_string());
-                Ok(())
-            }
-        }
+        assert_eq!(sink.deltas, vec!["Hi", "!"]);
+        assert_eq!(sink.accumulated, vec!["Hi", "Hi!"]);
+        assert_eq!(response.message.text(), "Hi!");
+        assert_eq!(response.usage, Usage::new(7, 2));
+        assert!(response.message.tool_calls.is_empty());
+    }
 
-        let sse_body = concat!(
-            "event: message_start\n",
-            "data: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":7}}}\n",
-            "event: content_block_delta\n",
-            "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Hi\"}}\n",
-            "event: content_block_delta\n",
-            "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"!\"}}\n",
-            "event: message_delta\n",
-            "data: {\"type\":\"message_delta\",\"usage\":{\"output_tokens\":2}}\n",
-            "event: message_stop\n",
-            "data: {\"type\":\"message_stop\"}\n",
+    #[tokio::test]
+    async fn streaming_assembles_tool_use_from_json_fragments() {
+        let mut sink = RecordingSink::default();
+        let response = drive_stream::<AnthropicStream>(
+            &[
+                "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"tool_use\",\"id\":\"toolu_1\",\"name\":\"add\",\"input\":{}}}\n",
+                "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"a\\\":\"}}\n",
+                "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"1}\"}}\n",
+            ],
+            &mut sink,
+        )
+        .await
+        .unwrap();
+
+        assert!(sink.deltas.is_empty(), "tool JSON is not answer text");
+        assert_eq!(response.message.tool_calls.len(), 1);
+        assert_eq!(response.message.tool_calls[0].id, "toolu_1");
+        assert_eq!(response.message.tool_calls[0].name, "add");
+        assert_eq!(response.message.tool_calls[0].arguments, json!({"a": 1}));
+    }
+
+    #[tokio::test]
+    async fn streaming_collects_thinking_without_polluting_the_answer() {
+        let mut sink = RecordingSink::default();
+        let response = drive_stream::<AnthropicStream>(
+            &[
+                "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"thinking\",\"thinking\":\"\"}}\n",
+                "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\"hmm\"}}\n",
+                "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"signature_delta\",\"signature\":\"sig-stream\"}}\n",
+                "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"text_delta\",\"text\":\"answer\"}}\n",
+            ],
+            &mut sink,
+        )
+        .await
+        .unwrap();
+
+        // Reasoning never reaches the sink...
+        assert_eq!(sink.deltas, vec!["answer"]);
+        // ...but does round-trip on the message.
+        assert_eq!(response.message.text(), "answer");
+        assert_eq!(response.message.thinking.as_deref(), Some("hmm"));
+        assert_eq!(
+            response.message.thinking_signature.as_deref(),
+            Some("sig-stream")
         );
-
-        let mut sink = RecordingSink { deltas: Vec::new() };
-        let mut buffer = String::new();
-        let mut accumulator = StreamAccumulator::default();
-        buffer.push_str(sse_body);
-        for line in drain_lines(&mut buffer) {
-            let Some(data) = parse_sse_data_line(&line) else {
-                continue;
-            };
-            let payload: Value = serde_json::from_str(data).unwrap();
-            if let Some(text) = accumulator.apply_event(&payload) {
-                sink.delta(&text, &accumulator.text).await.unwrap();
-            }
-        }
-
-        assert_eq!(sink.deltas, vec!["Hi".to_string(), "!".to_string()]);
-        assert_eq!(accumulator.usage.input_tokens, 7);
-        assert_eq!(accumulator.usage.output_tokens, 2);
-        assert_eq!(accumulator.into_message().text(), "Hi!");
     }
 }

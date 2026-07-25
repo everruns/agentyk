@@ -1,13 +1,19 @@
 //! OpenAI Chat Completions driver. Also serves any OpenAI-compatible
 //! endpoint (OpenRouter, local runtimes, proxies) via `ModelSpec::base_url`.
+//!
+//! Wire mapping only — sending, status/transport classification, and SSE
+//! framing live in the crate-internal `drivers::http` layer.
 
 use async_trait::async_trait;
-use futures_util::StreamExt;
 use serde_json::{Value, json};
 
-use agentyk_core::driver::{ChatDriver, ChatRequest, ChatResponse, DeltaSink, DriverId, Usage};
-use agentyk_core::error::{Error, LlmErrorKind, Result};
+use agentyk_core::driver::{
+    ChatDriver, ChatRequest, ChatResponse, DeltaSink, DriverId, ModelSpec, Usage,
+};
+use agentyk_core::error::Result;
 use agentyk_core::message::{ContentPart, Message, Role, ToolCall};
+
+use super::http::{self, HttpProvider, StreamAccumulator};
 
 const DEFAULT_BASE_URL: &str = "https://api.openai.com/v1";
 
@@ -28,6 +34,13 @@ impl OpenAiDriver {
             id,
             client: reqwest::Client::new(),
         }
+    }
+
+    /// Supply your own client — timeouts, proxies, and connection pooling are
+    /// its business, not the driver's.
+    pub fn with_client(mut self, client: reqwest::Client) -> Self {
+        self.client = client;
+        self
     }
 }
 
@@ -108,99 +121,13 @@ fn to_wire_message(message: &Message) -> Value {
     }
 }
 
+/// Arguments arrive as a JSON *string* on the non-streaming path and as
+/// fragments of one on the streaming path; both land here.
 pub(crate) fn parse_tool_call_arguments(raw: &Value) -> Value {
     match raw {
         Value::String(s) => serde_json::from_str(s).unwrap_or_else(|_| json!({})),
         other => other.clone(),
     }
-}
-
-/// The Chat Completions request body shared by `complete` and
-/// `complete_streaming`; the caller sets `"stream"` afterward.
-fn build_body(request: &ChatRequest) -> Value {
-    let mut messages = Vec::new();
-    if let Some(system) = &request.system_prompt {
-        messages.push(json!({"role": "system", "content": system}));
-    }
-    messages.extend(request.messages.iter().map(to_wire_message));
-
-    let mut body = json!({
-        "model": request.model.model,
-        "messages": messages,
-    });
-    if let Some(effort) = request
-        .model
-        .reasoning
-        .as_ref()
-        .and_then(|r| r.effort.as_deref())
-    {
-        body["reasoning_effort"] = json!(effort);
-    }
-    if !request.tools.is_empty() {
-        body["tools"] = Value::Array(
-            request
-                .tools
-                .iter()
-                .map(|t| {
-                    json!({
-                        "type": "function",
-                        "function": {
-                            "name": t.name,
-                            "description": t.description,
-                            "parameters": t.parameters,
-                        },
-                    })
-                })
-                .collect(),
-        );
-    }
-    body
-}
-
-fn request_builder(
-    client: &reqwest::Client,
-    model: &agentyk_core::driver::ModelSpec,
-    body: &Value,
-) -> reqwest::RequestBuilder {
-    let base_url = model
-        .base_url
-        .clone()
-        .unwrap_or_else(|| DEFAULT_BASE_URL.to_string());
-    let mut http = client
-        .post(format!(
-            "{}/chat/completions",
-            base_url.trim_end_matches('/')
-        ))
-        .json(body);
-    if let Some(key) = &model.api_key {
-        http = http.bearer_auth(key);
-    }
-    http
-}
-
-/// Classifies an HTTP error status so a host can decide whether retrying is
-/// worth it — see [`LlmErrorKind`].
-fn classify_status(status: reqwest::StatusCode) -> LlmErrorKind {
-    match status.as_u16() {
-        401 | 403 => LlmErrorKind::Authentication,
-        429 => LlmErrorKind::RateLimited,
-        503 => LlmErrorKind::Overloaded,
-        400 | 404 | 422 => LlmErrorKind::InvalidRequest,
-        500..=599 => LlmErrorKind::ServerError,
-        400..=499 => LlmErrorKind::InvalidRequest,
-        _ => LlmErrorKind::Unknown,
-    }
-}
-
-/// Classifies a transport-level failure (the request never got an HTTP
-/// response at all).
-fn network_error(context: &str, error: &reqwest::Error) -> Error {
-    let kind = if error.is_timeout() {
-        LlmErrorKind::Timeout
-    } else {
-        LlmErrorKind::Network
-    };
-    Error::driver(kind, format!("{context}: {error}"))
 }
 
 fn tool_calls_from_choice(choice: &Value) -> Vec<ToolCall> {
@@ -222,27 +149,11 @@ fn tool_calls_from_choice(choice: &Value) -> Vec<ToolCall> {
         .unwrap_or_default()
 }
 
-/// Extracts the JSON payload from one SSE `data: ...` line. Returns `None`
-/// for blank lines, comments (`:`-prefixed), non-data fields (`event:`,
-/// `id:`, …), and the `[DONE]` sentinel.
-pub(crate) fn parse_sse_data_line(line: &str) -> Option<&str> {
-    let line = line.trim_end_matches('\r');
-    let data = line.strip_prefix("data:")?.trim_start();
-    if data == "[DONE]" {
-        return None;
-    }
-    Some(data)
-}
-
-/// Drains complete `\n`-terminated lines from `buffer`, leaving any trailing
-/// partial line for the next chunk.
-fn drain_lines(buffer: &mut String) -> Vec<String> {
-    let mut lines = Vec::new();
-    while let Some(pos) = buffer.find('\n') {
-        lines.push(buffer[..pos].to_string());
-        buffer.drain(..=pos);
-    }
-    lines
+fn usage_from(payload: &Value) -> Usage {
+    Usage::new(
+        payload["usage"]["prompt_tokens"].as_u64().unwrap_or(0),
+        payload["usage"]["completion_tokens"].as_u64().unwrap_or(0),
+    )
 }
 
 #[derive(Default)]
@@ -255,17 +166,24 @@ struct PartialToolCall {
 /// Accumulates a Chat Completions streaming response: `delta.content`
 /// fragments concatenate directly; `delta.tool_calls[].function.arguments`
 /// fragments are JSON-fragment text keyed by `index` and only parsed once
-/// complete, at [`Self::into_message`].
+/// complete, at [`StreamAccumulator::finish`].
 #[derive(Default)]
-struct StreamAccumulator {
+pub(crate) struct OpenAiStream {
     content: String,
     tool_calls: Vec<PartialToolCall>,
+    usage: Usage,
 }
 
-impl StreamAccumulator {
-    /// Applies one `choices[0].delta` object, returning the text delta (if
-    /// any) so the caller can forward it to a [`DeltaSink`].
-    fn apply_delta(&mut self, delta: &Value) -> Option<String> {
+impl StreamAccumulator for OpenAiStream {
+    fn apply(&mut self, payload: &Value) -> Option<String> {
+        // Usage rides the same stream as the deltas (with
+        // `stream_options.include_usage`), typically on a final chunk whose
+        // `choices` array is empty.
+        if payload.get("usage").is_some_and(|u| !u.is_null()) {
+            self.usage = usage_from(payload);
+        }
+
+        let delta = &payload["choices"][0]["delta"];
         let mut text_delta = None;
         if let Some(content) = delta["content"].as_str()
             && !content.is_empty()
@@ -294,7 +212,11 @@ impl StreamAccumulator {
         text_delta
     }
 
-    fn into_message(self) -> Message {
+    fn text(&self) -> &str {
+        &self.content
+    }
+
+    fn finish(self) -> ChatResponse {
         let tool_calls: Vec<ToolCall> = self
             .tool_calls
             .into_iter()
@@ -305,11 +227,94 @@ impl StreamAccumulator {
                 arguments: parse_tool_call_arguments(&Value::String(c.arguments)),
             })
             .collect();
-        if tool_calls.is_empty() {
+        let message = if tool_calls.is_empty() {
             Message::assistant(self.content)
         } else {
             Message::assistant_with_calls(self.content, tool_calls)
+        };
+        ChatResponse::new(message, self.usage)
+    }
+}
+
+impl HttpProvider for OpenAiDriver {
+    type Accumulator = OpenAiStream;
+
+    fn label(&self) -> &str {
+        "openai"
+    }
+
+    fn default_base_url(&self) -> &str {
+        DEFAULT_BASE_URL
+    }
+
+    fn endpoint(&self) -> &str {
+        "/chat/completions"
+    }
+
+    /// A key is optional: local runtimes and proxies routinely need none.
+    fn authorize(
+        &self,
+        builder: reqwest::RequestBuilder,
+        model: &ModelSpec,
+    ) -> Result<reqwest::RequestBuilder> {
+        Ok(match &model.api_key {
+            Some(key) => builder.bearer_auth(key),
+            None => builder,
+        })
+    }
+
+    fn build_body(&self, request: &ChatRequest) -> Value {
+        let mut messages = Vec::new();
+        if let Some(system) = &request.system_prompt {
+            messages.push(json!({"role": "system", "content": system}));
         }
+        messages.extend(request.messages.iter().map(to_wire_message));
+
+        let mut body = json!({
+            "model": request.model.model,
+            "messages": messages,
+        });
+        if let Some(effort) = request
+            .model
+            .reasoning
+            .as_ref()
+            .and_then(|r| r.effort.as_deref())
+        {
+            body["reasoning_effort"] = json!(effort);
+        }
+        if !request.tools.is_empty() {
+            body["tools"] = Value::Array(
+                request
+                    .tools
+                    .iter()
+                    .map(|t| {
+                        json!({
+                            "type": "function",
+                            "function": {
+                                "name": t.name,
+                                "description": t.description,
+                                "parameters": t.parameters,
+                            },
+                        })
+                    })
+                    .collect(),
+            );
+        }
+        body
+    }
+
+    fn enable_streaming(&self, body: &mut Value) {
+        body["stream"] = json!(true);
+        body["stream_options"] = json!({"include_usage": true});
+    }
+
+    fn parse_response(&self, payload: &Value) -> ChatResponse {
+        let choice = &payload["choices"][0]["message"];
+        let content = choice["content"].as_str().unwrap_or_default().to_string();
+        ChatResponse::new(
+            Message::assistant_with_calls(content, tool_calls_from_choice(choice)),
+            usage_from(payload),
+        )
     }
 }
 
@@ -320,39 +325,7 @@ impl ChatDriver for OpenAiDriver {
     }
 
     async fn complete(&self, request: ChatRequest) -> Result<ChatResponse> {
-        let body = build_body(&request);
-        let response = request_builder(&self.client, &request.model, &body)
-            .send()
-            .await
-            .map_err(|e| network_error("openai request failed", &e))?;
-        let status = response.status();
-        if !status.is_success() {
-            let payload: Value = response.json().await.unwrap_or(Value::Null);
-            return Err(Error::driver(
-                classify_status(status),
-                format!("openai http {status}: {payload}"),
-            ));
-        }
-        let payload: Value = response.json().await.map_err(|e| {
-            Error::driver(
-                LlmErrorKind::Unknown,
-                format!("openai response decode failed: {e}"),
-            )
-        })?;
-
-        let choice = &payload["choices"][0]["message"];
-        let content = choice["content"].as_str().unwrap_or_default().to_string();
-        let tool_calls = tool_calls_from_choice(choice);
-
-        let usage = Usage::new(
-            payload["usage"]["prompt_tokens"].as_u64().unwrap_or(0),
-            payload["usage"]["completion_tokens"].as_u64().unwrap_or(0),
-        );
-
-        Ok(ChatResponse::new(
-            Message::assistant_with_calls(content, tool_calls),
-            usage,
-        ))
+        http::complete(self, &self.client, request).await
     }
 
     async fn complete_streaming(
@@ -360,86 +333,17 @@ impl ChatDriver for OpenAiDriver {
         request: ChatRequest,
         sink: &mut dyn DeltaSink,
     ) -> Result<ChatResponse> {
-        let mut body = build_body(&request);
-        body["stream"] = json!(true);
-        body["stream_options"] = json!({"include_usage": true});
-
-        let response = request_builder(&self.client, &request.model, &body)
-            .send()
-            .await
-            .map_err(|e| network_error("openai request failed", &e))?;
-        let status = response.status();
-        if !status.is_success() {
-            let payload: Value = response.json().await.unwrap_or(Value::Null);
-            return Err(Error::driver(
-                classify_status(status),
-                format!("openai http {status}: {payload}"),
-            ));
-        }
-
-        let mut byte_stream = response.bytes_stream();
-        let mut buffer = String::new();
-        let mut accumulator = StreamAccumulator::default();
-        let mut usage = Usage::default();
-
-        while let Some(chunk) = byte_stream.next().await {
-            let chunk = chunk.map_err(|e| network_error("openai stream read failed", &e))?;
-            buffer.push_str(&String::from_utf8_lossy(&chunk));
-            for line in drain_lines(&mut buffer) {
-                let Some(data) = parse_sse_data_line(&line) else {
-                    continue;
-                };
-                let Ok(payload) = serde_json::from_str::<Value>(data) else {
-                    continue;
-                };
-                if let Some(delta) = payload["choices"][0]["delta"].as_object() {
-                    let delta = Value::Object(delta.clone());
-                    if let Some(text) = accumulator.apply_delta(&delta) {
-                        sink.delta(&text, &accumulator.content).await?;
-                    }
-                }
-                if payload.get("usage").is_some_and(|u| !u.is_null()) {
-                    usage = Usage::new(
-                        payload["usage"]["prompt_tokens"].as_u64().unwrap_or(0),
-                        payload["usage"]["completion_tokens"].as_u64().unwrap_or(0),
-                    );
-                }
-            }
-        }
-
-        Ok(ChatResponse::new(accumulator.into_message(), usage))
+        http::complete_streaming(self, &self.client, request, sink).await
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::drivers::http::{RecordingSink, drive_stream};
 
-    #[test]
-    fn status_codes_classify_by_retryability() {
-        use reqwest::StatusCode;
-        assert_eq!(
-            classify_status(StatusCode::UNAUTHORIZED),
-            LlmErrorKind::Authentication
-        );
-        assert_eq!(
-            classify_status(StatusCode::TOO_MANY_REQUESTS),
-            LlmErrorKind::RateLimited
-        );
-        assert_eq!(
-            classify_status(StatusCode::SERVICE_UNAVAILABLE),
-            LlmErrorKind::Overloaded
-        );
-        assert_eq!(
-            classify_status(StatusCode::BAD_REQUEST),
-            LlmErrorKind::InvalidRequest
-        );
-        assert_eq!(
-            classify_status(StatusCode::INTERNAL_SERVER_ERROR),
-            LlmErrorKind::ServerError
-        );
-        assert!(classify_status(StatusCode::TOO_MANY_REQUESTS).is_retryable());
-        assert!(!classify_status(StatusCode::UNAUTHORIZED).is_retryable());
+    fn request(model: ModelSpec) -> ChatRequest {
+        ChatRequest::new(model, vec![Message::user("hi")])
     }
 
     #[test]
@@ -461,20 +365,15 @@ mod tests {
 
     #[test]
     fn reasoning_effort_is_forwarded_when_set() {
-        let mut model = agentyk_core::driver::ModelSpec::openai("gpt-5.5");
-        model = model.reasoning_effort("high");
-        let request = ChatRequest::new(model, vec![Message::user("hi")]);
-        let body = build_body(&request);
+        let body = OpenAiDriver::new().build_body(&request(
+            ModelSpec::openai("gpt-5.5").reasoning_effort("high"),
+        ));
         assert_eq!(body["reasoning_effort"], "high");
     }
 
     #[test]
     fn reasoning_effort_omitted_when_unset() {
-        let request = ChatRequest::new(
-            agentyk_core::driver::ModelSpec::openai("gpt-5.5"),
-            vec![Message::user("hi")],
-        );
-        let body = build_body(&request);
+        let body = OpenAiDriver::new().build_body(&request(ModelSpec::openai("gpt-5.5")));
         assert!(body.get("reasoning_effort").is_none());
     }
 
@@ -508,122 +407,61 @@ mod tests {
     }
 
     #[test]
-    fn sse_data_line_parsing() {
-        assert_eq!(parse_sse_data_line("data: {\"a\":1}"), Some("{\"a\":1}"));
-        assert_eq!(parse_sse_data_line("data:{\"a\":1}"), Some("{\"a\":1}"));
-        assert_eq!(parse_sse_data_line("data: [DONE]"), None);
-        assert_eq!(parse_sse_data_line(""), None);
-        assert_eq!(parse_sse_data_line("event: message"), None);
-        assert_eq!(parse_sse_data_line(": comment"), None);
-    }
-
-    #[test]
-    fn drain_lines_keeps_trailing_partial_line() {
-        let mut buffer = "line one\nline tw".to_string();
-        let lines = drain_lines(&mut buffer);
-        assert_eq!(lines, vec!["line one".to_string()]);
-        assert_eq!(buffer, "line tw");
-
-        buffer.push_str("o\n");
-        let lines = drain_lines(&mut buffer);
-        assert_eq!(lines, vec!["line two".to_string()]);
-        assert_eq!(buffer, "");
-    }
-
-    #[test]
-    fn stream_accumulator_assembles_text_deltas() {
-        let mut acc = StreamAccumulator::default();
-        assert_eq!(
-            acc.apply_delta(&json!({"content": "Hel"})),
-            Some("Hel".to_string())
-        );
-        assert_eq!(
-            acc.apply_delta(&json!({"content": "lo"})),
-            Some("lo".to_string())
-        );
-        assert_eq!(acc.apply_delta(&json!({})), None);
-        let message = acc.into_message();
-        assert_eq!(message.text(), "Hello");
-        assert!(message.tool_calls.is_empty());
-    }
-
-    #[test]
-    fn stream_accumulator_assembles_tool_call_fragments_by_index() {
-        let mut acc = StreamAccumulator::default();
-        acc.apply_delta(&json!({
-            "tool_calls": [{"index": 0, "id": "call_0", "function": {"name": "add", "arguments": ""}}]
-        }));
-        acc.apply_delta(&json!({
-            "tool_calls": [{"index": 0, "function": {"arguments": "{\"a\":"}}]
-        }));
-        acc.apply_delta(&json!({
-            "tool_calls": [{"index": 0, "function": {"arguments": "1}"}}]
-        }));
-        let message = acc.into_message();
-        assert_eq!(message.tool_calls.len(), 1);
-        assert_eq!(message.tool_calls[0].id, "call_0");
-        assert_eq!(message.tool_calls[0].name, "add");
-        assert_eq!(message.tool_calls[0].arguments, json!({"a": 1}));
+    fn parse_response_reads_content_calls_and_usage() {
+        let payload = json!({
+            "choices": [{"message": {
+                "content": "done",
+                "tool_calls": [{"id": "c1", "function": {"name": "add", "arguments": "{\"a\":1}"}}],
+            }}],
+            "usage": {"prompt_tokens": 5, "completion_tokens": 9},
+        });
+        let response = OpenAiDriver::new().parse_response(&payload);
+        assert_eq!(response.message.text(), "done");
+        assert_eq!(response.message.tool_calls[0].arguments, json!({"a": 1}));
+        assert_eq!(response.usage, Usage::new(5, 9));
     }
 
     #[tokio::test]
-    async fn complete_streaming_reports_deltas_and_returns_final_message() {
-        use agentyk_core::error::Result as CoreResult;
+    async fn streaming_reports_deltas_and_returns_the_final_message() {
+        let mut sink = RecordingSink::default();
+        let response = drive_stream::<OpenAiStream>(
+            &[
+                "data: {\"choices\":[{\"delta\":{\"content\":\"Hel\"}}]}\n",
+                // Split mid-line, to prove reassembly through the real loop.
+                "data: {\"choices\":[{\"delta\":{\"conte",
+                "nt\":\"lo\"}}]}\n",
+                "data: {\"choices\":[{\"delta\":{}}],\"usage\":{\"prompt_tokens\":3,\"completion_tokens\":2}}\n",
+                "data: [DONE]\n",
+            ],
+            &mut sink,
+        )
+        .await
+        .unwrap();
 
-        struct RecordingSink {
-            deltas: Vec<(String, String)>,
-        }
-        #[async_trait]
-        impl DeltaSink for RecordingSink {
-            async fn delta(&mut self, delta: &str, accumulated: &str) -> CoreResult<()> {
-                self.deltas
-                    .push((delta.to_string(), accumulated.to_string()));
-                Ok(())
-            }
-        }
+        assert_eq!(sink.deltas, vec!["Hel", "lo"]);
+        assert_eq!(sink.accumulated, vec!["Hel", "Hello"]);
+        assert_eq!(response.message.text(), "Hello");
+        assert_eq!(response.usage, Usage::new(3, 2));
+    }
 
-        // Simulate SSE chunk-by-chunk delivery straight through the parsing
-        // path used by `complete_streaming`, without a live network call.
-        let sse_body = concat!(
-            "data: {\"choices\":[{\"delta\":{\"content\":\"Hel\"}}]}\n",
-            "data: {\"choices\":[{\"delta\":{\"content\":\"lo\"}}]}\n",
-            "data: {\"choices\":[{\"delta\":{}}],\"usage\":{\"prompt_tokens\":3,\"completion_tokens\":2}}\n",
-            "data: [DONE]\n",
-        );
+    #[tokio::test]
+    async fn streaming_assembles_tool_call_fragments_by_index() {
+        let mut sink = RecordingSink::default();
+        let response = drive_stream::<OpenAiStream>(
+            &[
+                "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_0\",\"function\":{\"name\":\"add\",\"arguments\":\"\"}}]}}]}\n",
+                "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"{\\\"a\\\":\"}}]}}]}\n",
+                "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"1}\"}}]}}]}\n",
+            ],
+            &mut sink,
+        )
+        .await
+        .unwrap();
 
-        let mut sink = RecordingSink { deltas: Vec::new() };
-        let mut buffer = String::new();
-        let mut accumulator = StreamAccumulator::default();
-        let mut usage = Usage::default();
-        buffer.push_str(sse_body);
-        for line in drain_lines(&mut buffer) {
-            let Some(data) = parse_sse_data_line(&line) else {
-                continue;
-            };
-            let payload: Value = serde_json::from_str(data).unwrap();
-            if let Some(delta) = payload["choices"][0]["delta"].as_object() {
-                let delta = Value::Object(delta.clone());
-                if let Some(text) = accumulator.apply_delta(&delta) {
-                    sink.delta(&text, &accumulator.content).await.unwrap();
-                }
-            }
-            if payload.get("usage").is_some_and(|u| !u.is_null()) {
-                usage = Usage::new(
-                    payload["usage"]["prompt_tokens"].as_u64().unwrap_or(0),
-                    payload["usage"]["completion_tokens"].as_u64().unwrap_or(0),
-                );
-            }
-        }
-
-        assert_eq!(
-            sink.deltas,
-            vec![
-                ("Hel".to_string(), "Hel".to_string()),
-                ("lo".to_string(), "Hello".to_string()),
-            ]
-        );
-        assert_eq!(accumulator.into_message().text(), "Hello");
-        assert_eq!(usage.input_tokens, 3);
-        assert_eq!(usage.output_tokens, 2);
+        assert!(sink.deltas.is_empty(), "tool JSON is not answer text");
+        assert_eq!(response.message.tool_calls.len(), 1);
+        assert_eq!(response.message.tool_calls[0].id, "call_0");
+        assert_eq!(response.message.tool_calls[0].name, "add");
+        assert_eq!(response.message.tool_calls[0].arguments, json!({"a": 1}));
     }
 }
