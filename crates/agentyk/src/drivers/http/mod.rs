@@ -22,17 +22,44 @@ use sse::SseDecoder;
 
 /// Folds a provider's streaming events into the same [`ChatResponse`] its
 /// non-streaming endpoint would return.
+///
+/// Implementations deserialize `data` into their own typed event enum rather
+/// than indexing a `Value`, so a renamed field is a parse failure with a
+/// field name and position in it, not silently-missing text.
 pub(crate) trait StreamAccumulator: Default {
-    /// Apply one decoded SSE payload. Returns the text increment to forward
+    /// Apply one SSE `data:` payload. Returns the text increment to forward
     /// to the [`DeltaSink`], if this event produced one — reasoning/thinking
     /// deltas and bookkeeping events return `None`.
-    fn apply(&mut self, payload: &Value) -> Option<String>;
+    ///
+    /// Returns `Err` only for a payload this provider should have
+    /// understood; unknown *event types* are expected (providers add them) and
+    /// must deserialize to an ignored variant instead.
+    fn apply(&mut self, data: &str) -> Result<Option<String>>;
+
+    /// Whether this payload marks the end of the stream rather than an event
+    /// — OpenAI's `[DONE]`, which is not JSON and must not be parsed as one.
+    fn is_terminator(_data: &str) -> bool {
+        false
+    }
 
     /// The answer text accumulated so far, for the sink's `accumulated`
     /// argument.
     fn text(&self) -> &str;
 
     fn finish(self) -> ChatResponse;
+}
+
+/// Deserialize one wire payload, turning a decode failure into a driver error
+/// that names the provider. Serde's message carries the offending field and
+/// position, which is the whole point of typing these.
+pub(crate) fn decode<T: serde::de::DeserializeOwned>(label: &str, body: &str) -> Result<T> {
+    serde_json::from_str(body).map_err(|e| {
+        Error::driver(
+            LlmErrorKind::Unknown,
+            // Deliberately no body echo: it holds the conversation.
+            format!("{label} response did not match the expected shape: {e}"),
+        )
+    })
 }
 
 /// One provider's wire protocol.
@@ -61,7 +88,10 @@ pub(crate) trait HttpProvider: Send + Sync {
     /// Turn on streaming in a body from [`Self::build_body`].
     fn enable_streaming(&self, body: &mut Value);
 
-    fn parse_response(&self, payload: &Value) -> ChatResponse;
+    /// Read a non-streaming response body. Returns an error when the body
+    /// does not match the shape this driver depends on — the alternative is
+    /// handing the model an empty message and no way to tell why.
+    fn parse_response(&self, body: &str) -> Result<ChatResponse>;
 
     /// Map an HTTP status to a retryability class. The default covers the
     /// common codes; override to add provider-specific ones (Anthropic's 529).
@@ -137,13 +167,11 @@ pub(crate) async fn complete<P: HttpProvider>(
 ) -> Result<ChatResponse> {
     let body = provider.build_body(&request);
     let response = send(provider, client, &request.model, &body).await?;
-    let payload: Value = response.json().await.map_err(|e| {
-        Error::driver(
-            LlmErrorKind::Unknown,
-            format!("{} response decode failed: {e}", provider.label()),
-        )
-    })?;
-    Ok(provider.parse_response(&payload))
+    let text = response
+        .text()
+        .await
+        .map_err(|e| network_error(provider.label(), "response body could not be read", &e))?;
+    provider.parse_response(&text)
 }
 
 /// One streaming completion: forwards text increments to `sink` as they
@@ -187,7 +215,10 @@ async fn pump<A: StreamAccumulator>(
     sink: &mut dyn DeltaSink,
 ) -> Result<()> {
     for payload in decoder.push(chunk) {
-        if let Some(delta) = accumulator.apply(&payload) {
+        if A::is_terminator(&payload) {
+            continue;
+        }
+        if let Some(delta) = accumulator.apply(&payload)? {
             sink.delta(&delta, accumulator.text()).await?;
         }
     }

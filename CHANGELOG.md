@@ -19,6 +19,31 @@ release — every release bumps the patch component (`0.1.z`). See
   carrying the original payload. Replay stays sufficient to resume a session
   across versions, which is the point of the persistence seam.
 
+### Changed — provider wire types are typed, so a shape change is diagnosable
+
+- **Both drivers deserialize provider payloads into typed structs** instead of
+  indexing a `serde_json::Value` with `.unwrap_or_default()`. A renamed or
+  missing field used to produce an empty assistant message with nothing to
+  debug; it now produces
+  `anthropic response did not match the expected shape: missing field 'content' at line 1 column 42`.
+  The error is classified non-retryable, because replaying the same request
+  cannot fix a shape change.
+- Typed **both** paths, not just the non-streaming one — `complete_streaming`
+  is what the default executor actually calls, so that is where a silent empty
+  message was most likely.
+- Tolerant where tolerance is right, strict where it is not: unknown *event
+  types* and unknown *content-block types* deserialize to an ignored variant
+  (providers add them routinely), while a known block or event whose fields
+  changed fails. An empty OpenAI `choices` array is now an error rather than a
+  blank turn.
+- Error messages deliberately do not echo the response body — it holds the
+  conversation. Serde's field name and position are enough to diagnose.
+- `SseDecoder` yields raw `data:` payloads; decoding belongs to the
+  accumulator, which is the only thing that knows the expected shape.
+  OpenAI's `[DONE]` is recognized by `StreamAccumulator::is_terminator`
+  instead of being silently swallowed as "not JSON".
+- `serde` became an optional dependency of `agentyk`, enabled by `http`.
+
 ### Changed — module layout and an explicit public surface
 
 - **`agentyk-core`'s files are grouped** into `protocol/` (event, event_log,

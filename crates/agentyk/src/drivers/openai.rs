@@ -5,15 +5,16 @@
 //! framing live in the crate-internal `drivers::http` layer.
 
 use async_trait::async_trait;
+use serde::Deserialize;
 use serde_json::{Value, json};
 
 use agentyk_core::driver::{
     ChatDriver, ChatRequest, ChatResponse, DeltaSink, DriverId, ModelSpec, Usage,
 };
-use agentyk_core::error::Result;
+use agentyk_core::error::{Error, LlmErrorKind, Result};
 use agentyk_core::message::{ContentPart, Message, Role, ToolCall};
 
-use super::http::{self, HttpProvider, StreamAccumulator};
+use super::http::{self, HttpProvider, StreamAccumulator, decode};
 
 const DEFAULT_BASE_URL: &str = "https://api.openai.com/v1";
 
@@ -130,30 +131,72 @@ pub(crate) fn parse_tool_call_arguments(raw: &Value) -> Value {
     }
 }
 
-fn tool_calls_from_choice(choice: &Value) -> Vec<ToolCall> {
-    choice["tool_calls"]
-        .as_array()
-        .map(|calls| {
-            calls
-                .iter()
-                .map(|c| ToolCall {
-                    id: c["id"].as_str().unwrap_or_default().to_string(),
-                    name: c["function"]["name"]
-                        .as_str()
-                        .unwrap_or_default()
-                        .to_string(),
-                    arguments: parse_tool_call_arguments(&c["function"]["arguments"]),
-                })
-                .collect()
-        })
-        .unwrap_or_default()
+#[derive(Debug, Default, Deserialize)]
+struct WireUsage {
+    #[serde(default)]
+    prompt_tokens: u64,
+    #[serde(default)]
+    completion_tokens: u64,
 }
 
-fn usage_from(payload: &Value) -> Usage {
-    Usage::new(
-        payload["usage"]["prompt_tokens"].as_u64().unwrap_or(0),
-        payload["usage"]["completion_tokens"].as_u64().unwrap_or(0),
-    )
+impl From<WireUsage> for Usage {
+    fn from(usage: WireUsage) -> Self {
+        Usage::new(usage.prompt_tokens, usage.completion_tokens)
+    }
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct WireFunction {
+    #[serde(default)]
+    name: String,
+    /// A JSON *string*, not an object — whole on the non-streaming path,
+    /// fragmented on the streaming one.
+    #[serde(default)]
+    arguments: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct WireToolCall {
+    #[serde(default)]
+    id: String,
+    #[serde(default)]
+    function: WireFunction,
+}
+
+impl From<WireToolCall> for ToolCall {
+    fn from(call: WireToolCall) -> Self {
+        ToolCall {
+            id: call.id,
+            name: call.function.name,
+            arguments: parse_tool_call_arguments(&Value::String(call.function.arguments)),
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct ChoiceMessage {
+    /// `null` when the model only asked for tools.
+    #[serde(default)]
+    content: Option<String>,
+    #[serde(default)]
+    tool_calls: Vec<WireToolCall>,
+}
+
+#[derive(Debug, Deserialize)]
+struct Choice {
+    message: ChoiceMessage,
+}
+
+/// A non-streaming Chat Completions response.
+///
+/// `choices` is required, and an empty one is an error rather than an empty
+/// answer: a completion with nowhere to read the reply from is a failure the
+/// caller should see, not a blank turn.
+#[derive(Debug, Deserialize)]
+struct ChatCompletion {
+    choices: Vec<Choice>,
+    #[serde(default)]
+    usage: WireUsage,
 }
 
 #[derive(Default)]
@@ -161,6 +204,41 @@ struct PartialToolCall {
     id: String,
     name: String,
     arguments: String,
+}
+
+/// One streaming chunk. Every field is optional because a chunk carries
+/// either deltas or the trailing usage report, never necessarily both.
+#[derive(Debug, Deserialize)]
+struct StreamChunk {
+    #[serde(default)]
+    choices: Vec<StreamChoice>,
+    #[serde(default)]
+    usage: Option<WireUsage>,
+}
+
+#[derive(Debug, Deserialize)]
+struct StreamChoice {
+    #[serde(default)]
+    delta: StreamDelta,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct StreamDelta {
+    #[serde(default)]
+    content: Option<String>,
+    #[serde(default)]
+    tool_calls: Vec<StreamToolCall>,
+}
+
+#[derive(Debug, Deserialize)]
+struct StreamToolCall {
+    /// Which call in the batch this fragment belongs to.
+    #[serde(default)]
+    index: usize,
+    #[serde(default)]
+    id: Option<String>,
+    #[serde(default)]
+    function: Option<WireFunction>,
 }
 
 /// Accumulates a Chat Completions streaming response: `delta.content`
@@ -175,41 +253,46 @@ pub(crate) struct OpenAiStream {
 }
 
 impl StreamAccumulator for OpenAiStream {
-    fn apply(&mut self, payload: &Value) -> Option<String> {
+    fn apply(&mut self, data: &str) -> Result<Option<String>> {
+        let chunk: StreamChunk = decode("openai", data)?;
+
         // Usage rides the same stream as the deltas (with
         // `stream_options.include_usage`), typically on a final chunk whose
         // `choices` array is empty.
-        if payload.get("usage").is_some_and(|u| !u.is_null()) {
-            self.usage = usage_from(payload);
+        if let Some(usage) = chunk.usage {
+            self.usage = usage.into();
         }
 
-        let delta = &payload["choices"][0]["delta"];
+        let Some(choice) = chunk.choices.into_iter().next() else {
+            return Ok(None);
+        };
+
         let mut text_delta = None;
-        if let Some(content) = delta["content"].as_str()
+        if let Some(content) = choice.delta.content
             && !content.is_empty()
         {
-            self.content.push_str(content);
-            text_delta = Some(content.to_string());
+            self.content.push_str(&content);
+            text_delta = Some(content);
         }
-        if let Some(calls) = delta["tool_calls"].as_array() {
-            for call in calls {
-                let index = call["index"].as_u64().unwrap_or(0) as usize;
-                while self.tool_calls.len() <= index {
-                    self.tool_calls.push(PartialToolCall::default());
-                }
-                let entry = &mut self.tool_calls[index];
-                if let Some(id) = call["id"].as_str() {
-                    entry.id.push_str(id);
-                }
-                if let Some(name) = call["function"]["name"].as_str() {
-                    entry.name.push_str(name);
-                }
-                if let Some(args) = call["function"]["arguments"].as_str() {
-                    entry.arguments.push_str(args);
-                }
+        for call in choice.delta.tool_calls {
+            while self.tool_calls.len() <= call.index {
+                self.tool_calls.push(PartialToolCall::default());
+            }
+            let entry = &mut self.tool_calls[call.index];
+            if let Some(id) = call.id {
+                entry.id.push_str(&id);
+            }
+            if let Some(function) = call.function {
+                entry.name.push_str(&function.name);
+                entry.arguments.push_str(&function.arguments);
             }
         }
-        text_delta
+        Ok(text_delta)
+    }
+
+    /// `[DONE]` closes an OpenAI stream and is not JSON.
+    fn is_terminator(data: &str) -> bool {
+        data == "[DONE]"
     }
 
     fn text(&self) -> &str {
@@ -308,13 +391,25 @@ impl HttpProvider for OpenAiDriver {
         body["stream_options"] = json!({"include_usage": true});
     }
 
-    fn parse_response(&self, payload: &Value) -> ChatResponse {
-        let choice = &payload["choices"][0]["message"];
-        let content = choice["content"].as_str().unwrap_or_default().to_string();
-        ChatResponse::new(
-            Message::assistant_with_calls(content, tool_calls_from_choice(choice)),
-            usage_from(payload),
-        )
+    fn parse_response(&self, body: &str) -> Result<ChatResponse> {
+        let response: ChatCompletion = decode(self.label(), body)?;
+        let usage = Usage::from(response.usage);
+        let choice = response.choices.into_iter().next().ok_or_else(|| {
+            Error::driver(
+                LlmErrorKind::Unknown,
+                "openai returned a completion with no choices",
+            )
+        })?;
+        let message = Message::assistant_with_calls(
+            choice.message.content.unwrap_or_default(),
+            choice
+                .message
+                .tool_calls
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+        );
+        Ok(ChatResponse::new(message, usage))
     }
 }
 
@@ -415,10 +510,34 @@ mod tests {
             }}],
             "usage": {"prompt_tokens": 5, "completion_tokens": 9},
         });
-        let response = OpenAiDriver::new().parse_response(&payload);
+        let response = OpenAiDriver::new()
+            .parse_response(&payload.to_string())
+            .unwrap();
         assert_eq!(response.message.text(), "done");
         assert_eq!(response.message.tool_calls[0].arguments, json!({"a": 1}));
         assert_eq!(response.usage, Usage::new(5, 9));
+    }
+
+    /// A completion with nowhere to read the reply from is a failure the
+    /// caller should see, not a blank turn.
+    #[test]
+    fn parse_response_reports_an_empty_choices_array() {
+        let payload = json!({"choices": []}).to_string();
+        let error = OpenAiDriver::new().parse_response(&payload).unwrap_err();
+        assert!(error.to_string().contains("no choices"), "{error}");
+    }
+
+    #[test]
+    fn parse_response_reports_a_changed_shape_instead_of_returning_nothing() {
+        let payload = json!({"completions": [{"message": {"content": "hi"}}]}).to_string();
+        let error = OpenAiDriver::new().parse_response(&payload).unwrap_err();
+        let message = error.to_string();
+        assert!(
+            message.contains("did not match the expected shape"),
+            "{message}"
+        );
+        assert!(message.contains("choices"), "{message}");
+        assert!(!error.is_retryable());
     }
 
     #[tokio::test]

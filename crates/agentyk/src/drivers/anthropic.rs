@@ -6,6 +6,7 @@
 use std::collections::HashMap;
 
 use async_trait::async_trait;
+use serde::Deserialize;
 use serde_json::{Value, json};
 
 use agentyk_core::driver::{
@@ -14,7 +15,7 @@ use agentyk_core::driver::{
 use agentyk_core::error::{Error, LlmErrorKind, Result};
 use agentyk_core::message::{ContentPart, Message, Role, ToolCall};
 
-use super::http::{self, HttpProvider, StreamAccumulator};
+use super::http::{self, HttpProvider, StreamAccumulator, decode};
 
 const DEFAULT_BASE_URL: &str = "https://api.anthropic.com";
 const API_VERSION: &str = "2023-06-01";
@@ -130,34 +131,86 @@ pub(crate) fn to_wire_messages(messages: &[Message]) -> Vec<Value> {
     wire
 }
 
-/// Parse a non-streaming Messages response body into an assistant [`Message`]:
-/// concatenated `text`, `tool_use` blocks, and any extended-thinking block
-/// (kept on `Message::thinking`/`thinking_signature` so it round-trips).
-pub(crate) fn parse_message(payload: &Value) -> Message {
+/// One block of a Messages response's `content` array.
+///
+/// Unknown block *types* deserialize to [`ContentBlock::Other`] rather than
+/// failing: Anthropic adds block types (`redacted_thinking`,
+/// `server_tool_use`, …) and a response carrying one is still perfectly
+/// usable. A known block whose *fields* changed does fail, which is the
+/// distinction worth having — that is the case that would otherwise hand the
+/// model an empty message.
+#[derive(Debug, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+enum ContentBlock {
+    Text {
+        text: String,
+    },
+    Thinking {
+        thinking: String,
+        #[serde(default)]
+        signature: Option<String>,
+    },
+    ToolUse {
+        id: String,
+        name: String,
+        input: Value,
+    },
+    #[serde(other)]
+    Other,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct WireUsage {
+    #[serde(default)]
+    input_tokens: u64,
+    #[serde(default)]
+    output_tokens: u64,
+}
+
+impl From<WireUsage> for Usage {
+    fn from(usage: WireUsage) -> Self {
+        Usage::new(usage.input_tokens, usage.output_tokens)
+    }
+}
+
+/// A non-streaming Messages response.
+///
+/// `content` is required: its absence means the shape we depend on has
+/// changed, and reporting that beats returning a blank answer. `usage` is
+/// defaulted, because losing token counts is a reporting gap, not a wrong
+/// answer.
+#[derive(Debug, Deserialize)]
+struct MessagesResponse {
+    content: Vec<ContentBlock>,
+    #[serde(default)]
+    usage: WireUsage,
+}
+
+/// Fold content blocks into an assistant [`Message`]: concatenated text,
+/// `tool_use` blocks, and any extended-thinking block (kept on
+/// `thinking`/`thinking_signature` so it round-trips to the provider).
+fn message_from_blocks(blocks: Vec<ContentBlock>) -> Message {
     let mut text = String::new();
-    let mut thinking: Option<String> = None;
-    let mut signature: Option<String> = None;
+    let mut thinking: Option<(String, Option<String>)> = None;
     let mut tool_calls = Vec::new();
-    if let Some(blocks) = payload["content"].as_array() {
-        for block in blocks {
-            match block["type"].as_str() {
-                Some("text") => text.push_str(block["text"].as_str().unwrap_or_default()),
-                Some("thinking") => {
-                    thinking = Some(block["thinking"].as_str().unwrap_or_default().to_string());
-                    signature = block["signature"].as_str().map(str::to_string);
-                }
-                Some("tool_use") => tool_calls.push(ToolCall {
-                    id: block["id"].as_str().unwrap_or_default().to_string(),
-                    name: block["name"].as_str().unwrap_or_default().to_string(),
-                    arguments: block["input"].clone(),
-                }),
-                _ => {}
-            }
+    for block in blocks {
+        match block {
+            ContentBlock::Text { text: part } => text.push_str(&part),
+            ContentBlock::Thinking {
+                thinking: part,
+                signature,
+            } => thinking = Some((part, signature)),
+            ContentBlock::ToolUse { id, name, input } => tool_calls.push(ToolCall {
+                id,
+                name,
+                arguments: input,
+            }),
+            ContentBlock::Other => {}
         }
     }
     let message = Message::assistant_with_calls(text, tool_calls);
     match thinking {
-        Some(thinking) => message.with_thinking(thinking, signature),
+        Some((thinking, signature)) => message.with_thinking(thinking, signature),
         None => message,
     }
 }
@@ -168,6 +221,69 @@ struct PartialBlock {
     tool_id: String,
     tool_name: String,
     json_fragments: String,
+}
+
+/// One streaming event. Unknown event types and unknown delta types
+/// deserialize to `Other` — Anthropic adds both — while a known one that
+/// changed shape fails loudly.
+#[derive(Debug, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+enum StreamEvent {
+    MessageStart {
+        message: StreamMessageStart,
+    },
+    ContentBlockStart {
+        #[serde(default)]
+        index: u64,
+        content_block: StreamBlockStart,
+    },
+    ContentBlockDelta {
+        #[serde(default)]
+        index: u64,
+        delta: StreamDelta,
+    },
+    MessageDelta {
+        #[serde(default)]
+        usage: WireUsage,
+    },
+    #[serde(other)]
+    Other,
+}
+
+#[derive(Debug, Deserialize)]
+struct StreamMessageStart {
+    #[serde(default)]
+    usage: WireUsage,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+enum StreamBlockStart {
+    ToolUse {
+        id: String,
+        name: String,
+    },
+    #[serde(other)]
+    Other,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+enum StreamDelta {
+    TextDelta {
+        text: String,
+    },
+    InputJsonDelta {
+        partial_json: String,
+    },
+    ThinkingDelta {
+        thinking: String,
+    },
+    SignatureDelta {
+        signature: String,
+    },
+    #[serde(other)]
+    Other,
 }
 
 /// Accumulates a Messages API streaming response across
@@ -186,72 +302,60 @@ pub(crate) struct AnthropicStream {
 }
 
 impl StreamAccumulator for AnthropicStream {
-    fn apply(&mut self, payload: &Value) -> Option<String> {
-        match payload["type"].as_str() {
-            Some("message_start") => {
-                self.usage.input_tokens = payload["message"]["usage"]["input_tokens"]
-                    .as_u64()
-                    .unwrap_or(0);
+    fn apply(&mut self, data: &str) -> Result<Option<String>> {
+        let event: StreamEvent = decode("anthropic", data)?;
+        Ok(match event {
+            StreamEvent::MessageStart { message } => {
+                self.usage.input_tokens = message.usage.input_tokens;
                 None
             }
-            Some("content_block_start") => {
-                let index = payload["index"].as_u64().unwrap_or(0);
-                let block = payload["content_block"].clone();
-                if block["type"].as_str() == Some("tool_use") {
-                    self.blocks.insert(
-                        index,
-                        PartialBlock {
-                            is_tool_use: true,
-                            tool_id: block["id"].as_str().unwrap_or_default().to_string(),
-                            tool_name: block["name"].as_str().unwrap_or_default().to_string(),
-                            json_fragments: String::new(),
-                        },
-                    );
+            StreamEvent::ContentBlockStart {
+                index,
+                content_block: StreamBlockStart::ToolUse { id, name },
+            } => {
+                self.blocks.insert(
+                    index,
+                    PartialBlock {
+                        is_tool_use: true,
+                        tool_id: id,
+                        tool_name: name,
+                        json_fragments: String::new(),
+                    },
+                );
+                None
+            }
+            StreamEvent::ContentBlockDelta { index, delta } => match delta {
+                StreamDelta::TextDelta { text } => {
+                    self.text.push_str(&text);
+                    Some(text)
+                }
+                StreamDelta::InputJsonDelta { partial_json } => {
+                    self.blocks
+                        .entry(index)
+                        .or_default()
+                        .json_fragments
+                        .push_str(&partial_json);
+                    None
+                }
+                // Reasoning: accumulate, but don't surface as answer text.
+                StreamDelta::ThinkingDelta { thinking } => {
+                    self.thinking.push_str(&thinking);
+                    None
+                }
+                StreamDelta::SignatureDelta { signature } => {
+                    self.thinking_signature = Some(signature);
+                    None
+                }
+                StreamDelta::Other => None,
+            },
+            StreamEvent::MessageDelta { usage } => {
+                if usage.output_tokens > 0 {
+                    self.usage.output_tokens = usage.output_tokens;
                 }
                 None
             }
-            Some("content_block_delta") => {
-                let index = payload["index"].as_u64().unwrap_or(0);
-                match payload["delta"]["type"].as_str() {
-                    Some("text_delta") => {
-                        let text = payload["delta"]["text"].as_str().unwrap_or_default();
-                        self.text.push_str(text);
-                        Some(text.to_string())
-                    }
-                    Some("input_json_delta") => {
-                        let fragment = payload["delta"]["partial_json"]
-                            .as_str()
-                            .unwrap_or_default();
-                        self.blocks
-                            .entry(index)
-                            .or_default()
-                            .json_fragments
-                            .push_str(fragment);
-                        None
-                    }
-                    // Reasoning: accumulate, but don't surface as answer text.
-                    Some("thinking_delta") => {
-                        self.thinking
-                            .push_str(payload["delta"]["thinking"].as_str().unwrap_or_default());
-                        None
-                    }
-                    Some("signature_delta") => {
-                        if let Some(sig) = payload["delta"]["signature"].as_str() {
-                            self.thinking_signature = Some(sig.to_string());
-                        }
-                        None
-                    }
-                    _ => None,
-                }
-            }
-            Some("message_delta") => {
-                if let Some(tokens) = payload["usage"]["output_tokens"].as_u64() {
-                    self.usage.output_tokens = tokens;
-                }
-                None
-            }
-            _ => None,
-        }
+            StreamEvent::ContentBlockStart { .. } | StreamEvent::Other => None,
+        })
     }
 
     fn text(&self) -> &str {
@@ -368,14 +472,12 @@ impl HttpProvider for AnthropicDriver {
         body["stream"] = json!(true);
     }
 
-    fn parse_response(&self, payload: &Value) -> ChatResponse {
-        ChatResponse::new(
-            parse_message(payload),
-            Usage::new(
-                payload["usage"]["input_tokens"].as_u64().unwrap_or(0),
-                payload["usage"]["output_tokens"].as_u64().unwrap_or(0),
-            ),
-        )
+    fn parse_response(&self, body: &str) -> Result<ChatResponse> {
+        let MessagesResponse { content, usage } = decode(self.label(), body)?;
+        Ok(ChatResponse::new(
+            message_from_blocks(content),
+            usage.into(),
+        ))
     }
 
     /// 529 is Anthropic's own "overloaded" code, on top of the generic 503.
@@ -538,8 +640,9 @@ mod tests {
                 {"type": "tool_use", "id": "t1", "name": "add", "input": {"a": 1}},
             ],
             "usage": {"input_tokens": 11, "output_tokens": 3},
-        });
-        let response = AnthropicDriver::new().parse_response(&payload);
+        })
+        .to_string();
+        let response = AnthropicDriver::new().parse_response(&payload).unwrap();
         assert_eq!(response.message.text(), "done");
         assert_eq!(response.message.thinking.as_deref(), Some("let me see"));
         assert_eq!(
@@ -548,6 +651,70 @@ mod tests {
         );
         assert_eq!(response.message.tool_calls.len(), 1);
         assert_eq!(response.usage, Usage::new(11, 3));
+    }
+
+    /// An unrecognized block type is expected — Anthropic adds them — and
+    /// must not cost us the rest of the response.
+    #[test]
+    fn parse_response_ignores_unknown_block_types() {
+        let payload = json!({
+            "content": [
+                {"type": "server_tool_use", "id": "s1", "name": "web_search"},
+                {"type": "text", "text": "answer"},
+            ],
+        })
+        .to_string();
+        let response = AnthropicDriver::new().parse_response(&payload).unwrap();
+        assert_eq!(response.message.text(), "answer");
+    }
+
+    /// The case this typing exists for: a shape we depend on changing now
+    /// names the problem instead of handing the model a blank message.
+    #[test]
+    fn parse_response_reports_a_changed_shape_instead_of_returning_nothing() {
+        // `content` renamed by a future API version.
+        let payload = json!({"blocks": [{"type": "text", "text": "hi"}]}).to_string();
+        let error = AnthropicDriver::new().parse_response(&payload).unwrap_err();
+        let message = error.to_string();
+        assert!(
+            message.contains("did not match the expected shape"),
+            "{message}"
+        );
+        assert!(message.contains("content"), "{message}");
+        // Not retryable: replaying the same request cannot fix a shape change.
+        assert!(!error.is_retryable());
+    }
+
+    /// A text block missing its `text` is a real decode failure, not an
+    /// unknown-type case, and is reported as one.
+    #[test]
+    fn parse_response_reports_a_known_block_with_missing_fields() {
+        let payload = json!({"content": [{"type": "text"}]}).to_string();
+        let error = AnthropicDriver::new().parse_response(&payload).unwrap_err();
+        assert!(error.to_string().contains("text"), "{error}");
+    }
+
+    #[tokio::test]
+    async fn streaming_ignores_unknown_event_types_but_reports_broken_known_ones() {
+        let mut sink = RecordingSink::default();
+        // An unknown event type passes through harmlessly...
+        let response = drive_stream::<AnthropicStream>(
+            &["data: {\"type\":\"ping\"}\n", "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"ok\"}}\n"],
+            &mut sink,
+        )
+        .await
+        .unwrap();
+        assert_eq!(response.message.text(), "ok");
+
+        // ...while a known event whose shape changed is surfaced.
+        let mut sink = RecordingSink::default();
+        let error = drive_stream::<AnthropicStream>(
+            &["data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\"}}\n"],
+            &mut sink,
+        )
+        .await
+        .unwrap_err();
+        assert!(error.to_string().contains("text"), "{error}");
     }
 
     #[tokio::test]

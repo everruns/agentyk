@@ -26,6 +26,8 @@ tracing = { workspace = true }
 # lean rather than lean-by-documentation.
 tokio = { workspace = true, optional = true }
 reqwest = { workspace = true, optional = true, features = ["stream"] }
+# Only the HTTP drivers deserialize provider wire types.
+serde = { workspace = true, optional = true }
 futures-util = { version = "0.3", optional = true, default-features = false }
 
 [features]
@@ -34,7 +36,7 @@ futures-util = { version = "0.3", optional = true, default-features = false }
 # Applications opt into capability surface explicitly (or take `full`).
 default = []
 # OpenAI-compatible and Anthropic HTTP drivers, streaming included.
-http = ["dep:reqwest", "dep:futures-util"]
+http = ["dep:reqwest", "dep:futures-util", "dep:serde"]
 # MCP stdio client + capability. Spawns and talks to a child process.
 mcp = ["dep:tokio", "tokio/rt", "tokio/process", "tokio/io-util", "tokio/sync", "tokio/time"]
 # FileSystemCapability + RealDisk/InMemory stores.
