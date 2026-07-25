@@ -25,7 +25,7 @@ release — every release bumps the patch component (`0.1.z`). See
 All fields are additive and serde-optional, so plain messages/tools/events
 serialize as before and pre-0.1.1 logs still load. Behavior (mutating/approval
 hooks, parallel dispatch) is deliberately left to a satellite `TurnExecutor` —
-see [`docs/extensibility.md`](docs/extensibility.md).
+see [`specs/extensibility.md`](specs/extensibility.md).
 
 - **`codenko` example** (`examples/codenko`, `publish = false`): a terminal
   coding agent built on the public contract — `FileSystemCapability` plus a
@@ -63,12 +63,23 @@ see [`docs/extensibility.md`](docs/extensibility.md).
   every turn and can cap replayed history (`keep_last`), showing everruns-style
   memory + compaction shape *what the turn sends* over the existing seam while
   the untrimmed history stays in the event log. No core change.
+- **`agentyk-everruns-poc` richer narration**: the `EverrunsExecutor` now emits
+  its tool risk hints and pre-run redactions as `EventData::Custom` events
+  (`tool.hint` / `tool.rewritten`), and `NarrationListener` renders them
+  (`🔎`/`⚠`/`✎`) plus provider extended thinking (`💭`, from `Message.thinking`)
+  — the everruns transcript's richer signal, still a pure event observer with no
+  core variant. The `transcript` example shows the upgraded output.
 
 ### Changed
 
 - `TurnState::on_reason_started` now takes `&mut self` (allocates the reason
   step's `message_id`); the `output.message.*` event variants gained a
   `message_id` field. Internal — the `run`/executor API is unchanged.
+- **Docs → specs.** The internal design docs (`plan`, `everruns-adoption`,
+  `extensibility`) moved out of `docs/` into `specs/`, which is now an
+  [Open Knowledge Format](https://okf.md) v0.1 bundle (per-file `type`
+  frontmatter + `specs/index.md`). `docs/` is reserved for public product docs
+  (none yet — `README.md` is the entry point). Repo-internal only.
 
 ## [0.1.0] - 2026-07-11
 

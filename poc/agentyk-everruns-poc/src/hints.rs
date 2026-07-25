@@ -42,6 +42,20 @@ impl ToolHints {
         self.destructive || self.open_world
     }
 
+    /// A short risk label for transcripts / observability, or `None` when the
+    /// tool carries no notable risk (default hints).
+    pub fn label(&self) -> Option<&'static str> {
+        if self.destructive {
+            Some("destructive")
+        } else if self.open_world {
+            Some("open-world")
+        } else if self.readonly {
+            Some("readonly")
+        } else {
+            None
+        }
+    }
+
     /// Read hints out of a tool definition's `metadata.hints`, if present.
     pub fn from_definition(definition: &ToolDefinition) -> Option<Self> {
         serde_json::from_value(definition.metadata.get("hints")?.clone()).ok()

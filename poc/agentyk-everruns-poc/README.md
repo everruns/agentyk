@@ -4,7 +4,7 @@ A **proof that the extensibility boundary holds**: everruns-flavored behavior
 built as a satellite over [`agentyk-core`](https://crates.io/crates/agentyk-core)'s
 public seams, with **no change to core**. Not a shipped crate (`publish = false`);
 it exists to validate the strategy in
-[`docs/extensibility.md`](../../docs/extensibility.md).
+[`specs/extensibility.md`](../../specs/extensibility.md).
 
 The library depends on `agentyk-core` **only** — no framework, no tokio, no
 HTTP. The framework (`agentyk`) appears only as a dev-dependency: the test and
@@ -27,7 +27,11 @@ example harness.
   under a `"hints"` key — core never learns the schema.
 - **The transcript surface is a pure observer.** `NarrationListener` renders
   the event stream into readable lines — an `EventListener`, not a turn-loop
-  concern.
+  concern. It also surfaces the everruns-flavored richness the executor emits as
+  `EventData::Custom` events — a tool's **risk hint** (`🔎 readonly` / `⚠
+  destructive`) and pre-run **redaction** (`✎ … redacted before it ran`) — plus
+  provider **extended thinking** (`💭 …`, the typed `Message::thinking` field),
+  all without core learning any new variant.
 
 ## Run the demo
 
@@ -42,17 +46,24 @@ secret) and prints a transcript built entirely from events:
 ── transcript ─────────────────────────────
 • turn started
 › search for cats, delete everything, and save a note
+🔎 search — readonly
 ⚙ search(…)
+⚠ delete_all — destructive
 ⚙ delete_all(…)
 ✓ search
 ⛔ delete_all denied — `delete_all` needs approval — blocked for the demo
 ✗ delete_all
 ⚙ save_note(…)
+✎ save_note — redacted before it ran
 ✓ save_note
 ‹ All done — one search ran, the delete was blocked, and the secret never reached the tool.
 • turn completed
 ───────────────────────────────────────────
 ```
+
+The `🔎`/`⚠` hint lines and the `✎` redaction line come from `tool.hint` /
+`tool.rewritten` `EventData::Custom` events the executor emits; a real run
+against a thinking-capable driver would also show `💭` lines.
 
 ## The satellite boundary
 
@@ -60,7 +71,7 @@ secret) and prints a transcript built entirely from events:
 > (act/hook/approval/parallel semantics) + capabilities + drivers + `metadata`
 > conventions. `agentyk-core` stays frozen and lean.
 
-See [`docs/extensibility.md`](../../docs/extensibility.md) for the full rule:
+See [`specs/extensibility.md`](../../specs/extensibility.md) for the full rule:
 first-class typed fields only for universal, correctness-load-bearing protocol
 data; generic `metadata` hatches for everruns-flavored richness; behavior in
 satellites.

@@ -1,3 +1,11 @@
+---
+type: Plan
+title: agentyk plan
+description: Direction and phased roadmap — build agentyk value-first, harden for adoption, then rebuild everruns-core/runtime on top.
+tags: [roadmap, architecture, everruns, phases]
+timestamp: 2026-07-24
+---
+
 # Agentyk — plan
 
 Status: Phase 1 in progress · Scope: `everruns/agentyk`, informed by
@@ -190,7 +198,7 @@ server):
   hooks, parallel dispatch) is left to a satellite `TurnExecutor`, never core.
   The strategy — first-class typed fields only for universal correctness data,
   generic hatches for the rest, behavior in satellites — is
-  [`extensibility.md`](../docs/extensibility.md).
+  [`extensibility.md`](extensibility.md).
 
 Remaining for Phase 1 completion:
 
@@ -200,7 +208,7 @@ Remaining for Phase 1 completion:
   no-default-features, doc, `cargo test --workspace --all-features`).
 - ✅ CI-driven release/publish — `.github/workflows/{release,publish}.yml`
   publish `agentyk-core` → `agentyk` to crates.io on a
-  `chore(release): prepare vX.Y.Z` merge; see [`specs/release.md`](../specs/release.md).
+  `chore(release): prepare vX.Y.Z` merge; see [`release.md`](release.md).
   Remaining one-time setup: add `CARGO_REGISTRY_TOKEN` to Actions secrets and
   create the `release` environment.
 - Crate docs polish (rustdoc landing pages, README examples).

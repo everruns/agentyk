@@ -119,7 +119,7 @@ pub enum EventData {
     /// `event_type` should follow the dot-notation convention (e.g.
     /// `"budget.warning"`); as protocol coverage grows, well-known custom
     /// types are expected to graduate into first-class variants (see
-    /// `docs/everruns-adoption.md`).
+    /// `specs/everruns-adoption.md`).
     Custom {
         event_type: String,
         #[serde(default)]
