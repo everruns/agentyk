@@ -90,15 +90,15 @@ everruns concept must be expressible on top of the agentyk primitive.
 | `TurnStateMachine` + `RuntimeTurnState` (host-persisted phase state) | `turn::TurnState` (one serializable value: machine + bookkeeping) | **sans-IO**: transitions are pure and return the events to record as data, instead of atoms doing their own load/store/emit |
 | context assembly (compaction, memory, trimming) | `context::ContextAssembler` on `AgentBuilder` | default passthrough (today's behavior); sits between replay and `atoms::reason`, transforms what's sent without touching the log; no compaction/memory implementation ships |
 | `TurnAction` (`ExecuteInput/Reason/Act/Complete`) | `turn::TurnAction` (`Reason` / `ExecuteTool` / `Complete`) | input phase became `TurnState::start` effects (pure); act is per-tool-call for per-call retries |
-| tool scheduler (parallel act batch) | `TurnPhase::PendingAct { calls: Vec<PendingCall> }` + `pending_tool_actions()` | data model supports out-of-order/concurrent completion; `InProcessExecutor` still dispatches sequentially via `next_action()` — concurrent dispatch is a deferred follow-up |
+| tool scheduler (parallel act batch) | canonical engine `InvokeTools` operation + `TurnPhase::PendingAct` | the engine prepares the whole gated/rewritten batch; the in-process host runs it sequentially and a durable host may fan it out |
 | `ToolPolicy`/`DeferrablePolicy`/`ToolHints` | `tool::{ToolPolicy, DeferrablePolicy}` | `Deferred` tools stay executable, excluded from `atoms::assemble`'s model-facing definitions; no ToolSearch-style surfacing capability yet, and `ToolHints` not ported |
 | `TurnOutcome` (Success/Failed/MaxIterations/Sealed) | `turn::TurnOutcome` (Success/Failed/MaxIterations/**Cancelled**) | sealing reasons (no-progress, budget) are Phase-2 host policy; `Cancelled` is agentyk's caller-driven seal |
 | `turn.cancelled`, cancellation plumbing | `event_types::TURN_CANCELLED`, `cancellation::CancellationToken` on `TurnHost` | std-only token (no tokio), checked once per action and once per streaming chunk |
 | atoms (`InputAtom`/`ReasonAtom`/`ActAtom`, stateless, own their message I/O) | `atoms::{assemble, reason, act}` (stateless, **no I/O beyond the LLM/tool call itself**) | atoms no longer load/store messages or emit events; recording belongs to the machine's effects |
 | stream reconnect, provider streaming | `atoms::reason_streaming` + `ChatDriver::complete_streaming` + `DeltaSink` | default streams as one full-text delta; OpenAI/Anthropic drivers stream real SSE increments; deltas never touch `TurnState` — `on_reason_started` is the only state transition, purely informational |
 | `Controls` (per-input model override, `ReasoningConfig`) | `controls::TurnControls` + `ModelSpec.reasoning` | `Session::run_controlled`/`run_with_options`; reasoning wired for OpenAI, not yet for Anthropic (needs a token budget, not an effort string) |
-| `RuntimeHostAdapter` + `plan_next_host_turn` (turn strategy) | `executor::TurnExecutor` + `TurnHost` | `InProcessExecutor` default; a durable host maps each `TurnAction` to a retryable activity and checkpoints `TurnState` between them |
-| `PreToolUseHook`/`PostToolExecHook`/`PostActHook`/`ClientSideToolHook` | `middleware::TurnMiddleware` on `AgentBuilder` | one trait with defaulted methods instead of one trait per point; `before_tool` covers deny **and rewrite** (a rewrite is a `TurnState` transition, so it survives replay); orchestrated by the executor around `atoms::act`, not inside it; `PostActHook`/`ClientSideToolHook` not yet ported (see `everruns-adoption.md`) |
+| `RuntimeHostAdapter` + `plan_next_host_turn` (turn strategy) | canonical step engine + execution host | the engine prepares/applies one operation; an in-process host executes immediately and a durable host persists and schedules it |
+| `PreToolUseHook`/`PostToolExecHook`/`PostActHook`/`ClientSideToolHook` | `middleware::TurnMiddleware` on `AgentBuilder` | one trait with defaulted methods instead of one trait per point; `before_tool` covers deny **and rewrite** and is orchestrated by the canonical engine; `PostActHook`/`ClientSideToolHook` not yet ported (see `everruns-adoption.md`) |
 | `TurnOutcome::Sealed(SealReason)` (no-progress/budget), `HardLimitStopRule`/`BudgetChecker` | `turn::{TurnOutcome::Sealed, SealReason}` + `budget::BudgetChecker` | checked once per action, like cancellation; `NoProgress` exists but nothing sets it (needs a durable crash-reclaim host) |
 | `tool.denied` (implicit in approval/guardrail flows) | `event_types::TOOL_DENIED` | durable; recorded alongside `tool.started`/`tool.completed` when a pre-hook denies |
 | MCP merge/discovery (runtime `mcp.rs`) | `McpCapability` / `McpClient` / `McpServer` | MCP is just a capability; stdio transport built in |
@@ -106,16 +106,17 @@ everruns concept must be expressible on top of the agentyk primitive.
 | `CommandDescriptor` + capability slash commands | `capability::{CommandDescriptor, CommandContext}`, `Capability::{commands, execute_command}` | `Session::commands()`/`execute_command()` route to the owning capability, bypassing the turn loop entirely (no model call, no event); `mcp_servers()` held back — see `everruns-adoption.md` gap 13 |
 | `ToolContext` service bag (workspace/file/storage/image/credential/utility-LLM) | `extensions::Extensions` (`ToolContext.extensions`) | axum-style `TypeId`-keyed bag instead of enumerated `Option<Arc<dyn …>>` fields; `AgentBuilder::extension(value)` populates it once per agent |
 | `SessionFileSystem` + `RealDiskFileStore`/`InMemorySessionFileStore`/`WriteBlocklistFileStore`, `FileSystemCapability` (7 tools) | `filesystem::{FileSystem, RealDiskFileSystem, InMemoryFileSystem, WriteBlocklistFileSystem}`, `FileSystemCapability` (4 tools) | no `session_id`/`workspace_id` param — one store is one workspace; `edit_file`/`grep_files`/`stat_file`, symlink rejection, and `MountFs` not ported |
-| `Message.thinking` / `thinking_signature` (extended thinking round-trip) | same field names on `message::Message` | typed (universal reasoning, must round-trip to the provider); populated by a driver, not yet wired for Anthropic |
+| `Message.thinking` / `thinking_signature` (extended thinking round-trip) | same field names on `message::Message` | typed (universal reasoning, must round-trip to the provider); Anthropic parses, streams, and replays signed thinking blocks |
 | `MessageId` on `output.message.*` (streaming lifecycle correlation) | `id::MessageId` on `OutputMessage{Started,Delta,Completed}`, held on `TurnState::current_message_id` | typed; allocated in `on_reason_started`, `#[serde(default)]` so pre-0.1.1 logs still load |
-| `ToolHints`, capability `status`/`category`/`icon`, `Message.phase`, narration hints | generic `metadata` hatches: `ToolDefinition.metadata`, `Capability::metadata()`, `Message.metadata` | everruns-flavored richness rides an opaque `serde_json::Value` (the data analogue of `EventData::Custom`); a satellite owns the schema — see [`extensibility.md`](extensibility.md) |
+| `ToolHints`, capability `status`/`category`/`icon`, `Message.phase`, narration hints | generic `metadata` hatches: `ToolDefinition.metadata`, `Capability::metadata()`, `Message.metadata` | everruns-flavored richness rides an opaque `serde_json::Value` (the data analogue of `EventData::Custom`); the adopting host owns the schema — see [`extensibility.md`](extensibility.md) |
 | guardrail mutation / approval / capability-contributed hooks | `middleware::TurnMiddleware` (`Rewrite`/`Deny`), attached on the builder | mutation and approval no longer need a forked act loop |
-| parallel dispatch | a satellite `executor::TurnExecutor` over `atoms` + `TurnState` | dispatch **strategy** is what the executor seam is for; the built-in one stays sequential |
+| parallel dispatch | a tool dispatcher over a batch prepared by the engine | dispatch policy changes without copying the reason/act loop |
 
 Deliberate omissions from Phase 1 (Phase-2+ territory): org/tenant scoping,
-provider catalog + credential encryption, durable execution, streaming deltas,
-background tasks/scheduling, blueprints/plugins, session file systems. Each
-should arrive as a *layer or capability*, not as a change to the core loop.
+provider catalog + credential encryption, a concrete durable queue/worker
+host, stream reconnection, background tasks/scheduling, blueprints/plugins,
+and session-scoped filesystem infrastructure. Each should arrive as a *layer
+or capability*, not as a change to the core loop.
 
 ## Phase 1 status
 
@@ -138,13 +139,11 @@ server):
   real incremental SSE deltas.
 - MCP — stdio JSON-RPC client (initialize handshake, `tools/list`,
   `tools/call`), lazy connection, tools exposed as ordinary `Tool`s.
-- Execution abstraction — the sans-IO `TurnState` machine + `atoms` +
-  `TurnExecutor` strategy seam (see the mapping table). Proven by two tests:
-  `durable_host_drives_turn_across_a_crash` (a simulated durable host
-  checkpoints the JSON `TurnState` mid-turn, "crashes", and resumes purely
-  from checkpoint + event-log replay) and
-  `manual_drive_matches_in_process_executor` (manual machine drive and the
-  default executor produce identical event sequences).
+- Execution abstraction — `TurnEngine` prepares one provider-neutral model
+  operation or tool batch and applies its result. `InProcessExecutor` is a thin
+  immediate host. `durable_host_replays_state_between_every_engine_step`
+  drives the same engine while discarding `TurnState` at every durable
+  boundary and reconstructing it from events alone.
 - Multimodal messages — `Message.content: Vec<ContentPart>` (`Text`/`Image`).
 - Streaming — `OutputMessageStarted`/`Delta`/`Completed`, ephemeral events
   (`sequence: None`, never persisted), `ChatDriver::complete_streaming` +
@@ -199,10 +198,11 @@ server):
   `Message.thinking`/`thinking_signature` and a `message_id` correlating the
   `output.message.*` streaming events; generic `metadata` hatches on
   `Message`/`ToolDefinition`/`Capability` for everruns-flavored richness
-  (`ToolHints`, status/category, phase). All behavior (mutating/approval
-  hooks, parallel dispatch) is left to a satellite `TurnExecutor`, never core.
+  (`ToolHints`, status/category, phase). Behavior stays outside core:
+  middleware in the canonical engine and parallel dispatch in its host
+  dispatcher.
   The strategy — first-class typed fields only for universal correctness data,
-  generic hatches for the rest, behavior in satellites — is
+  generic hatches for the rest, behavior in engine/host extension points — is
   [`extensibility.md`](extensibility.md).
 
 Remaining for Phase 1 completion:
@@ -212,7 +212,7 @@ Remaining for Phase 1 completion:
 - ✅ CI workflow — `.github/workflows/ci.yml` (fmt, clippy all-features +
   no-default-features, doc, `cargo test --workspace --all-features`).
 - ✅ CI-driven release/publish — `.github/workflows/{release,publish}.yml`
-  publish `agentyk-core` → `agentyk` to crates.io on a
+  publish `agentyk-core` → `agentyk-engine` → `agentyk` to crates.io on a
   `chore(release): prepare vX.Y.Z` merge; see [`release.md`](release.md).
   Remaining one-time setup: add `CARGO_REGISTRY_TOKEN` to Actions secrets and
   create the `release` environment.
@@ -220,36 +220,38 @@ Remaining for Phase 1 completion:
 
 ## Packaging
 
-Agentyk is headed toward a full framework (own drivers, own capabilities), so
-the crate boundary is drawn now, while it is cheap:
+The architecture is defined in [`architecture.md`](architecture.md).
+It separates portable contracts, canonical turn semantics, and bundled
+implementations into three layers:
 
 - **`agentyk-core`** — the contract crate: what you *implement against*.
-  Traits (`Tool`, `Capability`, `ChatDriver`, `EventLog`, `EventListener`,
-  `TurnExecutor`), protocol data (events, messages, ids), the turn machine,
-  atoms, and replay. Lean by construction — no tokio, no HTTP, no process
-  spawning — so hosts and extensions get a small, stable, slow-moving surface.
-  This is what everruns (Phase 2) implements `EventLog`/`TurnExecutor`
-  against without inheriting reqwest or MCP.
-- **`agentyk`** — the framework crate: what you *build with*. Builders,
-  `InProcessExecutor`, `JsonlEventLog`, bundled drivers, MCP. Re-exports all
-  of core so applications see one crate name.
+  Portable values, extension traits, events, the event-store contract, and
+  pure turn reducers. Lean by construction: no Tokio, HTTP, process spawning,
+  filesystem access, or orchestration loop.
+- **`agentyk-engine`** — the single canonical turn engine. Owns `Agent`,
+  `Session`, assembly, policy, the step protocol, and the in-process runner.
+  Everruns durable execution is a host of this engine, not another engine or
+  a copied turn loop.
+- **`agentyk`** — the application facade. Re-exports core and engine and owns
+  bundled feature-gated modules: provider drivers, event stores, MCP, and
+  filesystem support.
 
-Growth policy: new drivers and capabilities start as feature-gated modules in
-`agentyk`; a module graduates to an `agentyk-<name>` satellite crate
-(depending only on `agentyk-core`) when it grows a heavy dependency
-(tree-sitter, git2, image, …). Versions stay in lockstep across the workspace
-(the everruns/yolop convention). The split rule in one line: *core is for
-implementers, agentyk is for authors, satellites are for heavy deps.*
+MCP and filesystem are first-class library capabilities, not integration
+crates. Integrations remain modules for now; extracting satellite crates
+requires a concrete dependency, ownership, or release need.
 
 ## Design rules
 
 1. **Values first.** Any API that requires creating-then-referencing an entity
    by id is wrong at this layer; ids are outputs, never inputs.
 2. **The event log is the persistence seam.** Anything that wants durability
-   implements `EventLog`; replay must be sufficient to resume a session.
+   implements the event-store contract; replay must reconstruct both message
+   history and actionable turn state. Checkpoints are disposable
+   optimizations, never a second source of truth.
 3. **Traits stay host-neutral.** No trait in this crate may presume a
    database, a server, or a tenant — hosts add those in Phase 2.
-4. **Lean by default.** Heavy or optional integrations live behind features
-   (`http`, `mcp`) or arrive as capabilities.
+4. **Lean by default.** Heavy or optional modules live behind features.
+   `mcp` and `fs` are bundled library capabilities even though they are
+   opt-in.
 5. **Keep the everruns vocabulary.** Phase 2 depends on concept-for-concept
    correspondence; do not invent new names where an everruns name exists.

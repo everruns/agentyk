@@ -68,7 +68,7 @@ pub enum TurnOutcome {
 /// Everything the UI reacts to, from both the event stream and the hooks.
 pub enum AppEvent {
     /// An agentyk protocol event — the transcript is built entirely from these.
-    Agent(Event),
+    Agent(Box<Event>),
     TurnEnded(TurnOutcome),
     /// A gated tool is waiting on the operator. Dropping `reply` denies it.
     Approval {
@@ -86,7 +86,7 @@ struct ChannelListener(AppEventSender);
 impl EventListener for ChannelListener {
     async fn on_event(&self, event: &Event) {
         // A closed channel means the UI is gone; the run is ending anyway.
-        let _ = self.0.send(AppEvent::Agent(event.clone()));
+        let _ = self.0.send(AppEvent::Agent(Box::new(event.clone())));
     }
 
     fn name(&self) -> &'static str {

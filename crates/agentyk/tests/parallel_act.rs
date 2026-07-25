@@ -1,10 +1,9 @@
-//! `TurnState::pending_tool_actions` — the parallel-capable batch API.
+//! The turn reducer's parallel-capable batch semantics.
 //!
-//! `InProcessExecutor` stays sequential (drains `next_action` one call at a
-//! time — proven elsewhere), but the state machine itself supports an
-//! executor that fans a whole batch out concurrently and completes calls in
-//! any order. This test drives the machine that way directly, standing in
-//! for what a parallel executor would do.
+//! The canonical engine prepares a whole tool batch. `InProcessExecutor`
+//! dispatches it sequentially, while a durable host may fan it out and return
+//! results in any order. This reducer-level test proves that completion order
+//! is not semantic.
 
 use agentyk::{
     ChatResponse, Message, Result, SessionId, ToolCall, ToolContext, ToolOutput, TurnAction,
@@ -43,7 +42,7 @@ fn a_batch_can_be_dispatched_concurrently_and_completed_out_of_order() -> Result
     );
     state.on_reason_completed(&response);
 
-    // A parallel executor fans out the whole ready batch at once...
+    // A parallel host fans out the whole ready batch at once...
     let actions = state.pending_tool_actions();
     assert_eq!(actions.len(), 3);
     let calls: Vec<ToolCall> = actions
@@ -56,7 +55,7 @@ fn a_batch_can_be_dispatched_concurrently_and_completed_out_of_order() -> Result
         })
         .collect();
 
-    // ...marks every one started up front (a real executor would do this
+    // ...marks every one started up front (a real host would do this
     // right before dispatching each concurrently)...
     for call in &calls {
         let effects = state.on_tool_started(&call.id);

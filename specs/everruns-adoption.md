@@ -13,8 +13,9 @@ rebuilt on top of it (Phase 2). Grounded in a survey of everruns' actual
 public surface (`crates/core`, `crates/runtime`) against agentyk `0.1.0`.
 
 Gaps are tiered by *where* they must land. The packaging rule applies
-throughout: contract changes go to `agentyk-core`, machinery to `agentyk`,
-and anything host-specific stays in everruns as a layer.
+throughout: contract changes go to `agentyk-core`, canonical machinery to
+`agentyk-engine`, bundled implementations to `agentyk`, and anything
+host-specific stays in everruns as a layer.
 
 ---
 
@@ -123,9 +124,8 @@ expensive to change the longer we wait.
    `middleware::TurnMiddleware` trait with defaulted methods
    (`before_tool` → `ToolCallDecision::{Proceed, Rewrite, Deny}`,
    `after_tool` → transform the result), attached via
-   `AgentBuilder::middleware` and orchestrated by the executor around
-   `atoms::act` — **not inside the atom itself**, keeping interception
-   host/executor policy rather than a third atom. A denial short-circuits
+   `AgentBuilder::middleware` and orchestrated by `TurnEngine` around tool
+   operations — **not inside the tool itself**. A denial short-circuits
    execution and emits a durable `tool.denied`; a rewrite goes through
    `TurnState::on_tool_rewritten`, so it is durable, `tool.started` announces
    the call as it will actually run, and a resumed host executes the rewrite
@@ -141,8 +141,9 @@ expensive to change the longer we wait.
    `agentyk-everruns-poc`'s `ApprovalMiddleware` is.
 
    Two things stay outside core, correctly: **capability-contributed** guards
-   (a capability bundles a tool, the host attaches the matching middleware)
-   and **dispatch strategy** (the satellite executor's concurrent fan-out).
+   (a capability contribution may bundle a tool with its middleware)
+   and **dispatch strategy** (a host dispatcher concurrently fans out the
+   engine's prepared batch).
    `PostActHook` (turn-level) and `ClientSideToolHook` (client/server split)
    remain unported — no use case yet, and each would be a defaulted method on
    `TurnMiddleware` rather than a new trait.
@@ -152,27 +153,23 @@ expensive to change the longer we wait.
    the original call. That needs a reason-phase interception point (everruns'
    `output.message.replaced`), still unported.
 
-8. ✅ **Tool scheduling — data model done, dispatch stays sequential.**
+8. ✅ **Tool scheduling — engine prepares batches.**
    `TurnPhase::PendingAct` is now `{ calls: Vec<PendingCall> }`
    (`PendingCall { call, started, output }`) instead of a front-only queue
    — `on_tool_started`/`on_tool_completed` take a `call_id` and act on any
    call in the batch, so completion order no longer has to match dispatch
    order. `TurnState::pending_tool_actions()` returns the whole not-yet-started
-   batch at once (vs. `next_action()`'s one-at-a-time walk), which is what a
-   parallel executor fans out concurrently. `InProcessExecutor` deliberately
-   keeps using `next_action()` — it stays sequential. **Concurrent dispatch is
-   now proven in the satellite** (`agentyk-everruns-poc`'s `EverrunsExecutor`):
-   it drains `pending_tool_actions()`, runs the batch under `join_all`, and
-   replays results back through `TurnHost::record` sequentially (since
-   `record` needs `&mut self`) — exactly the shape this note sketched, and
-   with no core change. Also done:
+   batch at once. `TurnEngine` applies middleware to the batch and returns
+   `TurnOperation::InvokeTools`; the in-process host dispatches sequentially,
+   while a concurrent or durable host may schedule the prepared calls without
+   replacing turn semantics. Also done:
    `tool::{ToolPolicy, DeferrablePolicy}` — a tool can mark itself
    `Deferred` to stay executable but be left out of the definitions
    `atoms::assemble` sends the model; default is `Never` (today's
    behavior, unchanged for every existing tool). **`ToolHints` (0.1.1):**
    everruns' per-tool risk/UI taxonomy (`readonly`/`destructive`/`open_world`,
    etc.) is **not** a typed core field — it rides in the generic
-   `ToolDefinition.metadata` hatch, and a satellite executor reads it for
+   `ToolDefinition.metadata` hatch, and engine middleware reads it for
    approval/risk gating (see [`extensibility.md`](extensibility.md)). Still no
    ToolSearch-style capability that *surfaces* deferred tools on demand —
    `Deferred` today just means "hidden," not "hidden until requested."
@@ -197,7 +194,7 @@ expensive to change the longer we wait.
     LLM retry with backoff + error classification (uses gap 4), stream
     reconnect, `previous_response_id` chaining for stateful providers
     (OpenAI Responses), time-to-first-token and richer `TokenUsage`
-    (cache/reasoning tokens). Retry policy belongs in the executor (durable
+    (cache/reasoning tokens). Retry scheduling belongs to the host (durable
     hosts already retry activities — don't double-retry); response-id
     chaining needs a slot in `TurnState` (everruns keeps it in
     `RuntimeTurnState` too).
@@ -335,10 +332,10 @@ Phase 1.5 (pre-adoption hardening, in this repo):
 3. ✅ Cancellation + `TurnOutcome::Cancelled`
 4. ✅ `EventData::Custom` escape hatch
 5. ✅ Error retryability classification
-6. ✅ Act hooks (pre/post tool) — denial-only, builder-attached guardrails.
-   Mutating/approval/capability-contributed guardrails are satellite-executor
-   work, **not** a core hook or approval phase (corrected above; see
-   [`extensibility.md`](extensibility.md))
+6. ✅ Act hooks (pre/post tool) — builder-attached guardrails. Mutation and
+   approval are middleware behavior orchestrated by the engine; a
+   capability contribution may bundle its own middleware. This is **not** a
+   core approval phase (see [`extensibility.md`](extensibility.md)).
 7. ✅ Per-turn `TurnControls`
 8. ✅ Sealing (`Sealed(SealReason)`) + budget seam
 9. ✅ Parallel-capable `PendingAct` data model + tool policy types —
@@ -358,9 +355,10 @@ Phase 1.6 (protocol extensibility, 0.1.1) — from an audit against everruns
 2. ✅ `Message.thinking` + `thinking_signature` (typed reasoning round-trip).
 3. ✅ Generic `metadata` hatches — `Message.metadata`,
    `ToolDefinition.metadata` (home for `ToolHints`), `Capability::metadata()`.
-4. Hook mutation / approval / capability-contributed guardrails →
-   **satellite `TurnExecutor`**, not a core change (over-claim corrected).
+4. Hook mutation / approval / capability-contributed guardrails → engine
+   middleware and capability contributions, not a custom whole-turn executor.
 
 Items 1–5 are protocol-affecting and should land before anyone persists a
 long-lived event log; 6–12 can land incrementally alongside early adoption
-spikes (e.g. a `DurableExecutor` prototype in everruns after item 5).
+spikes. Durable adoption should prototype a host of the canonical step engine,
+not a `DurableExecutor` that copies the loop.

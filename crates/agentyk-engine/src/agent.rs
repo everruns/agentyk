@@ -5,43 +5,94 @@
 //! register, and no store to create it in. Sessions are spawned *from* the
 //! agent; ids exist only inside them as correlation handles.
 //!
-//! Composition lives in one place: the builder fills an
-//! [`AgentConfig`] and hands it over. A new knob is a field on `AgentConfig`
-//! plus a setter here — it reaches every executor through
-//! [`TurnHost`](agentyk_core::executor::TurnHost) without any further wiring.
+//! Composition lives in one place: the builder produces a valid
+//! [`AgentDefinition`] and [`AgentEnvironment`], which every
+//! [`TurnHost`](crate::host::TurnHost) consumes directly.
 
 use std::sync::Arc;
 
 use agentyk_core::budget::BudgetChecker;
 use agentyk_core::capability::Capability;
-use agentyk_core::config::AgentConfig;
 use agentyk_core::context::ContextAssembler;
-use agentyk_core::driver::{ChatDriver, DriverRegistry, ModelSpec};
+use agentyk_core::driver::{ChatDriver, ModelSpec};
 use agentyk_core::error::{Error, Result};
 use agentyk_core::event::EventListener;
 use agentyk_core::event_log::{EventLog, InMemoryEventLog};
-use agentyk_core::executor::{TurnExecutor, TurnResult};
 use agentyk_core::id::SessionId;
 use agentyk_core::middleware::TurnMiddleware;
 use agentyk_core::tool::Tool;
 use async_trait::async_trait;
 
-use crate::in_process::InProcessExecutor;
+use crate::config::AgentConfig;
+use crate::host::TurnResult;
 use crate::session::Session;
+
+/// Agent behavior, separate from the resources that run it.
+///
+/// The model may contain credentials, so this value is sensitive
+/// configuration even though durable events never include it.
+#[derive(Clone)]
+pub struct AgentDefinition {
+    /// Human-readable diagnostic name.
+    pub name: String,
+    /// Base system instructions.
+    pub instructions: String,
+    /// Default model, required for every built definition.
+    pub model: ModelSpec,
+    /// Behavior attached by value.
+    pub capabilities: Vec<Arc<dyn Capability>>,
+    /// Maximum reason steps in one turn.
+    pub max_iterations: usize,
+    /// Ordered turn policy.
+    pub middleware: Vec<Arc<dyn TurnMiddleware>>,
+    /// Optional budget policy.
+    pub budget_checker: Option<Arc<dyn BudgetChecker>>,
+    /// Shapes durable history into model context.
+    pub context_assembler: Arc<dyn ContextAssembler>,
+}
+
+impl std::fmt::Debug for AgentDefinition {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AgentDefinition")
+            .field("name", &self.name)
+            .field("model", &self.model)
+            .field("capabilities", &self.capabilities.len())
+            .field("max_iterations", &self.max_iterations)
+            .finish_non_exhaustive()
+    }
+}
+
+/// Host resources used to execute an [`AgentDefinition`].
+#[derive(Clone)]
+pub struct AgentEnvironment {
+    /// Provider implementations available to the host.
+    pub drivers: agentyk_core::driver::DriverRegistry,
+    /// Observers of durable and ephemeral events.
+    pub listeners: Vec<Arc<dyn EventListener>>,
+    /// Typed services made available to tools.
+    pub extensions: agentyk_core::extensions::Extensions,
+}
+
+impl std::fmt::Debug for AgentEnvironment {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AgentEnvironment")
+            .field("listeners", &self.listeners.len())
+            .finish_non_exhaustive()
+    }
+}
 
 /// A runnable agent, composed by value. Cheap to clone (shared internals).
 #[derive(Clone)]
 pub struct Agent {
-    pub(crate) config: Arc<AgentConfig>,
-    // Deliberately *not* part of `AgentConfig`: the executor is what consumes
-    // a composition, not part of one.
-    pub(crate) executor: Arc<dyn TurnExecutor>,
+    definition: Arc<AgentDefinition>,
+    environment: Arc<AgentEnvironment>,
 }
 
 impl std::fmt::Debug for Agent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Agent")
-            .field("config", &self.config)
+            .field("definition", &self.definition)
+            .field("environment", &self.environment)
             .finish_non_exhaustive()
     }
 }
@@ -52,32 +103,36 @@ impl Agent {
         AgentBuilder::new()
     }
 
-    /// Everything this agent is composed of. Prefer this over per-field
-    /// accessors — it is the one thing that grows.
-    pub fn config(&self) -> &AgentConfig {
-        &self.config
+    /// Portable definition of this agent.
+    pub fn definition(&self) -> &AgentDefinition {
+        &self.definition
+    }
+
+    /// Host resources used to run this agent.
+    pub fn environment(&self) -> &AgentEnvironment {
+        &self.environment
     }
 
     /// The agent's name, for logs and diagnostics.
     pub fn name(&self) -> &str {
-        &self.config.name
+        &self.definition.name
     }
 
     /// The agent's default model. Per-turn overrides go through
     /// [`TurnControls`](agentyk_core::controls::TurnControls).
     pub fn model(&self) -> &ModelSpec {
-        self.config.model()
+        &self.definition.model
     }
 
     /// Everything attached to this agent, in attachment order.
     pub fn capabilities(&self) -> &[Arc<dyn Capability>] {
-        &self.config.capabilities
+        &self.definition.capabilities
     }
 
     /// The driver that speaks this agent's model protocol. Guaranteed by
     /// `build()` to exist.
     pub fn driver_for_model(&self) -> Option<Arc<dyn ChatDriver>> {
-        self.config.driver_for_model()
+        self.environment.drivers.get(&self.definition.model.driver)
     }
 
     /// Start a session with an in-memory event log.
@@ -131,7 +186,6 @@ pub struct AgentBuilder {
     config: AgentConfig,
     /// Staged until `build()` wraps them in an implicit capability.
     tools: Vec<Arc<dyn Tool>>,
-    executor: Arc<dyn TurnExecutor>,
 }
 
 impl AgentBuilder {
@@ -141,7 +195,6 @@ impl AgentBuilder {
         Self {
             config: AgentConfig::default(),
             tools: Vec::new(),
-            executor: Arc::new(InProcessExecutor),
         }
     }
 
@@ -204,17 +257,9 @@ impl AgentBuilder {
         self
     }
 
-    /// Ceiling on reason/act iterations within one turn (default
-    /// [`DEFAULT_MAX_ITERATIONS`](agentyk_core::config::DEFAULT_MAX_ITERATIONS)).
+    /// Ceiling on reason/act iterations within one turn (default: 16).
     pub fn max_iterations(mut self, max_iterations: usize) -> Self {
         self.config.max_iterations = max_iterations;
-        self
-    }
-
-    /// Replace how turns execute (default: [`InProcessExecutor`]). Durable
-    /// hosts plug in here — see [`agentyk_core::executor`].
-    pub fn executor(mut self, executor: impl TurnExecutor + 'static) -> Self {
-        self.executor = Arc::new(executor);
         self
     }
 
@@ -281,32 +326,29 @@ impl AgentBuilder {
                 .push(Arc::new(AdHocTools { tools: self.tools }));
         }
 
-        register_bundled_drivers(&mut config.drivers);
-
         if !config.drivers.contains(&config.model().driver) {
             return Err(Error::UnknownDriver(config.model().driver.to_string()));
         }
 
+        let definition = AgentDefinition {
+            name: config.name.clone(),
+            instructions: config.system_prompt.clone(),
+            model: config.model().clone(),
+            capabilities: config.capabilities.clone(),
+            max_iterations: config.max_iterations,
+            middleware: config.middleware.clone(),
+            budget_checker: config.budget_checker.clone(),
+            context_assembler: config.context_assembler.clone(),
+        };
+        let environment = AgentEnvironment {
+            drivers: config.drivers.clone(),
+            listeners: config.listeners.clone(),
+            extensions: config.extensions.clone(),
+        };
         Ok(Agent {
-            config: Arc::new(config),
-            executor: self.executor,
+            definition: Arc::new(definition),
+            environment: Arc::new(environment),
         })
-    }
-}
-
-/// The HTTP drivers are registered unless the agent already supplied its own
-/// under the same id, so `ModelSpec::openai(..)` works with no wiring.
-#[cfg_attr(not(feature = "http"), allow(unused_variables))]
-fn register_bundled_drivers(drivers: &mut DriverRegistry) {
-    #[cfg(feature = "http")]
-    {
-        use agentyk_core::driver::DriverId;
-        if !drivers.contains(&DriverId::openai()) {
-            drivers.register(crate::drivers::openai::OpenAiDriver::new());
-        }
-        if !drivers.contains(&DriverId::anthropic()) {
-            drivers.register(crate::drivers::anthropic::AnthropicDriver::new());
-        }
     }
 }
 

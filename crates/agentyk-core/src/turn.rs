@@ -1,10 +1,10 @@
-//! Turn state machine — the execution abstraction.
+//! Turn state machine — the deterministic turn reducer.
 //!
 //! Adopted from everruns-core's `TurnStateMachine` / `RuntimeTurnState`, with
 //! one sharpening: the machine here is **sans-IO**. Transitions are pure —
 //! they mutate bookkeeping and return the [`EventData`] to record — and the
-//! only side-effecting operations are the two atoms ([`crate::atoms::reason`]
-//! and [`crate::atoms::act`]) that a host runs between transitions.
+//! canonical `agentyk-engine` step engine is the only interpreter that
+//! sequences them with external model and tool work.
 //!
 //! ```text
 //! start ──▶ PendingReason ──reason──▶ PendingAct ──act──▶ PendingReason ──▶ …
@@ -12,60 +12,28 @@
 //!                └────────────▶ Completed(TurnOutcome) ◀──────────┘
 //! ```
 //!
-//! The driving contract, shared by every host:
-//!
-//! ```text
-//! let (mut state, effects) = TurnState::start(session_id, max_iterations, &input);
-//! record(effects);
-//! loop {
-//!     match state.next_action() {                    // pure peek
-//!         TurnAction::Reason => {
-//!             record(state.on_reason_started(model_name));
-//!             // Streaming deltas (output.message.delta) are ephemeral: the
-//!             // driver reports them straight to `record` as it generates,
-//!             // outside the state machine — see `atoms::reason_streaming`.
-//!             let response = atoms::reason(…).await;  // effectful atom
-//!             record(state.on_reason_completed(&response));
-//!         }
-//!         TurnAction::ExecuteTool { call } => {
-//!             record(state.on_tool_started(&call.id));   // idempotent
-//!             let output = atoms::act(…, &call, …).await;
-//!             record(state.on_tool_completed(&call.id, &output));
-//!         }
-//!         TurnAction::Complete(outcome) => break,
-//!     }
-//! }
-//! ```
-//!
-//! `next_action` walks the current batch in order, one call at a time — a
-//! sequential executor (like agentyk's `InProcessExecutor`) can ignore
-//! everything below and just follow that loop. A **parallel-capable**
-//! executor instead calls [`TurnState::pending_tool_actions`] to fan out the
-//! whole not-yet-started batch at once, starting/completing each call by id
-//! (batch order is not completion order); the durable-execution contract
-//! still holds one `TurnAction` == one activity, they just may run
-//! concurrently.
+//! [`TurnState::next_action`] exposes the next semantic action and
+//! [`TurnState::pending_tool_actions`] exposes a whole ready tool batch.
+//! These are reducer primitives, not a second public orchestration loop:
+//! execution hosts use the canonical engine, which applies middleware,
+//! policy, and event generation before returning prepared operations.
 //!
 //! ## Why this supports durable execution
 //!
-//! - [`TurnState`] is `Serialize`/`Deserialize` and carries **bookkeeping
-//!   only** — no credentials, no tool objects, no message history (mirroring
-//!   everruns' `RuntimeTurnState`). A durable host checkpoints it between
-//!   activities and rebuilds the environment (assembled tools, history) from
-//!   the agent value and the event log on each step.
-//! - Each [`TurnAction`] is one activity. Re-issuing the current action after
-//!   a crash is safe: `next_action` is a pure read, and `on_tool_started` is
-//!   idempotent per call id.
-//! - Effects are data, so a host can persist the new state and append its
-//!   events in one transaction — event emission never races execution.
-//! - Message history is a fold over the event log
-//!   ([`crate::replay::messages_from_events`]), so replay is sufficient to
-//!   resume mid-turn.
+//! - [`TurnState::replay`] reconstructs actionable state from durable events;
+//!   serialized state is an optional cache, never an authority.
+//! - State carries bookkeeping only — no credentials, tool objects, or
+//!   message history.
+//! - Transitions are idempotent by tool-call id, so a host can safely
+//!   redeliver activity results.
+//! - Message history is independently folded from the same event stream by
+//!   [`crate::replay::messages_from_events`].
 
 use serde::{Deserialize, Serialize};
 
 use crate::driver::{ChatResponse, Usage};
-use crate::event::EventData;
+use crate::error::{Error, Result};
+use crate::event::{Event, EventData};
 use crate::id::{MessageId, SessionId, TurnId};
 use crate::message::{Message, ToolCall};
 use crate::tool::ToolOutput;
@@ -113,7 +81,7 @@ pub enum TurnOutcome {
 }
 
 /// One tool call within a reason step's batch, tracked independently so a
-/// parallel executor can start/complete calls out of order.
+/// parallel host can start/complete calls out of order.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct PendingCall {
@@ -188,6 +156,150 @@ pub struct TurnState {
 }
 
 impl TurnState {
+    /// Reconstruct one turn entirely from its durable event stream.
+    ///
+    /// This is the durable-host entry point: serialized checkpoints may
+    /// cache this reduction, but are never required for correctness.
+    pub fn replay(events: &[Event], turn_id: TurnId) -> Result<Self> {
+        let mut ordered: Vec<&Event> = events
+            .iter()
+            .filter(|event| event.turn_id == Some(turn_id))
+            .collect();
+        ordered.sort_by_key(|event| event.sequence);
+
+        let mut state: Option<Self> = None;
+        for event in ordered {
+            match &event.data {
+                EventData::TurnStarted { max_iterations } => {
+                    state = Some(Self {
+                        session_id: event.session_id,
+                        turn_id,
+                        max_iterations: *max_iterations,
+                        phase: TurnPhase::PendingReason,
+                        iterations: 0,
+                        tool_calls_executed: 0,
+                        usage: Usage::default(),
+                        current_message_id: None,
+                    });
+                }
+                EventData::InputMessage { .. } | EventData::OutputMessageDelta { .. } => {}
+                EventData::OutputMessageStarted { message_id, .. } => {
+                    replay_state(&mut state, turn_id)?.current_message_id = Some(*message_id);
+                }
+                EventData::OutputMessageCompleted { message, usage, .. } => {
+                    let state = replay_state(&mut state, turn_id)?;
+                    state.current_message_id = None;
+                    state.iterations += 1;
+                    state.usage.add(*usage);
+                    if message.tool_calls.is_empty() {
+                        state.phase = TurnPhase::Completed(TurnOutcome::Success {
+                            response: message.text(),
+                        });
+                    } else if state.iterations >= state.max_iterations {
+                        state.phase = TurnPhase::Completed(TurnOutcome::MaxIterations);
+                    } else {
+                        state.phase = TurnPhase::PendingAct {
+                            calls: message
+                                .tool_calls
+                                .iter()
+                                .cloned()
+                                .map(|call| PendingCall {
+                                    call,
+                                    started: false,
+                                    output: None,
+                                })
+                                .collect(),
+                        };
+                    }
+                }
+                EventData::ToolRewritten { call_id, call, .. } => {
+                    let call = call.as_ref().ok_or_else(|| {
+                        Error::EventLog(format!(
+                            "cannot replay legacy tool.rewritten event for call `{call_id}`"
+                        ))
+                    })?;
+                    let state = replay_state(&mut state, turn_id)?;
+                    if let TurnPhase::PendingAct { calls } = &mut state.phase
+                        && let Some(pending) =
+                            calls.iter_mut().find(|pending| pending.call.id == *call_id)
+                    {
+                        pending.call = call.clone();
+                    }
+                }
+                EventData::ToolStarted { call } => {
+                    let state = replay_state(&mut state, turn_id)?;
+                    if let TurnPhase::PendingAct { calls } = &mut state.phase
+                        && let Some(pending) =
+                            calls.iter_mut().find(|pending| pending.call.id == call.id)
+                    {
+                        pending.call = call.clone();
+                        pending.started = true;
+                    }
+                }
+                EventData::ToolCompleted {
+                    call_id,
+                    output,
+                    is_error,
+                    ..
+                } => {
+                    let state = replay_state(&mut state, turn_id)?;
+                    if let TurnPhase::PendingAct { calls } = &mut state.phase
+                        && let Some(pending) =
+                            calls.iter_mut().find(|pending| pending.call.id == *call_id)
+                        && pending.output.is_none()
+                    {
+                        pending.output = Some(ToolOutput::new(output.clone(), *is_error));
+                        state.tool_calls_executed += 1;
+                        if calls.iter().all(|pending| pending.output.is_some()) {
+                            state.phase = TurnPhase::PendingReason;
+                        }
+                    }
+                }
+                EventData::ToolDenied { .. } => {}
+                EventData::TurnCompleted { .. } => {
+                    let state = replay_state(&mut state, turn_id)?;
+                    if !matches!(
+                        state.phase,
+                        TurnPhase::Completed(TurnOutcome::Success { .. })
+                    ) {
+                        return Err(Error::EventLog(format!(
+                            "turn {turn_id} completed without a final output message"
+                        )));
+                    }
+                }
+                EventData::TurnFailed { error } => {
+                    let state = replay_state(&mut state, turn_id)?;
+                    if state.iterations >= state.max_iterations {
+                        state.phase = TurnPhase::Completed(TurnOutcome::MaxIterations);
+                    } else {
+                        state.phase = TurnPhase::Completed(TurnOutcome::Failed {
+                            error: error.clone(),
+                        });
+                    }
+                }
+                EventData::TurnCancelled => {
+                    replay_state(&mut state, turn_id)?.phase =
+                        TurnPhase::Completed(TurnOutcome::Cancelled);
+                }
+                EventData::TurnSealed { reason } => {
+                    replay_state(&mut state, turn_id)?.phase =
+                        TurnPhase::Completed(TurnOutcome::Sealed(*reason));
+                }
+                EventData::Custom {
+                    event_type,
+                    state_bearing: true,
+                    ..
+                } => {
+                    return Err(Error::EventLog(format!(
+                        "cannot replay unknown state-bearing event `{event_type}`"
+                    )));
+                }
+                EventData::Custom { .. } => {}
+            }
+        }
+        state.ok_or_else(|| Error::EventLog(format!("turn {turn_id} has no turn.started event")))
+    }
+
     /// Begin a turn. Returns the state (in `PendingReason`) and the effects
     /// to record: `turn.started` and `input.message`.
     pub fn start(
@@ -206,7 +318,7 @@ impl TurnState {
             current_message_id: None,
         };
         let effects = vec![
-            EventData::TurnStarted,
+            EventData::TurnStarted { max_iterations },
             EventData::InputMessage {
                 message: input.clone(),
             },
@@ -282,6 +394,7 @@ impl TurnState {
         let mut effects = vec![EventData::OutputMessageCompleted {
             message_id,
             message: response.message.clone(),
+            usage: response.usage,
         }];
 
         if response.message.tool_calls.is_empty() {
@@ -351,6 +464,7 @@ impl TurnState {
         vec![EventData::ToolRewritten {
             call_id: pending.call.id.clone(),
             name: pending.call.name.clone(),
+            call: Some(pending.call.clone()),
             by,
         }]
     }
@@ -439,10 +553,19 @@ impl TurnState {
     }
 }
 
+fn replay_state(state: &mut Option<TurnState>, turn_id: TurnId) -> Result<&mut TurnState> {
+    state
+        .as_mut()
+        .ok_or_else(|| Error::EventLog(format!("turn {turn_id} event precedes turn.started")))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::event::EventRequest;
+    use crate::id::EventId;
     use crate::message::Message;
+    use chrono::Utc;
     use serde_json::json;
 
     fn tool_call_response(names: &[&str]) -> ChatResponse {
@@ -659,5 +782,38 @@ mod tests {
 
         assert_eq!(state.next_action(), TurnAction::Reason);
         assert_eq!(state.tool_calls_executed, 2);
+    }
+
+    #[test]
+    fn replay_rejects_unknown_state_bearing_events() {
+        let session_id = SessionId::new();
+        let (state, effects) = TurnState::start(session_id, 4, &Message::user("go"));
+        let turn_id = state.turn_id;
+        let mut events: Vec<Event> = effects
+            .into_iter()
+            .enumerate()
+            .map(|(index, data)| {
+                EventRequest::with_turn(session_id, turn_id, data).into_event(
+                    EventId::new(),
+                    Utc::now(),
+                    index as u64 + 1,
+                )
+            })
+            .collect();
+        events.push(
+            EventRequest::with_turn(
+                session_id,
+                turn_id,
+                EventData::Custom {
+                    event_type: "turn.future_transition".into(),
+                    payload: serde_json::json!({}),
+                    state_bearing: true,
+                },
+            )
+            .into_event(EventId::new(), Utc::now(), 3),
+        );
+
+        let error = TurnState::replay(&events, turn_id).unwrap_err();
+        assert!(error.to_string().contains("unknown state-bearing event"));
     }
 }

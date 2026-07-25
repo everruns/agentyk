@@ -1,4 +1,4 @@
-//! A runnable end-to-end demo of the satellite: a `EverrunsExecutor` with a
+//! A runnable end-to-end demo of Everruns-flavored middleware with a
 //! guard chain (redaction + hint-based approval) and a `NarrationListener`,
 //! driven offline by the scripted `SimDriver`. It prints a transcript rendered
 //! entirely from the event stream — including the tool risk-hint (`🔎`/`⚠`) and
@@ -17,8 +17,7 @@ use agentyk::{Agent, FnTool, ModelSpec, Result, SimDriver, SimToolCall, SimTurn,
 use agentyk_core::message::ToolCall;
 use agentyk_core::middleware::{ToolCallDecision, ToolInvocation, TurnMiddleware};
 use agentyk_everruns_poc::{
-    ApprovalDecision, ApprovalMiddleware, Approver, EverrunsExecutor, HintedTool,
-    NarrationListener, ToolHints,
+    ApprovalDecision, ApprovalMiddleware, Approver, HintedTool, NarrationListener, ToolHints,
 };
 use async_trait::async_trait;
 use serde_json::json;
@@ -78,10 +77,8 @@ async fn main() -> Result<()> {
             SimTurn::tool_call("save_note", json!({"note": "hi", "secret": "p@ssw0rd"})),
             SimTurn::text("All done — one search ran, the delete was blocked, and the secret never reached the tool."),
         ]))
-        // The satellite executor supplies concurrent dispatch; the guardrails
-        // are ordinary core middleware — redact first, then gate risky tools
-        // through the approval policy.
-        .executor(EverrunsExecutor)
+        // Guardrails are ordinary middleware in the canonical engine:
+        // redact first, then gate risky tools through the approval policy.
         .middleware(RedactSecret)
         .middleware(ApprovalMiddleware::new(BlockRisky))
         .listener_arc(narration.clone())

@@ -7,13 +7,13 @@
 //! entity creation, no registration, and no ids to thread. Ids exist only as
 //! internal correlation handles on sessions and events.
 //!
-//! This is the **framework crate**: builders, the default in-process
-//! executor, bundled drivers (sim; OpenAI/Anthropic behind `http`), the JSONL
-//! event log, and MCP support. The contract it drives — traits, the event
-//! protocol, and the turn state machine — lives in
+//! This is the **facade crate**: builders, the canonical engine and its
+//! in-process host, bundled drivers (sim; OpenAI/Anthropic behind `http`), the
+//! JSONL event store, filesystem support, and MCP support. The portable
+//! contract — traits, the event protocol, and the turn state machine — lives in
 //! [`agentyk-core`](https://crates.io/crates/agentyk-core) and is fully
 //! re-exported here; depend on core directly only when *implementing* a seam
-//! (a custom driver, capability, event log, or executor).
+//! (a custom driver, capability, or event store).
 //!
 //! The domain language (events protocol, capabilities, drivers, the
 //! `input → reason → act` turn) is inherited from
@@ -56,17 +56,14 @@
 // with `--cfg docsrs` on nightly; a no-op for every ordinary build.
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
-pub mod agent;
 pub mod drivers;
 #[cfg(feature = "fs")]
 #[cfg_attr(docsrs, doc(cfg(feature = "fs")))]
 pub mod filesystem;
-pub mod in_process;
 pub mod jsonl_log;
 #[cfg(feature = "mcp")]
 #[cfg_attr(docsrs, doc(cfg(feature = "mcp")))]
 pub mod mcp;
-pub mod session;
 
 // The full contract: protocol data, seams, the turn machine, atoms, replay.
 //
@@ -76,21 +73,21 @@ pub mod session;
 // *someone else's* build. Re-exporting explicitly makes widening this crate's
 // surface a decision.
 pub use agentyk_core::{
-    atoms, budget, cancellation, capability, config, context, controls, driver, error, event,
-    event_log, executor, extensions, id, message, middleware, replay, tool, turn,
+    atoms, budget, cancellation, capability, context, controls, driver, error, event, event_log,
+    extensions, id, message, middleware, replay, tool, turn,
 };
 
 pub use agentyk_core::{
-    AgentConfig, BudgetChecker, BudgetDecision, CancellationToken, Capability, ChatDriver,
-    ChatRequest, ChatResponse, CommandContext, CommandDescriptor, ContentPart, ContextAssembler,
-    DEFAULT_MAX_ITERATIONS, DeferrablePolicy, DeltaSink, DriverId, DriverRegistry, Error, Event,
-    EventData, EventId, EventListener, EventLog, EventRequest, Extensions, FnTool, History,
-    ImageContentPart, InMemoryEventLog, LlmErrorKind, Message, MessageId, ModelSpec,
+    BudgetChecker, BudgetDecision, CancellationToken, Capability, ChatDriver, ChatRequest,
+    ChatResponse, CommandContext, CommandDescriptor, ContentPart, ContextAssembler,
+    DeferrablePolicy, DeltaSink, DriverId, DriverRegistry, Error, Event, EventData, EventId,
+    EventListener, EventLog, EventRequest, EventStore, ExpectedVersion, Extensions, FnTool,
+    History, ImageContentPart, InMemoryEventLog, LlmErrorKind, Message, MessageId, ModelSpec,
     PassthroughContextAssembler, ReasoningConfig, Result, Role, SealReason, SessionId,
     SystemPromptContext, TextContentPart, Tool, ToolCall, ToolCallDecision, ToolChainOutcome,
     ToolContext, ToolDefinition, ToolInvocation, ToolOutput, ToolPolicy, TurnAction, TurnControls,
-    TurnExecutor, TurnHost, TurnId, TurnMiddleware, TurnOutcome, TurnPhase, TurnResult, TurnState,
-    Usage, after_tool_chain, before_tool_chain, event_types, messages_from_events,
+    TurnId, TurnMiddleware, TurnOutcome, TurnPhase, TurnState, Usage, after_tool_chain,
+    before_tool_chain, event_types, messages_from_events,
 };
 
 /// The names most applications want in scope at once.
@@ -113,7 +110,11 @@ pub mod prelude {
     };
 }
 
-pub use agent::{Agent, AgentBuilder};
+pub use agentyk_engine::{
+    Agent, AgentBuilder, AgentDefinition, AgentEnvironment, InProcessExecutor, PreparedStep,
+    PreparedToolCall, RunOptions, Session, TurnEngine, TurnHost, TurnOperation, TurnResult, agent,
+    engine, host, in_process, session,
+};
 pub use drivers::sim::{SimDriver, SimToolCall, SimTurn};
 #[cfg(feature = "fs")]
 #[cfg_attr(docsrs, doc(cfg(feature = "fs")))]
@@ -121,12 +122,10 @@ pub use filesystem::{
     FileEntry, FileSystem, FileSystemCapability, InMemoryFileSystem, RealDiskFileSystem,
     WriteBlocklistFileSystem,
 };
-pub use in_process::InProcessExecutor;
 pub use jsonl_log::JsonlEventLog;
 #[cfg(feature = "mcp")]
 #[cfg_attr(docsrs, doc(cfg(feature = "mcp")))]
 pub use mcp::{McpCapability, McpClient, McpServer};
-pub use session::{RunOptions, Session};
 
 #[cfg(feature = "http")]
 #[cfg_attr(docsrs, doc(cfg(feature = "http")))]

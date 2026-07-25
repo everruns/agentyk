@@ -8,13 +8,14 @@ timestamp: 2026-07-24
 
 # Extending agentyk without changing core
 
-Agentyk-core is a **contract crate**: traits, the event protocol, and the
-sans-IO turn machine. The goal is that a downstream project — the eventual
+Agentyk-core is a **contract crate**: traits, the event protocol, and pure turn
+reducers. The goal is that a downstream project — the eventual
 everruns-core rebuild, a `agentyk-everruns-poc` compat layer, or any adopter —
 can reproduce everruns-grade behavior **as a library composed over agentyk's
 seams**, without patches to core. This note is the map for doing that: what is
 already external, the one thing that genuinely needs core, and the rule we use
-to decide.
+to decide. The crate and engine boundaries are defined in
+[`architecture.md`](architecture.md).
 
 ## The rule: behavior is external, data extensibility is core
 
@@ -31,60 +32,53 @@ Therefore:
   serialize → replay → driver round-trip, and are *not* everruns-specific.
 - **Everruns-flavored richness → generic `metadata` hatches.** An opaque,
   serializable bag on the protocol types (the data analogue of
-  [`EventData::Custom`]). The satellite owns the schema; core never grows a
+  [`EventData::Custom`]). The adopting host owns the schema; core never grows a
   field for it.
-- **Behavior → a satellite [`TurnExecutor`] + capabilities.** Never core.
+- **Behavior → engine extension points, capabilities, and host dispatchers.**
+  Never duplicated whole-turn executors.
 
 ## Where a new knob goes
 
-Composition — anything an agent *is* — is a field on `AgentConfig` in core,
-plus a setter on `AgentBuilder`. Nothing else. `TurnHost` carries
-`&AgentConfig` rather than one field per knob, so a new knob reaches every
-`TurnExecutor` (including third-party and durable ones) without changing a
-public struct they construct or match on. Per-run state — the effective model,
-cancellation, the log, the live history — stays on `TurnHost`, because it is
-not part of the agent.
+Composition — anything an agent *is* — belongs to `AgentDefinition`. Shared
+runtime dependencies such as drivers, observers, and services belong to
+`AgentEnvironment`; the event store is supplied per `Session` / `TurnHost`.
+`AgentBuilder` may configure definition and environment and return one
+runnable value, so this internal boundary does not add a registry or an
+identity-first lifecycle. See
+[`architecture.md`](architecture.md#definition-versus-environment).
 
 ## What already composes over existing seams (no core change)
 
 | everruns capability | Build it with |
 | --- | --- |
 | Guardrails that **mutate/redact** a call, **approval** pauses, capability-contributed hooks | `middleware::TurnMiddleware` — `before_tool` returns `Proceed`/`Rewrite`/`Deny`, `after_tool` transforms the result; attached with `AgentBuilder::middleware` |
-| **Parallel** tool dispatch, or any other execution strategy | A custom [`TurnExecutor`] — it owns the reason/act loop over `atoms` + [`TurnState`]; `InProcessExecutor` is just one policy |
+| **Parallel** tool dispatch | A host tool dispatcher over the batch prepared by the canonical step engine; it never owns the whole turn loop |
 | MCP server merging (`mcp_servers()`) | A `Capability` whose `tools()` connects and returns the servers' tools (see the bundled `McpCapability`) |
-| Tool risk taxonomy / `ToolHints` | The satellite's tool wrapper + its executor's approval step; hints are host-side, never sent to the model — carry them in `ToolDefinition.metadata` |
+| Tool risk taxonomy / `ToolHints` | A tool wrapper + engine middleware; hints are host-side, never sent to the model — carry them in `ToolDefinition.metadata` |
 | Narration, `status()`/`category()`/`icon()`, `facts()`, richer command results | Capabilities + `EventListener`s (narration is a listener over the event stream); `Capability::metadata()` for status/category |
 | Compaction / infinity-context | A real `ContextAssembler` + `EventData::Custom` for `context.compacting`/`context.compacted` |
 | File-system depth (mounts, grep, stat, edit) | More `FileSystem` tools + store impls behind the `fs` feature |
 | Host services reaching tools | `ToolContext.extensions` (typed, `TypeId`-keyed bag) |
 | A domain event core lacks | `EventData::Custom { event_type, payload }` |
 
-`Custom` also carries a second, load-bearing job: it is the **forward
-compatibility floor for the event log**. `EventData` is internally tagged, so
-an unrecognized `kind` would abort deserialization of the line — and, through
-`JsonlEventLog::read`, of the entire session. `Event` therefore deserializes
-tolerantly: an unknown kind degrades to `Custom` carrying the original
-payload, so a log written by a newer agentyk stays readable *and resumable* by
-an older one. This is what keeps "replay is sufficient to resume a session"
-true across versions, and it is why new event types may be added freely while
-existing ones may not change shape.
+`Custom` also provides forward compatibility for **observational** events. An
+unknown kind can be retained as custom data so a listener or newer host may
+inspect it. This tolerance must not make an older engine claim it can safely
+resume through an event required to reduce turn state. Unknown
+correctness-bearing events stop replay; unknown observational events may be
+ignored. See [`architecture.md`](architecture.md#event-authority).
 
-Two seams, with a deliberate division of labour. **Middleware** owns *policy*
-about a call — deny it, rewrite it, transform its result — and is one trait
-with defaulted methods, so a new interception point is a method rather than a
-new trait plus a new config field plus new executor code. **The
-[`TurnExecutor`] seam** owns *strategy*: how the loop runs. Because the machine
-is sans-IO — pure [`TurnState`] transitions plus stateless `atoms` — a
-satellite executor can fan a batch out concurrently
-([`TurnState::pending_tool_actions`] returns the whole not-started batch for
-exactly this) and record whatever events it wants via `TurnHost::record`.
+Two seams have a deliberate division of labour. **Middleware** owns policy
+about a call — deny it, rewrite it, transform its result — and is orchestrated
+by the canonical engine. **A host dispatcher** owns how a prepared operation
+runs, including sequential or concurrent execution of a tool batch. It cannot
+change middleware order, transition semantics, or event meanings.
 
 Getting that division wrong is expensive, and we got it wrong once: because
 core's hooks could only allow or deny, a satellite that merely wanted to redact
 an argument had to fork the entire act loop, duplicating the cancel check, the
-delta sink, and the outcome mapping — code that then drifts. Both executors now
-call core's `before_tool_chain`/`after_tool_chain`, so what a chain of
-middleware *means* is defined once.
+delta sink, and the outcome mapping — code that then drifts. The canonical step
+engine removes the copied loop itself.
 
 ## What needed a core change (0.1.1)
 
@@ -105,41 +99,31 @@ because they cross the driver / event-log / replay boundary:
    everruns-flavored richness rides: execution `phase`, narration hints, the
    tool risk/hint taxonomy, capability status/category/icon. Adding these once
    means core does **not** need another change as everruns evolves — new
-   fields land in the bag, and the satellite interprets them.
+   fields land in the bag, and the adopting host interprets them.
 
 All are additive and serde-optional (`skip_serializing_if`, `#[serde(default)]`),
 so a plain message/tool/event serializes exactly as before and pre-0.1.1 logs
 still deserialize.
 
-## The satellite boundary
+## The adopter boundary
 
-> `agentyk-everruns-poc` (or the rebuilt everruns-core) =
-> a custom [`TurnExecutor`] (everruns act/hook/approval/parallel semantics)
-> + capabilities (mcp-merge, narration listener, compaction assembler, facts,
-> filesystem depth)
+> Rebuilt everruns-core =
+> a durable host and operation dispatchers
+> + capabilities (narration, compaction, facts, filesystem depth)
 > + drivers
 > + `metadata` conventions (a documented schema for what rides in the hatches).
 
-agentyk-core stays frozen and lean; the satellite owns everruns' shapes in its
-own layer. When core *does* need to change, the test is the rule above: is the
-new thing universal, correctness-load-bearing protocol data? If not, it belongs
-in a `metadata` hatch or the executor, not in core.
+Agentyk's engine owns turn semantics; Everruns owns durable scheduling and its
+host-specific shapes. When core *does* need to change, the test is the rule
+above: is the new thing universal, correctness-load-bearing protocol data? If
+not, it belongs in a metadata hatch, capability, middleware, or host.
 
 ## Proven end-to-end
 
-`poc/agentyk-everruns-poc` is a working proof of this boundary (a proof of
-concept, `publish = false`). Its **library depends on `agentyk-core` only** — no
-framework, no tokio, no HTTP (`cargo tree -p agentyk-everruns-poc --edges normal`
-shows just core + async-trait/serde). It ships:
+`poc/agentyk-everruns-poc` is a working proof of the extension surface (a
+proof of concept, `publish = false`). Its library depends on `agentyk-core`
+only; the facade appears as a dev dependency for end-to-end tests. It ships:
 
-- `EverrunsExecutor` — a custom [`TurnExecutor`] over `atoms` + [`TurnState`]
-  whose only remaining difference from the built-in one is **dispatch
-  strategy**: it fans a tool batch out concurrently via
-  `TurnState::pending_tool_actions`, closing agentyk's item-9 "concurrent
-  dispatch is a deferred follow-up" note without touching core. It once also
-  carried a private `PreToolGuard` chain; that became core
-  `TurnMiddleware`, and the executor now applies the same
-  `before_tool_chain` the built-in one does.
 - `ApprovalMiddleware` — hint-based approval as ordinary core middleware:
   **deny with a user-facing message**, composed with a redaction middleware
   that **rewrites a call before it runs**, plus **capability-contributed
@@ -156,19 +140,16 @@ shows just core + async-trait/serde). It ships:
   everruns-style **memory + compaction** shape *what the turn sends* over the
   existing context-assembly seam, while the untrimmed history stays in the log.
 
-Its tests drive a real agent (framework harness in dev-deps) and assert a
+Its tests drive a real agent through the canonical engine and assert a
 destructive tool is blocked with the approver's message, an approved one runs,
 a readonly one bypasses approval, a two-tool batch is fanned out and gated
 per-call, a guard **redacts** a secret argument before the tool sees it, guards
 **compose** (first-deny-wins), a capability **contributes** the guard that gates
 its own tool, the narration reads back as a transcript, and a `MemoryAssembler`
 **injects a memory note and compacts history** in what the driver receives while
-the log stays whole — all with **zero changes to core**. (The library does pull one lightweight combinator,
-`futures-util`, for `join_all` — a utility, not a runtime; still no tokio, no
-HTTP, no framework.)
+the log stays whole.
 
 [`EventData::Custom`]: https://docs.rs/agentyk-core/latest/agentyk_core/event/enum.EventData.html
-[`TurnExecutor`]: https://docs.rs/agentyk-core/latest/agentyk_core/executor/trait.TurnExecutor.html
 [`TurnState`]: https://docs.rs/agentyk-core/latest/agentyk_core/turn/struct.TurnState.html
 [`TurnState::current_message_id`]: https://docs.rs/agentyk-core/latest/agentyk_core/turn/struct.TurnState.html
 [`TurnState::pending_tool_actions`]: https://docs.rs/agentyk-core/latest/agentyk_core/turn/struct.TurnState.html

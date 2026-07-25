@@ -1,0 +1,22 @@
+[package]
+name = "agentyk-engine"
+description = "The canonical Agentyk turn engine: agents, sessions, policy, and in-process execution."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords = ["agent", "llm", "ai"]
+categories = ["asynchronous"]
+
+[lints]
+workspace = true
+
+[dependencies]
+agentyk-core = { workspace = true }
+async-trait = { workspace = true }
+chrono = { workspace = true }
+
+[package.metadata.docs.rs]
+all-features = true

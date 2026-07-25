@@ -151,7 +151,7 @@ pub struct Message {
     pub thinking_signature: Option<String>,
     /// Generic, serializable extension hatch — the message analogue of
     /// [`crate::event::EventData::Custom`]. Everruns-flavored richness a
-    /// satellite crate owns (execution `phase`, narration hints, provider
+    /// adopting host owns (execution `phase`, narration hints, provider
     /// extras) rides here instead of growing typed core fields. `Null` for
     /// the common case.
     #[serde(default, skip_serializing_if = "serde_json::Value::is_null")]

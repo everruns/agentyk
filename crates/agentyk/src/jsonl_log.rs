@@ -8,7 +8,7 @@ use std::sync::Mutex;
 
 use agentyk_core::error::{Error, Result};
 use agentyk_core::event::{Event, EventRequest};
-use agentyk_core::event_log::EventLog;
+use agentyk_core::event_log::{EventLog, ExpectedVersion};
 use agentyk_core::id::{EventId, SessionId};
 use async_trait::async_trait;
 use chrono::Utc;
@@ -80,23 +80,56 @@ impl JsonlEventLog {
 
 #[async_trait]
 impl EventLog for JsonlEventLog {
-    async fn append(&self, request: EventRequest) -> Result<Event> {
+    async fn append_batch(
+        &self,
+        session_id: SessionId,
+        expected: ExpectedVersion,
+        requests: Vec<EventRequest>,
+    ) -> Result<Vec<Event>> {
         let mut state = self.state.lock().expect("event log poisoned");
-        let seq = state.sequences.entry(request.session_id).or_insert(0);
-        *seq += 1;
-        let sequence = *seq;
-        let event = request.into_event(EventId::new(), Utc::now(), sequence);
-        let line = serde_json::to_string(&event)?;
-        state.writer.write_all(line.as_bytes())?;
-        state.writer.write_all(b"\n")?;
+        let actual = state.sequences.get(&session_id).copied().unwrap_or(0);
+        if let ExpectedVersion::Exact(expected) = expected
+            && expected != actual
+        {
+            return Err(Error::EventConflict { expected, actual });
+        }
+        if requests
+            .iter()
+            .any(|request| request.session_id != session_id)
+        {
+            return Err(Error::EventLog(
+                "event batch contains a different session".into(),
+            ));
+        }
+
+        let now = Utc::now();
+        let events: Vec<Event> = requests
+            .into_iter()
+            .enumerate()
+            .map(|(index, request)| {
+                request.into_event(EventId::new(), now, actual + index as u64 + 1)
+            })
+            .collect();
+        let mut encoded = Vec::new();
+        for event in &events {
+            serde_json::to_writer(&mut encoded, event)?;
+            encoded.push(b'\n');
+        }
+        state.writer.write_all(&encoded)?;
         state.writer.flush()?;
-        Ok(event)
+        if !events.is_empty() {
+            state
+                .sequences
+                .insert(session_id, actual + events.len() as u64);
+        }
+        Ok(events)
     }
 
-    async fn read(&self, session_id: SessionId) -> Result<Vec<Event>> {
+    async fn read_after(&self, session_id: SessionId, sequence: Option<u64>) -> Result<Vec<Event>> {
         // Hold the lock so appends can't interleave with the read.
         let _state = self.state.lock().expect("event log poisoned");
         let reader = BufReader::new(std::fs::File::open(&self.path)?);
+        let after = sequence.unwrap_or(0);
         let mut events = Vec::new();
         for line in reader.lines() {
             let line = line?;
@@ -105,7 +138,7 @@ impl EventLog for JsonlEventLog {
             }
             let event: Event = serde_json::from_str(&line)
                 .map_err(|e| Error::EventLog(format!("corrupt log line: {e}")))?;
-            if event.session_id == session_id {
+            if event.session_id == session_id && event.sequence.is_some_and(|value| value > after) {
                 events.push(event);
             }
         }

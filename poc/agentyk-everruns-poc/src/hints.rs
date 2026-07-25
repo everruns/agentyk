@@ -10,7 +10,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
 /// everruns' `readonly` / `destructive` / `open_world` per-tool risk flags.
-/// Read by [`crate::EverrunsExecutor`] to decide what needs approval.
+/// Read by [`crate::ApprovalMiddleware`] to decide what needs approval.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct ToolHints {
     /// The tool only reads state; safe to run without gating.
