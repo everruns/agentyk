@@ -85,9 +85,9 @@ pub use agentyk_core::{
     History, ImageContentPart, InMemoryEventLog, LlmErrorKind, Message, MessageId, ModelSpec,
     PassthroughContextAssembler, ReasoningConfig, Result, Role, SealReason, SessionId,
     SystemPromptContext, TextContentPart, Tool, ToolCall, ToolCallDecision, ToolChainOutcome,
-    ToolContext, ToolDefinition, ToolInvocation, ToolOutput, ToolPolicy, TurnAction, TurnControls,
-    TurnId, TurnMiddleware, TurnOutcome, TurnPhase, TurnState, Usage, after_tool_chain,
-    before_tool_chain, event_types, messages_from_events,
+    ToolContext, ToolDefinition, ToolInvocation, ToolOutput, ToolPolicy, ToolProgress,
+    ToolProgressSink, TurnAction, TurnControls, TurnId, TurnMiddleware, TurnOutcome, TurnPhase,
+    TurnState, Usage, after_tool_chain, before_tool_chain, event_types, messages_from_events,
 };
 
 /// The names most applications want in scope at once.
@@ -119,7 +119,7 @@ pub use drivers::sim::{SimDriver, SimToolCall, SimTurn};
 #[cfg(feature = "fs")]
 #[cfg_attr(docsrs, doc(cfg(feature = "fs")))]
 pub use filesystem::{
-    FileEntry, FileSystem, FileSystemCapability, InMemoryFileSystem, RealDiskFileSystem,
+    FileEntry, FileStat, FileSystem, FileSystemCapability, InMemoryFileSystem, RealDiskFileSystem,
     WriteBlocklistFileSystem,
 };
 pub use jsonl_log::JsonlEventLog;

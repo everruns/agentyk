@@ -88,7 +88,13 @@ expensive to change the longer we wait.
    via `reqwest::Error::is_timeout()`). User-facing error *mapping* (i18n,
    display strings) is not ported — no UI layer exists yet to need it.
 
-5. ✅ **Cancellation — done.** `cancellation::CancellationToken` (std-only,
+5. ✅ **Cancellation — done, and it now reaches inside a tool call.**
+   `run_until_cancelled` races any future against the token and drops it when
+   cancellation wins; the in-process host runs every tool call through it, and
+   `ToolContext::cancellation` gives tools and middleware the token. See
+   [`yolop-adoption.md`](yolop-adoption.md) gap 1.
+
+   Originally: `cancellation::CancellationToken` (std-only,
    `Arc<AtomicBool>`-backed, no tokio dependency, so it lives in core) is a
    field on `TurnHost`, checked by `InProcessExecutor` once per action
    (between reason/tool steps) and once per streaming chunk (inside
@@ -288,12 +294,17 @@ expensive to change the longer we wait.
       `WriteBlocklistFileStore`. `ApprovalGatingFileStore` not ported (no
       approval-gate capability exists yet — see gap 6's require-approval
       note).
-    - `FileSystemCapability` exposes 4 tools (`read_file`, `write_file`,
-      `list_directory`, `delete_file`) — a deliberate subset of everruns'
-      seven (`edit_file`'s content-hash CAS, `grep_files`, `stat_file` not
-      ported; no offset/limit pagination, content-type-aware read defaults,
-      or byte caps). This is the minimal set a coding agent needs to get
-      started, not a full port of the tool surface.
+    - `FileSystemCapability` now exposes 7 tools: `read_file` (with
+      `offset`/`limit` line windows), `write_file`, `edit_file` (exact-string
+      replacement refused on an ambiguous match, rather than everruns'
+      content-hash CAS — same guarantee, expressed so the model can retry with
+      more context), `list_directory`, `grep_files` (regex, recursive,
+      bounded), `stat_file`, and `delete_file`. All are written against the
+      `FileSystem` trait, so they work over any store; `FileSystem::stat` is
+      defaulted in terms of `list_directory`. Still not ported:
+      content-type-aware read defaults and byte caps. Every definition carries
+      risk hints in `ToolDefinition.metadata`. See
+      [`yolop-adoption.md`](yolop-adoption.md) gap 5.
 
 ## Tier 4 — host-side by design (non-gaps)
 

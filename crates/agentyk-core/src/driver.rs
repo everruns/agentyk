@@ -103,6 +103,23 @@ pub struct ModelSpec {
     /// driver — see [`ReasoningConfig`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reasoning: Option<ReasoningConfig>,
+    /// Generic, serializable hatch for provider-flavored configuration core
+    /// should not grow a field for — everruns' `ProviderMetadata`, in the
+    /// shape [`crate::tool::ToolDefinition::metadata`] established.
+    ///
+    /// `api_key` + `base_url` covers a plain API-key provider. It does not
+    /// cover the rest of what real providers ask for: an OAuth
+    /// subscription's refresh token, account id, and expiry; an
+    /// organization or project id; extra headers a gateway requires. Those
+    /// are provider-specific, so they ride here and the driver that
+    /// understands them reads them, rather than every adopter waiting on a
+    /// core release for a field only one provider uses.
+    ///
+    /// **Treat it as sensitive.** It is the natural home for credentials, so
+    /// it is redacted in `Debug` alongside `api_key`, and a `ModelSpec` must
+    /// never reach an event or a log line.
+    #[serde(default, skip_serializing_if = "serde_json::Value::is_null")]
+    pub metadata: serde_json::Value,
 }
 
 impl std::fmt::Debug for ModelSpec {
@@ -113,6 +130,10 @@ impl std::fmt::Debug for ModelSpec {
             .field("api_key", &self.api_key.as_ref().map(|_| "<redacted>"))
             .field("base_url", &self.base_url)
             .field("reasoning", &self.reasoning)
+            .field(
+                "metadata",
+                &(!self.metadata.is_null()).then_some("<redacted>"),
+            )
             .finish()
     }
 }
@@ -127,6 +148,7 @@ impl ModelSpec {
             api_key: None,
             base_url: None,
             reasoning: None,
+            metadata: serde_json::Value::Null,
         }
     }
 
@@ -177,6 +199,20 @@ impl ModelSpec {
     /// OpenAI-compatible server, a proxy, a local runtime.
     pub fn base_url(mut self, url: impl Into<String>) -> Self {
         self.base_url = Some(url.into());
+        self
+    }
+
+    /// Attach provider-specific configuration a driver knows how to read —
+    /// see [`ModelSpec::metadata`].
+    ///
+    /// ```
+    /// # use agentyk_core::ModelSpec;
+    /// let model = ModelSpec::openai("gpt-5.5")
+    ///     .metadata(serde_json::json!({ "organization": "org_123" }));
+    /// assert_eq!(model.metadata["organization"], "org_123");
+    /// ```
+    pub fn metadata(mut self, metadata: serde_json::Value) -> Self {
+        self.metadata = metadata;
         self
     }
 }

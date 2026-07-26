@@ -9,6 +9,48 @@ release — every release bumps the patch component (`0.1.z`). See
 
 ## [Unreleased]
 
+### Added — what a real coding agent needed
+
+Driven by building one: yolop's execution story was ported onto agentyk's
+seams, and these are the gaps that port hit. See
+[`knowledge/yolop-adoption.md`](knowledge/yolop-adoption.md).
+
+- **Cancellation reaches inside a tool call.**
+  `CancellationToken::run_until_cancelled` races any future against the signal
+  and drops it when cancellation wins; `InProcessExecutor` runs every tool
+  call through it, so a cancelled turn abandons a long build instead of
+  waiting it out (a `kill_on_drop` child dies with the dropped future). The
+  token is std-only still — no tokio, no futures crate — and now wakes parked
+  futures rather than only being polled. `ToolContext::cancellation` exposes it
+  to tools and, through `ToolInvocation::context`, to middleware: an approval
+  prompt can stop waiting when the turn is cancelled.
+- **Tools can report progress while they run.**
+  `ToolContext::report_progress(ToolProgress)` emits an **ephemeral**
+  `tool.progress` event to listeners — never persisted, never folded into
+  history, same contract as a streaming delta. `ToolProgressSink` is the host
+  seam; a tool with no host listening reports into a no-op.
+- **Tool results can carry structure.** `ToolOutput::metadata` is a host-facing
+  payload (exit codes, replacement counts, line windows) that rides on
+  `tool.completed` while the model still receives just `content`.
+- **`ModelSpec::metadata`** — a hatch for provider-flavored configuration
+  (OAuth refresh tokens, account ids, organization ids, gateway headers) that
+  `api_key` + `base_url` cannot express. Redacted in `Debug` alongside the key.
+- **Anthropic prompt caching, on by default.** Up to four `cache_control`
+  breakpoints per request — tools, system prompt, and the last two messages,
+  the pair being what makes caching incremental across a growing transcript.
+  Disable with `AnthropicDriver::prompt_caching(false)`. Cache-creation and
+  cache-read tokens are now counted in `Usage::input_tokens`.
+- **`FileSystemCapability` grew the missing coding tools**: `edit_file`
+  (exact-string replacement, refused when the match is ambiguous),
+  `grep_files` (regex, recursive, bounded), `stat_file`, and `offset`/`limit`
+  line windows on `read_file`. All are written against the `FileSystem` trait,
+  so they work over real disk, the in-memory store, or an adopter's own.
+  `FileSystem::stat` is defaulted in terms of `list_directory`, so existing
+  implementations gain it without changing.
+- Every bundled filesystem tool declares risk hints in
+  `ToolDefinition.metadata` under `"hints"`, so an approval middleware gates on
+  what a tool says about itself instead of on a hard-coded list of names.
+
 ### Changed
 
 - Migrated the repository’s durable design specs into `knowledge/`, an OKF

@@ -45,9 +45,12 @@ worked. No seam had to be forked, and nothing needed a patch to core.
 ## Blocking gaps
 
 Ordered by how much they hurt. 1–4 are the ones that would stop yolop from
-shipping on agentyk.
+shipping on agentyk. **All four, plus gap 5, are now closed** — the
+resolution is recorded under each.
 
-1. **A tool call cannot be cancelled** (engine). `InProcessExecutor` checks the
+1. ✅ **A tool call cannot be cancelled — fixed** (core + engine).
+
+   *Was:* `InProcessExecutor` checked the
    cancellation token between actions and between streaming chunks, but awaits
    `atoms::act` unraced, and `ToolContext` carries no token. Ctrl-c during a
    two-minute `cargo test` is honored only when the command finishes. The fix
@@ -56,32 +59,72 @@ shipping on agentyk.
    cooperate (kill its child rather than be abandoned). The same applies to a
    middleware awaiting an approval answer — a turn cancelled while a prompt is
    open cannot currently unwind.
-2. **Tools cannot report progress or return anything but a string** (core +
-   engine). `ToolOutput` is `{ content: String, is_error: bool }` and
-   `ToolContext` has no event sink. So: no streaming command output, no
+
+   **Resolution.** `CancellationToken` now wakes parked futures (std-only, no
+   tokio: a waker slot table on the shared state) and offers
+   `run_until_cancelled(future)`, which drops the future when cancellation
+   wins. `InProcessExecutor` runs every tool call through it, so an abandoned
+   call is really abandoned — a `kill_on_drop` child dies with the future, and
+   no `tool.completed` is recorded. `ToolContext::cancellation` carries the
+   token to tools and, via `ToolInvocation::context`, to middleware, which is
+   how an approval prompt stops waiting.
+2. ✅ **Tools cannot report progress or return anything but a string —
+   mostly fixed** (core + engine).
+
+   *Was:* `ToolOutput` was `{ content: String, is_error: bool }` and
+   `ToolContext` had no event sink. So: no streaming command output, no
    narration during a call, no background/long-running tools, no image or
    structured results. everruns' `BackgroundEventSink` and narration phases
-   have no counterpart. A sink on `ToolContext` emitting `EventData::Custom`
+   had no counterpart. A sink on `ToolContext` emitting `EventData::Custom`
    would unblock most of it without a protocol change; rich results need a
    content-part-shaped `ToolOutput`, which is a protocol change and therefore
    cheaper now than later.
-3. **No prompt caching** (drivers). The Anthropic driver emits no
-   `cache_control` breakpoints and reads no `Message.metadata`. Every turn
-   re-sends the transcript uncached. On a coding session this is not a
+
+   **Resolution.** `ToolContext::report_progress(ToolProgress)` emits an
+   ephemeral `tool.progress` event through a host-supplied `ToolProgressSink`
+   — never persisted, never folded into history, the same contract as a
+   streaming delta. `ToolOutput::metadata` carries structured results to the
+   host on `tool.completed` while the model still sees only `content`.
+   **Still open:** multimodal tool results *to the model* (an image a model can
+   look at). That needs `ToolOutput` to become content parts plus per-driver
+   support in `tool_result` blocks, and only one of the two bundled providers
+   accepts them — worth doing on evidence of need, not speculatively.
+3. ✅ **No prompt caching — fixed** (drivers).
+
+   *Was:* the Anthropic driver emitted no
+   `cache_control` breakpoints and read no `Message.metadata`. Every turn
+   re-sent the transcript uncached. On a coding session this is not a
    nice-to-have: it is the difference between viable and unviable cost.
-4. **`ModelSpec` cannot express a subscription provider** (core). It carries
+
+   **Resolution.** The Anthropic driver places up to four `cache_control`
+   breakpoints per request — the tool array, the system prompt, and the last
+   *two* messages; the pair is what makes caching incremental, since each turn
+   reads the cache the previous turn wrote. On by default,
+   `prompt_caching(false)` to disable for a proxy that rejects the field.
+   Cache-creation and cache-read tokens are summed into `Usage::input_tokens`
+   so enabling it does not make a session look like it stopped sending
+   context. OpenAI needs nothing: it caches automatically.
+4. ✅ **`ModelSpec` cannot express a subscription provider — fixed** (core).
+
+   *Was:* it carried
    `api_key` and `base_url`. yolop's Codex provider needs a refresh token, an
    account id, and an expiry; Google/Ollama/custom endpoints work only because
-   they reduce to a base URL. everruns' `ProviderMetadata` is the shape that is
+   they reduce to a base URL. everruns' `ProviderMetadata` was the shape that was
    missing — or, in the spirit of
    [`extensibility.md`](extensibility.md), a `metadata` hatch on `ModelSpec`,
    since the contents are provider-flavored rather than universal.
+
+   **Resolution.** `ModelSpec::metadata`, the hatch. It is the natural home
+   for credentials, so it is redacted in `Debug` alongside `api_key` and falls
+   under the same rule: a `ModelSpec` never reaches an event or a log line.
 
 ## Sharp edges
 
 Real, worked around, but each one costs an adopter something.
 
-5. **The filesystem capability is a starter set.** No `edit_file` (the
+5. ✅ **The filesystem capability is a starter set — fixed.**
+
+   *Was:* no `edit_file` (the
    content-hash CAS everruns has), no `grep_files`, no `stat_file`, no
    offset/limit reads, no byte caps. The backend wrote `edit_file` and
    `grep_files` itself; neither is yolop-specific and both belong in the
@@ -89,6 +132,16 @@ Real, worked around, but each one costs an adopter something.
    whole files, and one without repository search shells out for every lookup —
    which routes around the approval gate that the shell, unlike the file tools,
    is subject to.
+
+   **Resolution.** `edit_file` (exact-string replacement, refused when the
+   match is ambiguous — the same guarantee everruns gets from a content hash,
+   in terms a model can act on), `grep_files` (regex, recursive, bounded), and
+   `stat_file` now ship, plus `offset`/`limit` line windows on `read_file`.
+   All are written against the `FileSystem` trait, so they work over any
+   store; `FileSystem::stat` is defaulted in terms of `list_directory` so
+   existing implementations gain it for free. Every bundled tool also declares
+   risk hints in `ToolDefinition.metadata`, so approval gates on what a tool
+   says about itself.
 6. **Tool batches run sequentially.** The data model is parallel-capable
    (`PendingAct { calls }`) and `TurnEngine` prepares the whole batch, but
    `InProcessExecutor` dispatches one at a time. Parallel reads are table
@@ -112,16 +165,22 @@ Real, worked around, but each one costs an adopter something.
     it is worth deciding deliberately rather than by omission, because every
     adopter with a UI hits it.
 
-## Suggested order
+## What is left
 
-Protocol-affecting first, since logs are starting to be persisted:
+Gaps 1–5 are closed. The rest stay open, deliberately:
 
-1. `ToolOutput` content parts + a tool event sink on `ToolContext` (gap 2).
-2. `ModelSpec` provider metadata hatch (gap 4).
-3. Cancellation through tool execution (gap 1) — engine-only, no protocol
-   change, but the most user-visible.
-4. Prompt caching in the Anthropic driver (gap 3).
-5. `edit_file` / `grep_files` / `stat_file` in `FileSystemCapability` (gap 5)
-   and concurrent dispatch in `InProcessExecutor` (gap 6).
+- **6, concurrent dispatch** — the data model is already parallel-capable, so
+  this is a host change, not a protocol one. It also interacts with the
+  per-call cancellation and budget guards, which is worth designing rather
+  than bolting on.
+- **7, mid-turn input** — needs a decision about what a message appended
+  *during* a turn means for replay, not just an API.
+- **8, MCP transports** — an HTTP/SSE client plus an auth seam; a chunk of
+  work in its own right.
+- **9, model profiles** — a catalog of what each model supports is a
+  subsystem, and a wrong one is worse than none.
+- **10, a host channel for middleware** — capturing a channel in the
+  middleware works today. Worth deciding deliberately, not by omission.
 
-Gaps 7–10 can follow adoption; each is additive.
+Everything protocol-affecting in this analysis has landed, which was the
+ordering constraint: logs are starting to be persisted.

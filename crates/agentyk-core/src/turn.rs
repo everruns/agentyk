@@ -182,7 +182,12 @@ impl TurnState {
                         current_message_id: None,
                     });
                 }
-                EventData::InputMessage { .. } | EventData::OutputMessageDelta { .. } => {}
+                // Ephemeral events (deltas, tool progress) never reach a log,
+                // so replay only sees them if a host chose to keep them; either
+                // way they carry no turn state.
+                EventData::InputMessage { .. }
+                | EventData::OutputMessageDelta { .. }
+                | EventData::ToolProgress { .. } => {}
                 EventData::OutputMessageStarted { message_id, .. } => {
                     replay_state(&mut state, turn_id)?.current_message_id = Some(*message_id);
                 }
@@ -240,6 +245,7 @@ impl TurnState {
                     call_id,
                     output,
                     is_error,
+                    metadata,
                     ..
                 } => {
                     let state = replay_state(&mut state, turn_id)?;
@@ -248,7 +254,10 @@ impl TurnState {
                             calls.iter_mut().find(|pending| pending.call.id == *call_id)
                         && pending.output.is_none()
                     {
-                        pending.output = Some(ToolOutput::new(output.clone(), *is_error));
+                        pending.output = Some(
+                            ToolOutput::new(output.clone(), *is_error)
+                                .with_metadata(metadata.clone()),
+                        );
                         state.tool_calls_executed += 1;
                         if calls.iter().all(|pending| pending.output.is_some()) {
                             state.phase = TurnPhase::PendingReason;
@@ -507,6 +516,7 @@ impl TurnState {
             name: pending.call.name.clone(),
             output: output.content.clone(),
             is_error: output.is_error,
+            metadata: output.metadata.clone(),
         }];
         if calls.iter().all(|p| p.output.is_some()) {
             self.phase = TurnPhase::PendingReason;

@@ -158,7 +158,10 @@ async fn anthropic_completes_over_a_real_socket() {
     assert!(headers.contains("x-api-key: k"), "{headers}");
     assert!(headers.contains("anthropic-version: "), "{headers}");
     let body = server.sent_body().await;
-    assert_eq!(body["system"], "be terse");
+    // Prompt caching (on by default) sends the system prompt as a block array
+    // so it can carry a `cache_control` marker.
+    assert_eq!(body["system"][0]["text"], "be terse");
+    assert_eq!(body["system"][0]["cache_control"]["type"], "ephemeral");
     assert_eq!(body["messages"][0]["role"], "user");
 }
 
