@@ -246,6 +246,7 @@ impl TurnState {
                     output,
                     is_error,
                     metadata,
+                    parts,
                     ..
                 } => {
                     let state = replay_state(&mut state, turn_id)?;
@@ -256,7 +257,8 @@ impl TurnState {
                     {
                         pending.output = Some(
                             ToolOutput::new(output.clone(), *is_error)
-                                .with_metadata(metadata.clone()),
+                                .with_metadata(metadata.clone())
+                                .with_parts(parts.clone()),
                         );
                         state.tool_calls_executed += 1;
                         if calls.iter().all(|pending| pending.output.is_some()) {
@@ -517,6 +519,7 @@ impl TurnState {
             output: output.content.clone(),
             is_error: output.is_error,
             metadata: output.metadata.clone(),
+            parts: output.parts.clone(),
         }];
         if calls.iter().all(|p| p.output.is_some()) {
             self.phase = TurnPhase::PendingReason;

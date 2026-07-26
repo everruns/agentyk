@@ -73,8 +73,8 @@ pub mod mcp;
 // *someone else's* build. Re-exporting explicitly makes widening this crate's
 // surface a decision.
 pub use agentyk_core::{
-    atoms, budget, cancellation, capability, context, controls, driver, error, event, event_log,
-    extensions, id, message, middleware, replay, tool, turn,
+    atoms, budget, cancellation, capability, concurrency, context, controls, driver, error, event,
+    event_log, extensions, id, message, middleware, replay, tool, turn,
 };
 
 pub use agentyk_core::{

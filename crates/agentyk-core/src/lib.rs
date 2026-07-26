@@ -46,6 +46,7 @@ pub mod atoms;
 pub mod budget;
 pub mod cancellation;
 pub mod capability;
+pub mod concurrency;
 pub mod context;
 pub mod controls;
 pub mod driver;

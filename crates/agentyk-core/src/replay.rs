@@ -26,8 +26,15 @@ pub fn message_from_event_data(data: &EventData) -> Option<Message> {
             Some(message.clone())
         }
         EventData::ToolCompleted {
-            call_id, output, ..
-        } => Some(Message::tool_result(call_id.clone(), output.clone())),
+            call_id,
+            output,
+            parts,
+            ..
+        } => Some(Message::tool_result_with_parts(
+            call_id.clone(),
+            output.clone(),
+            parts.clone(),
+        )),
         _ => None,
     }
 }
@@ -139,6 +146,7 @@ mod tests {
                     output: "out".into(),
                     is_error: false,
                     metadata: serde_json::Value::Null,
+                    parts: Vec::new(),
                 },
             ),
         ];

@@ -94,6 +94,36 @@ fn wire_content(content: &[ContentPart]) -> Value {
     )
 }
 
+/// Expand one message into the wire messages it needs.
+///
+/// Almost always exactly one. The exception is a tool result carrying images:
+/// the Chat Completions protocol accepts only text in a `tool` message, so the
+/// images follow as a user message rather than being dropped. That is a
+/// deliberate, visible workaround — the model still sees them, and the
+/// transcript says where they came from. Anthropic needs no such trick (see
+/// its driver), which is exactly why `ToolOutput::parts` is documented as
+/// best-effort per protocol.
+fn to_wire_messages(message: &Message) -> Vec<Value> {
+    let mut wire = vec![to_wire_message(message)];
+    if message.role == Role::Tool {
+        let images: Vec<ContentPart> = message
+            .content
+            .iter()
+            .filter(|part| matches!(part, ContentPart::Image(_)))
+            .cloned()
+            .collect();
+        if !images.is_empty() {
+            let mut content = vec![ContentPart::text(format!(
+                "Images returned by tool call {}:",
+                message.tool_call_id.as_deref().unwrap_or("(unknown)")
+            ))];
+            content.extend(images);
+            wire.push(json!({"role": "user", "content": wire_content(&content)}));
+        }
+    }
+    wire
+}
+
 fn to_wire_message(message: &Message) -> Value {
     match message.role {
         Role::System => json!({"role": "system", "content": wire_content(&message.content)}),
@@ -120,10 +150,12 @@ fn to_wire_message(message: &Message) -> Value {
             }
             wire
         }
+        // Text only: images in a tool result travel as a following user
+        // message — see `to_wire_messages`.
         Role::Tool => json!({
             "role": "tool",
             "tool_call_id": message.tool_call_id,
-            "content": wire_content(&message.content),
+            "content": message.text(),
         }),
     }
 }
@@ -357,7 +389,7 @@ impl HttpProvider for OpenAiDriver {
         if let Some(system) = &request.system_prompt {
             messages.push(json!({"role": "system", "content": system}));
         }
-        messages.extend(request.messages.iter().map(to_wire_message));
+        messages.extend(request.messages.iter().flat_map(to_wire_messages));
 
         let mut body = json!({
             "model": request.model.model,
