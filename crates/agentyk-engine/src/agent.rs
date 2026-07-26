@@ -354,6 +354,12 @@ impl AgentBuilder {
     /// Tell context assembly the maximum input-token budget for each model
     /// call. The assembler owns estimation and reduction; the engine does not
     /// silently trim messages.
+    ///
+    /// Left unset, an attached [`AgentBuilder::model_catalog`] can supply it:
+    /// a profile stating **both** a context window and an output ceiling
+    /// implies the input budget (window minus output). Only both, because
+    /// with just the window there is no defensible number — reserving room
+    /// for the response would mean inventing a figure the host never stated.
     pub fn context_token_limit(mut self, token_limit: usize) -> Self {
         self.config.context_token_limit = Some(token_limit);
         self
@@ -405,6 +411,15 @@ impl AgentBuilder {
             return Err(Error::InvalidAgent(reason));
         }
 
+        // A stated window and output ceiling are the input budget, so a host
+        // that described its model does not also have to compute this.
+        let context_token_limit = config.context_token_limit.or_else(|| {
+            let profile = model_profile.as_ref()?;
+            let window = usize::try_from(profile.context_window?).ok()?;
+            let output = usize::try_from(profile.max_output_tokens?).ok()?;
+            window.checked_sub(output)
+        });
+
         let definition = AgentDefinition {
             name: config.name.clone(),
             instructions: config.system_prompt.clone(),
@@ -415,7 +430,7 @@ impl AgentBuilder {
             budget_checker: config.budget_checker.clone(),
             context_assembler: config.context_assembler.clone(),
             model_profile,
-            context_token_limit: config.context_token_limit,
+            context_token_limit,
         };
         let environment = AgentEnvironment {
             drivers: config.drivers.clone(),

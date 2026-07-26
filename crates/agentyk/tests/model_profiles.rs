@@ -109,3 +109,58 @@ fn a_catalog_can_be_anything_that_answers_the_question() {
         .build();
     assert!(rejected.is_err());
 }
+
+#[test]
+fn a_stated_window_and_output_ceiling_imply_the_input_budget() -> Result<()> {
+    let catalog = InMemoryModelCatalog::new().with(
+        DriverId::llmsim(),
+        "llmsim",
+        ModelProfile::new()
+            .context_window(200_000)
+            .max_output_tokens(8_000),
+    );
+    let agent = Agent::builder()
+        .model(ModelSpec::llmsim())
+        .driver(SimDriver::new([SimTurn::text("hi")]))
+        .model_catalog(catalog)
+        .build()?;
+    assert_eq!(agent.definition().context_token_limit, Some(192_000));
+    Ok(())
+}
+
+#[test]
+fn an_explicit_limit_wins_over_the_catalog() -> Result<()> {
+    let catalog = InMemoryModelCatalog::new().with(
+        DriverId::llmsim(),
+        "llmsim",
+        ModelProfile::new()
+            .context_window(200_000)
+            .max_output_tokens(8_000),
+    );
+    let agent = Agent::builder()
+        .model(ModelSpec::llmsim())
+        .driver(SimDriver::new([SimTurn::text("hi")]))
+        .model_catalog(catalog)
+        .context_token_limit(50_000)
+        .build()?;
+    assert_eq!(agent.definition().context_token_limit, Some(50_000));
+    Ok(())
+}
+
+#[test]
+fn a_window_alone_implies_nothing() -> Result<()> {
+    // Without an output ceiling there is no honest input budget — reserving
+    // room would mean inventing a number the host never stated.
+    let catalog = InMemoryModelCatalog::new().with(
+        DriverId::llmsim(),
+        "llmsim",
+        ModelProfile::new().context_window(200_000),
+    );
+    let agent = Agent::builder()
+        .model(ModelSpec::llmsim())
+        .driver(SimDriver::new([SimTurn::text("hi")]))
+        .model_catalog(catalog)
+        .build()?;
+    assert_eq!(agent.definition().context_token_limit, None);
+    Ok(())
+}

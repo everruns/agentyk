@@ -41,7 +41,10 @@ coding agent on these seams, not by reading them.
   at `build()` — an unsupported reasoning effort or a thinking budget on a
   model without thinking now fails with a message naming the alternatives.
   agentyk ships no model list: a catalog in a library is stale by the next
-  provider release, and an unknown model passes through untouched.
+  provider release, and an unknown model passes through untouched. A profile
+  stating both a context window and an output ceiling also supplies
+  `context_token_limit`, so a host that described its model does not compute
+  the input budget twice.
 
 ### Added — what a real coding agent needed
 
