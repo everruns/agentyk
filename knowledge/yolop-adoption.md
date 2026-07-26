@@ -84,10 +84,13 @@ resolution is recorded under each.
    — never persisted, never folded into history, the same contract as a
    streaming delta. `ToolOutput::metadata` carries structured results to the
    host on `tool.completed` while the model still sees only `content`.
-   **Still open:** multimodal tool results *to the model* (an image a model can
-   look at). That needs `ToolOutput` to become content parts plus per-driver
-   support in `tool_result` blocks, and only one of the two bundled providers
-   accepts them — worth doing on evidence of need, not speculatively.
+   Multimodal results followed: `ToolOutput::parts` carries content parts the
+   model sees, recorded on `tool.completed` so a replay sends the same result.
+   The asymmetry the deferral worried about is real and handled per driver —
+   Anthropic nests them in the `tool_result` block, while the Chat Completions
+   protocol has no slot for them, so the OpenAI driver relays them as a
+   following user message rather than dropping them. `parts` is documented as
+   best-effort for exactly that reason; `content` must stand on its own.
 3. ✅ **No prompt caching — fixed** (drivers).
 
    *Was:* the Anthropic driver emitted no
@@ -141,23 +144,58 @@ Real, worked around, but each one costs an adopter something.
    existing implementations gain it for free. Every bundled tool also declares
    risk hints in `ToolDefinition.metadata`, so approval gates on what a tool
    says about itself.
-6. **Tool batches run sequentially.** The data model is parallel-capable
-   (`PendingAct { calls }`) and `TurnEngine` prepares the whole batch, but
-   `InProcessExecutor` dispatches one at a time. Parallel reads are table
-   stakes; this is the follow-up
-   [`everruns-adoption.md`](everruns-adoption.md) gap 8 already names.
-7. **No mid-turn input.** `Session::run` borrows `&mut self` for the whole
-   turn, and there is no way to append a message to history without running
-   one. Steering ("stop, do X instead") and injecting a system notice mid-turn
-   are both unexpressible. A queue the host drains between actions, or an
-   `append_message`-style API, would cover it.
-8. **MCP is stdio-only and unauthenticated.** No HTTP/SSE transport and no auth
-   seam, so remote MCP servers cannot be reached at all. Capabilities still
-   cannot contribute servers (gap 13).
-9. **Reasoning effort is unvalidated.** `ModelSpec::reasoning_effort` takes any
-   string. There is no model-profile notion (context window, supported efforts,
-   max tokens), so an unsupported effort surfaces as a provider error mid-turn
-   instead of at build time.
+6. ✅ **Tool batches run sequentially — fixed.**
+
+   *Was:* the data model was parallel-capable (`PendingAct { calls }`) and
+   `TurnEngine` prepared the whole batch, but `InProcessExecutor` dispatched
+   one at a time.
+
+   **Resolution.** The in-process host runs the batch concurrently through
+   `concurrency::join_all` — std-only, in core, because taking a `futures`
+   dependency to poll N futures would put a combinator library in the leanest
+   crate in the workspace. Results are recorded in batch order regardless of
+   completion order, so two replays of a session agree. The cost is that
+   policy can no longer stop a batch mid-flight, so
+   `InProcessExecutor::sequential()` keeps the old behavior for hosts whose
+   tools contend or whose budget must bite inside a batch.
+7. ✅ **No mid-turn input — fixed.**
+
+   *Was:* `Session::run` borrowed `&mut self` for the whole turn, and there
+   was no way to append a message to history without running one.
+
+   **Resolution.** `Session::input()` returns an `InputQueue` a caller holds
+   before starting a turn and pushes to from anywhere. The engine drains it
+   **only when the next action is a reasoning step** — a message between a
+   tool call and its result invalidates the exchange for every provider, and a
+   reasoning step is the first moment the model could act on it anyway.
+   Drained messages are recorded as ordinary `input.message` events, so
+   history and a replay agree, and anything pushed while idle joins the next
+   turn.
+8. ✅ **MCP is stdio-only and unauthenticated — fixed.**
+
+   *Was:* no HTTP/SSE transport and no auth seam, so remote MCP servers could
+   not be reached at all.
+
+   **Resolution.** `McpServer::http` speaks the Streamable HTTP transport:
+   one endpoint, JSON *or* SSE responses, and the session id from `initialize`
+   echoed on everything after. Splitting a `Transport` trait out first is what
+   kept the protocol layer — handshake, `tools/list`, `tools/call`,
+   id correlation — shared rather than duplicated per transport.
+   `McpAuthProvider` supplies the `Authorization` header **per request**, not
+   per connection, so an expiring token only has to return a fresh value.
+   Needs the `http` feature alongside `mcp`; without it, connecting says so.
+   Capabilities contributing servers (gap 13) is still open.
+9. ✅ **Reasoning effort is unvalidated — fixed.**
+
+   *Was:* `ModelSpec::reasoning_effort` took any string, with no model-profile
+   notion, so an unsupported effort surfaced as a provider error mid-turn.
+
+   **Resolution.** `ModelProfile` + the `ModelCatalog` seam, validated by
+   `AgentBuilder::build()`. The deferral's worry — "a catalog is a subsystem,
+   and a wrong one is worse than none" — is answered by shipping **no model
+   list at all**: a host implements the trait over knowledge it already has,
+   an unknown model passes through untouched, and the library contributes only
+   the check and the error message.
 10. **Middleware has no host channel.** A UI that must *ask* a human has to
     capture its own channel when the middleware is constructed, or fish one out
     of `ToolContext::extensions`. That works, and may be the right answer — but
@@ -166,22 +204,20 @@ Real, worked around, but each one costs an adopter something.
 
 ## What is left
 
-Gaps 1–5 are closed. The rest stay open, deliberately:
+Gaps 1–9 are closed. What remains is one open question and a short list of
+things this analysis never claimed:
 
-- **6, concurrent dispatch** — the data model is already parallel-capable, so
-  this is a host change, not a protocol one. It also interacts with the
-  per-call cancellation and budget guards, which is worth designing rather
-  than bolting on.
-- **7, mid-turn input** — needs a decision about what a message appended
-  *during* a turn means for replay, not just an API.
-- **8, MCP transports** — an HTTP/SSE client plus an auth seam; a chunk of
-  work in its own right.
-- **9, model profiles** — a catalog of what each model supports is a
-  subsystem, and a wrong one is worse than none.
-- **10, a host channel for middleware** — capturing a channel in the
-  middleware works today. Worth deciding deliberately, not by omission.
+- **10, a host channel for middleware.** Still open, and now a smaller
+  question than it looked: middleware reaches `ToolContext`, which carries
+  extensions and the cancellation token, so a host channel can be injected
+  today. Whether a *first-class* one is worth a core field is a decision to
+  make on evidence, not by omission.
+- **Byte caps on `read_file`** (line windows exist), **background/detached
+  tools**, and **capabilities contributing MCP servers**
+  ([`everruns-adoption.md`](everruns-adoption.md) gap 13) were never in this
+  list; they remain open there.
 
-Everything protocol-affecting in this analysis has landed, which was the
-ordering constraint: logs are starting to be persisted.
+Everything protocol-affecting has landed, which was the ordering constraint:
+logs are starting to be persisted.
 
 [yolop-backend]: https://github.com/everruns/yolop/blob/main/knowledge/specs/agentyk-backend.md

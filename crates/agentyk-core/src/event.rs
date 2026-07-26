@@ -185,6 +185,12 @@ pub enum EventData {
         /// before this field still deserialize.
         #[serde(default, skip_serializing_if = "serde_json::Value::is_null")]
         metadata: serde_json::Value,
+        /// Content parts the model receives alongside `output` — see
+        /// [`crate::tool::ToolOutput::parts`]. Recorded because they are part
+        /// of what the model saw: a replayed session must send the same tool
+        /// result, images included.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        parts: Vec<crate::message::ContentPart>,
     },
     /// A tool that is still running reported progress. **Ephemeral** —
     /// delivered to listeners, never persisted and never folded into
@@ -592,6 +598,7 @@ mod tests {
                 output: "hi".into(),
                 is_error: false,
                 metadata: serde_json::Value::Null,
+                parts: Vec::new(),
             },
         );
         let event = request.into_event(EventId::new(), Utc::now(), 3);

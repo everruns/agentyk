@@ -214,6 +214,22 @@ impl Message {
         }
     }
 
+    /// A tool result carrying extra content parts (images) after its text —
+    /// see [`crate::tool::ToolOutput::parts`]. Equivalent to
+    /// [`Message::tool_result`] when `parts` is empty.
+    pub fn tool_result_with_parts(
+        call_id: impl Into<String>,
+        text: impl Into<String>,
+        parts: impl IntoIterator<Item = ContentPart>,
+    ) -> Self {
+        let mut content = Self::text_content(text);
+        content.extend(parts);
+        Self {
+            tool_call_id: Some(call_id.into()),
+            ..Self::new(Role::Tool, content)
+        }
+    }
+
     /// Attach provider reasoning to this message — see [`Message::thinking`].
     pub fn with_thinking(mut self, thinking: impl Into<String>, signature: Option<String>) -> Self {
         self.thinking = Some(thinking.into());

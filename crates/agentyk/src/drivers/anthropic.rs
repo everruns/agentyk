@@ -172,10 +172,12 @@ pub(crate) fn to_wire_messages(messages: &[Message]) -> Vec<Value> {
 
     for message in messages {
         match message.role {
+            // A tool_result's content may itself be blocks, so images a tool
+            // returned reach the model in place — no relay message needed.
             Role::Tool => pending_tool_results.push(json!({
                 "type": "tool_result",
                 "tool_use_id": message.tool_call_id,
-                "content": message.text(),
+                "content": content_blocks(&message.content),
             })),
             Role::User => {
                 flush_tool_results(&mut wire, &mut pending_tool_results);

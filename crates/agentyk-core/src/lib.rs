@@ -46,6 +46,7 @@ pub mod atoms;
 pub mod budget;
 pub mod cancellation;
 pub mod capability;
+pub mod concurrency;
 pub mod context;
 pub mod controls;
 pub mod driver;
@@ -54,8 +55,10 @@ pub mod event;
 pub mod event_log;
 pub mod extensions;
 pub mod id;
+pub mod input;
 pub mod message;
 pub mod middleware;
+pub mod profile;
 pub mod replay;
 pub mod tool;
 pub mod turn;
@@ -80,11 +83,13 @@ pub use event_log::{
 };
 pub use extensions::Extensions;
 pub use id::{EventId, MessageId, SessionId, TurnId};
+pub use input::InputQueue;
 pub use message::{ContentPart, ImageContentPart, Message, Role, TextContentPart, ToolCall};
 pub use middleware::{
     ToolCallDecision, ToolChainOutcome, ToolInvocation, TurnMiddleware, after_tool_chain,
     before_tool_chain,
 };
+pub use profile::{InMemoryModelCatalog, ModelCatalog, ModelProfile};
 pub use replay::{History, messages_from_events};
 pub use tool::{
     DeferrablePolicy, FnTool, Tool, ToolContext, ToolDefinition, ToolOutput, ToolPolicy,

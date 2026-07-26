@@ -4,12 +4,13 @@ use std::sync::Arc;
 
 use agentyk_core::atoms;
 use agentyk_core::cancellation::CancellationToken;
+use agentyk_core::concurrency::join_all;
 use agentyk_core::driver::DeltaSink;
 use agentyk_core::error::{Error, Result};
 use agentyk_core::event::{EventData, EventListener, EventRequest};
 use agentyk_core::id::{EventId, MessageId, SessionId, TurnId};
 use agentyk_core::message::Message;
-use agentyk_core::tool::{ToolContext, ToolProgress, ToolProgressSink};
+use agentyk_core::tool::{ToolContext, ToolOutput, ToolProgress, ToolProgressSink};
 use agentyk_core::turn::{TurnOutcome, TurnState};
 use async_trait::async_trait;
 use chrono::Utc;
@@ -81,8 +82,40 @@ impl DeltaSink for RecordingDeltaSink<'_, '_> {
 
 /// Executes every operation from [`TurnEngine`] immediately in the caller's
 /// async task.
-#[derive(Debug, Default, Clone, Copy)]
-pub struct InProcessExecutor;
+///
+/// A prepared tool batch runs **concurrently** by default: when a model asks
+/// for three file reads at once it means all three, and running them one after
+/// another turns a model's parallelism into a host's latency. Results are
+/// still recorded in batch order, so the event sequence is identical either
+/// way — see [`InProcessExecutor::sequential`] for when to give that up.
+#[derive(Debug, Clone, Copy)]
+pub struct InProcessExecutor {
+    concurrent: bool,
+}
+
+impl Default for InProcessExecutor {
+    fn default() -> Self {
+        Self { concurrent: true }
+    }
+}
+
+impl InProcessExecutor {
+    /// The default: a prepared batch runs concurrently.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Run a batch one call at a time.
+    ///
+    /// The one thing this buys is policy *inside* a batch: budget checks and
+    /// cancellation are evaluated between calls, so a batch of ten can stop
+    /// after two. Concurrent dispatch necessarily commits to the whole batch
+    /// (cancellation still drops all of it at once). Choose this when tools
+    /// contend for the same resource, or when a budget must bite mid-batch.
+    pub fn sequential() -> Self {
+        Self { concurrent: false }
+    }
+}
 
 impl InProcessExecutor {
     /// Run one turn by immediately executing every prepared engine operation.
@@ -151,53 +184,87 @@ impl InProcessExecutor {
                     }
                 }
                 TurnOperation::InvokeTools { calls } => {
-                    for (index, prepared) in calls.into_iter().enumerate() {
-                        if index > 0
-                            && let Some(step) = engine.guard(host, &mut state).await
-                        {
-                            host.record(turn_id, step.events).await?;
-                            if let TurnOperation::Finished(outcome) = step.operation {
-                                return turn_result(host, state, outcome);
-                            }
-                            unreachable!("an engine guard only returns terminal operations");
-                        }
-                        let was_denied = prepared.denied.is_some();
-                        let output = match prepared.denied {
-                            Some(output) => output,
+                    // Execute the batch, then record it. Denied calls resolve
+                    // instantly; the rest run concurrently when the host is
+                    // configured for it, which is what makes a model's
+                    // parallel reads actually parallel.
+                    let mut pending = Vec::new();
+                    let mut outputs: Vec<Option<ToolOutput>> = Vec::with_capacity(calls.len());
+                    for prepared in &calls {
+                        match &prepared.denied {
+                            Some(output) => outputs.push(Some(output.clone())),
                             None => {
-                                let context = ToolContext::new(host.session_id, turn_id)
+                                outputs.push(None);
+                                pending.push(prepared.call.clone());
+                            }
+                        }
+                    }
+
+                    if !pending.is_empty() {
+                        let contexts: Vec<ToolContext> = pending
+                            .iter()
+                            .map(|call| {
+                                ToolContext::new(host.session_id, turn_id)
                                     .with_extensions(host.environment.extensions.clone())
                                     .with_cancellation(host.cancellation.clone())
                                     .with_progress(Arc::new(ListenerProgressSink {
                                         listeners: host.environment.listeners.clone(),
                                         session_id: host.session_id,
                                         turn_id,
-                                        call_id: prepared.call.id.clone(),
-                                        name: prepared.call.name.clone(),
-                                    }));
-                                // Race the call against cancellation instead of
-                                // waiting it out: losing means the tool future is
-                                // dropped where it stood, which is what kills a
-                                // `kill_on_drop` child process. Without this a
-                                // cancelled turn still blocks on a long build.
-                                let cancellation = host.cancellation.clone();
-                                let executed = cancellation
-                                    .run_until_cancelled(atoms::act(
-                                        &assembled,
-                                        &prepared.call,
-                                        &context,
-                                    ))
-                                    .await;
-                                match executed {
-                                    Some(output) => output,
-                                    None => {
-                                        let events = state.on_cancel();
-                                        host.record(turn_id, events).await?;
-                                        return Err(Error::Cancelled);
-                                    }
-                                }
+                                        call_id: call.id.clone(),
+                                        name: call.name.clone(),
+                                    })
+                                        as Arc<dyn ToolProgressSink>)
+                            })
+                            .collect();
+
+                        // Race the whole batch against cancellation rather
+                        // than waiting it out: losing drops every in-flight
+                        // tool future where it stands, which is what kills a
+                        // `kill_on_drop` child process.
+                        let cancellation = host.cancellation.clone();
+                        let executed = match self.concurrent {
+                            true => {
+                                let futures = pending
+                                    .iter()
+                                    .zip(&contexts)
+                                    .map(|(call, context)| atoms::act(&assembled, call, context));
+                                cancellation.run_until_cancelled(join_all(futures)).await
+                            }
+                            // Sequential dispatch still checks policy between
+                            // calls, which a concurrent batch cannot do — see
+                            // `InProcessExecutor::sequential`.
+                            false => {
+                                cancellation
+                                    .run_until_cancelled(async {
+                                        let mut results = Vec::with_capacity(pending.len());
+                                        for (call, context) in pending.iter().zip(&contexts) {
+                                            results
+                                                .push(atoms::act(&assembled, call, context).await);
+                                        }
+                                        results
+                                    })
+                                    .await
                             }
                         };
+                        let Some(results) = executed else {
+                            let events = state.on_cancel();
+                            host.record(turn_id, events).await?;
+                            return Err(Error::Cancelled);
+                        };
+                        let mut results = results.into_iter();
+                        for slot in outputs.iter_mut() {
+                            if slot.is_none() {
+                                *slot = results.next();
+                            }
+                        }
+                    }
+
+                    // Recording is sequential and in batch order, however the
+                    // calls ran: two replays of one session must see the same
+                    // event sequence.
+                    for (prepared, output) in calls.into_iter().zip(outputs) {
+                        let output = output.expect("every prepared call produced an output");
                         let events = engine
                             .complete_tool(
                                 host,
@@ -205,10 +272,17 @@ impl InProcessExecutor {
                                 &mut state,
                                 &prepared.call,
                                 output,
-                                was_denied,
+                                prepared.denied.is_some(),
                             )
                             .await;
                         host.record(turn_id, events).await?;
+                        if let Some(step) = engine.guard(host, &mut state).await {
+                            host.record(turn_id, step.events).await?;
+                            if let TurnOperation::Finished(outcome) = step.operation {
+                                return turn_result(host, state, outcome);
+                            }
+                            unreachable!("an engine guard only returns terminal operations");
+                        }
                     }
                 }
                 TurnOperation::Finished(outcome) => {

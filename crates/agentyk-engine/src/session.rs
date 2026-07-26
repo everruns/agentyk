@@ -16,6 +16,7 @@ use agentyk_core::event::{Event, EventData};
 use agentyk_core::event_log::EventLog;
 use agentyk_core::event_log::SessionPoint;
 use agentyk_core::id::SessionId;
+use agentyk_core::input::InputQueue;
 use agentyk_core::message::Message;
 use agentyk_core::replay::History;
 use agentyk_core::tool::ToolOutput;
@@ -67,6 +68,7 @@ pub struct Session {
     id: SessionId,
     log: Arc<dyn EventLog>,
     history: History,
+    input: InputQueue,
 }
 
 /// Read-only projection of a session at an immutable historical point.
@@ -101,6 +103,7 @@ impl Session {
             id: SessionId::new(),
             log,
             history: History::new(),
+            input: InputQueue::new(),
         }
     }
 
@@ -115,6 +118,7 @@ impl Session {
             id: session_id,
             log,
             history: History::from_events(&events),
+            input: InputQueue::new(),
         })
     }
 
@@ -122,6 +126,32 @@ impl Session {
     /// demand, never an input you must mint.
     pub fn id(&self) -> SessionId {
         self.id
+    }
+
+    /// A handle for steering a turn that is already running.
+    ///
+    /// `run` borrows the session for the whole turn, so this is taken
+    /// *before* starting one and used from wherever the input comes from — a
+    /// UI task, a socket, a signal handler. Messages join the conversation at
+    /// the turn's next reasoning step; see
+    /// [`agentyk_core::input::InputQueue::drain`] for why that boundary.
+    ///
+    /// Anything pushed while no turn is running waits for the next one, so a
+    /// UI never has to know whether the agent is busy.
+    ///
+    /// ```
+    /// use agentyk_core::{input::InputQueue, message::Message};
+    ///
+    /// // What `session.input()` hands out: a queue whose clones share one
+    /// // backlog, so a UI task can push while the turn runs.
+    /// let steering = InputQueue::new();
+    /// let from_the_ui = steering.clone();
+    /// from_the_ui.push(Message::user("skip the tests, just build"));
+    ///
+    /// assert_eq!(steering.drain().len(), 1);
+    /// ```
+    pub fn input(&self) -> InputQueue {
+        self.input.clone()
     }
 
     /// Current immutable point at the session's durable head.
@@ -208,7 +238,7 @@ impl Session {
         )
         .model(&effective_model)
         .cancellation(options.cancellation);
-        InProcessExecutor
+        InProcessExecutor::new()
             .resume_turn(&mut host, state)
             .await
             .map(Some)
@@ -303,8 +333,9 @@ impl Session {
             &mut self.history,
         )
         .model(&effective_model)
-        .cancellation(options.cancellation);
-        InProcessExecutor
+        .cancellation(options.cancellation)
+        .input(self.input.clone());
+        InProcessExecutor::new()
             .run_turn(&mut host, Message::user(input))
             .await
     }

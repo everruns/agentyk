@@ -73,8 +73,8 @@ pub mod mcp;
 // *someone else's* build. Re-exporting explicitly makes widening this crate's
 // surface a decision.
 pub use agentyk_core::{
-    atoms, budget, cancellation, capability, context, controls, driver, error, event, event_log,
-    extensions, id, message, middleware, replay, tool, turn,
+    atoms, budget, cancellation, capability, concurrency, context, controls, driver, error, event,
+    event_log, extensions, id, input, message, middleware, profile, replay, tool, turn,
 };
 
 pub use agentyk_core::{
@@ -83,15 +83,15 @@ pub use agentyk_core::{
     ContextAssembly, ContextEvent, ContextRequest, ContextSource, DeferrablePolicy, DeltaSink,
     DriverId, DriverRegistry, Error, Event, EventData, EventId, EventListener, EventLog, EventPage,
     EventRange, EventRequest, EventStore, ExpectedVersion, Extensions, FnTool, History,
-    ImageContentPart, InMemoryEventLog, InMemorySnapshotStore, LlmErrorKind, Message, MessageId,
-    ModelSpec, PassthroughContextAssembler, ProjectionSnapshot, ReasoningConfig, Result, Role,
-    SealReason, SessionId, SessionPoint, SnapshotStore, SystemPromptContext, TextContentPart, Tool,
-    ToolCall, ToolCallDecision, ToolChainOutcome, ToolContext, ToolDefinition, ToolInvocation,
-    ToolOutput, ToolPolicy, ToolProgress, ToolProgressSink, TurnAction, TurnControls, TurnId,
-    TurnMiddleware, TurnOutcome, TurnPhase, TurnState, Usage, after_tool_chain, before_tool_chain,
-    event_types, messages_from_events,
+    ImageContentPart, InMemoryEventLog, InMemoryModelCatalog, InMemorySnapshotStore, InputQueue,
+    LlmErrorKind, Message, MessageId, ModelCatalog, ModelProfile, ModelSpec,
+    PassthroughContextAssembler, ProjectionSnapshot, ReasoningConfig, Result, Role, SealReason,
+    SessionId, SessionPoint, SnapshotStore, SystemPromptContext, TextContentPart, Tool, ToolCall,
+    ToolCallDecision, ToolChainOutcome, ToolContext, ToolDefinition, ToolInvocation, ToolOutput,
+    ToolPolicy, ToolProgress, ToolProgressSink, TurnAction, TurnControls, TurnId, TurnMiddleware,
+    TurnOutcome, TurnPhase, TurnState, Usage, after_tool_chain, before_tool_chain, event_types,
+    messages_from_events,
 };
-
 /// The names most applications want in scope at once.
 ///
 /// ```
@@ -128,7 +128,7 @@ pub use filesystem::{
 pub use jsonl_log::JsonlEventLog;
 #[cfg(feature = "mcp")]
 #[cfg_attr(docsrs, doc(cfg(feature = "mcp")))]
-pub use mcp::{McpCapability, McpClient, McpServer};
+pub use mcp::{McpAuthProvider, McpCapability, McpClient, McpServer, McpTransport, StaticBearer};
 
 #[cfg(feature = "http")]
 #[cfg_attr(docsrs, doc(cfg(feature = "http")))]

@@ -9,6 +9,43 @@ release — every release bumps the patch component (`0.1.z`). See
 
 ## [Unreleased]
 
+### Added — the rest of the yolop-adoption findings
+
+The five items [`knowledge/yolop-adoption.md`](knowledge/yolop-adoption.md)
+listed as open. Same source as the batch below: gaps found by building a real
+coding agent on these seams, not by reading them.
+
+- **Tool results can carry images.** `ToolOutput::parts` holds content parts
+  the model sees alongside the text, recorded on `tool.completed` so a replay
+  sends the same result. Anthropic puts them inside the `tool_result` block;
+  the Chat Completions protocol has no such slot, so the OpenAI driver relays
+  them as a following user message rather than dropping them.
+- **A prepared tool batch runs concurrently.** `InProcessExecutor` dispatches
+  the whole batch at once — a model asking for three reads gets three reads in
+  parallel — while recording results in batch order so replays agree.
+  `concurrency::join_all` is a std-only combinator in core rather than a
+  `futures` dependency; `InProcessExecutor::sequential()` keeps the previous
+  behavior for hosts that need policy to bite inside a batch.
+- **Steering.** `Session::input()` hands out an `InputQueue` a UI task, socket,
+  or signal handler pushes to while a turn runs. The engine drains it at the
+  next reasoning step — never between a tool call and its result, which every
+  provider would reject — and records each message as an ordinary
+  `input.message` event. Anything pushed while idle joins the next turn.
+- **MCP over HTTP, with auth.** `McpServer::http` speaks the Streamable HTTP
+  transport (JSON or SSE responses, session id from `initialize` echoed
+  afterwards). `McpAuthProvider` supplies the `Authorization` header **per
+  request**, so refreshing a token needs no reconnect; `StaticBearer` covers
+  the fixed case. Requires `http` alongside `mcp`.
+- **Model profiles.** `ModelCatalog` + `ModelProfile` let a host state what a
+  model supports, and `AgentBuilder::model_catalog` validates the composition
+  at `build()` — an unsupported reasoning effort or a thinking budget on a
+  model without thinking now fails with a message naming the alternatives.
+  agentyk ships no model list: a catalog in a library is stale by the next
+  provider release, and an unknown model passes through untouched. A profile
+  stating both a context window and an output ceiling also supplies
+  `context_token_limit`, so a host that described its model does not compute
+  the input budget twice.
+
 ### Added — what a real coding agent needed
 
 Driven by building one: yolop's execution story was ported onto agentyk's

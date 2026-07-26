@@ -117,6 +117,23 @@ pub struct ToolOutput {
     /// existing logs still deserialize.
     #[serde(default, skip_serializing_if = "serde_json::Value::is_null")]
     pub metadata: serde_json::Value,
+    /// Extra content parts the **model** receives alongside `content` —
+    /// images a model can actually look at.
+    ///
+    /// Separate from `content` rather than replacing it, because the two have
+    /// different audiences and different guarantees. `content` is the text
+    /// every provider accepts for a tool result and the only thing a
+    /// text-only provider will ever see; `parts` is best-effort richness that
+    /// a driver maps as well as its protocol allows (see
+    /// [`crate::driver::ChatDriver`] implementations — Anthropic puts images
+    /// inside the `tool_result` block; the OpenAI Chat Completions protocol
+    /// has no such slot, so its driver relays them as a following user
+    /// message rather than dropping them). Write `content` as if `parts` will
+    /// not arrive.
+    ///
+    /// Empty for the common case, and omitted from serialization then.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub parts: Vec<crate::message::ContentPart>,
 }
 
 impl ToolOutput {
@@ -127,6 +144,7 @@ impl ToolOutput {
             content: content.into(),
             is_error,
             metadata: serde_json::Value::Null,
+            parts: Vec::new(),
         }
     }
 
@@ -145,6 +163,23 @@ impl ToolOutput {
     /// Attach structured data for the host — see [`ToolOutput::metadata`].
     pub fn with_metadata(mut self, metadata: serde_json::Value) -> Self {
         self.metadata = metadata;
+        self
+    }
+
+    /// Attach content parts for the model — see [`ToolOutput::parts`].
+    ///
+    /// ```
+    /// # use agentyk_core::{ContentPart, ImageContentPart, ToolOutput};
+    /// let shot = ToolOutput::text("captured the login page").with_parts([
+    ///     ContentPart::Image(ImageContentPart::from_base64("iVBORw0…", "image/png")),
+    /// ]);
+    /// assert_eq!(shot.parts.len(), 1);
+    /// ```
+    pub fn with_parts(
+        mut self,
+        parts: impl IntoIterator<Item = crate::message::ContentPart>,
+    ) -> Self {
+        self.parts = parts.into_iter().collect();
         self
     }
 }

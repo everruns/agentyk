@@ -353,7 +353,8 @@ Phase 1.5 (pre-adoption hardening, in this repo):
 7. ✅ Per-turn `TurnControls`
 8. ✅ Sealing (`Sealed(SealReason)`) + budget seam
 9. ✅ Parallel-capable `PendingAct` data model + tool policy types —
-   concurrent dispatch in `InProcessExecutor` itself is a deferred follow-up
+    concurrent dispatch in `InProcessExecutor` landed later, via
+    `concurrency::join_all` (see [`yolop-adoption.md`](yolop-adoption.md) gap 6)
 10. ✅ `ContextAssembler` seam
 11. ✅ Capability `commands()` + `ToolContext` extensions —
     `mcp_servers()` held back (core/framework layering conflict, see gap 13)

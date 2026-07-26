@@ -83,7 +83,28 @@ impl TurnEngine {
 
         match state.next_action() {
             TurnAction::Reason => {
-                let mut events = state.on_reason_started(Some(&host.model.model));
+                // Steering lands here and nowhere else: a message wedged
+                // between a tool call and its result would make the exchange
+                // invalid for every provider, and a reasoning step is the
+                // first moment the model could act on it anyway. The drained
+                // messages are recorded as ordinary `input.message` events, so
+                // they enter history — and a replay — like any other input.
+                let steering = host.input.drain();
+                let mut events: Vec<EventData> = steering
+                    .iter()
+                    .cloned()
+                    .map(|message| EventData::InputMessage { message })
+                    .collect();
+                events.extend(state.on_reason_started(Some(&host.model.model)));
+
+                // The host records this step's events *after* prepare returns,
+                // so `host.history` does not know about the steering yet. It
+                // has to be in the request it is meant to steer, so it is
+                // appended here — the events above then bring history to the
+                // same place, and a replay produces exactly this list.
+                let mut history = host.history.messages().to_vec();
+                history.extend(steering);
+
                 let point = host.log.head(host.session_id).await?;
                 let context = host
                     .definition
@@ -94,7 +115,7 @@ impl TurnEngine {
                         iteration: state.iterations + 1,
                         model: host.model,
                         token_limit: host.definition.context_token_limit,
-                        messages: host.history.messages(),
+                        messages: &history,
                         events: host.log,
                     })
                     .await?;
