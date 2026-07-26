@@ -9,6 +9,15 @@ release — every release bumps the patch component (`0.1.z`). See
 
 ## [Unreleased]
 
+### Added
+
+- **A turn can be opened with an image.** `Session::run` (and its variants,
+  and `Agent::run`) take `impl Into<Message>` rather than `impl Into<String>`,
+  so `run("hello")` is unchanged while
+  `run(Message::user_multimodal(parts))` opens a turn with content the model
+  can look at. Tool *results* gained images in the previous release; this is
+  the input half, and it needs no second entry point.
+
 ### Added — the rest of the yolop-adoption findings
 
 The five items [`knowledge/yolop-adoption.md`](knowledge/yolop-adoption.md)
