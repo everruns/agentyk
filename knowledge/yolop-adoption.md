@@ -19,7 +19,7 @@ everything below was hit, not predicted, and the ordering is by how hard it
 blocks a shipping coding agent rather than by where the fix lands.
 
 The backend's own record of the port (what it covers, what it skipped) is
-[`knowledge/specs/agentyk-backend.md`](https://github.com/everruns/yolop/blob/main/knowledge/specs/agentyk-backend.md)
+[`knowledge/specs/agentyk-backend.md`][yolop-backend]
 in the yolop repository.
 
 ## What held up
@@ -183,3 +183,5 @@ Gaps 1–5 are closed. The rest stay open, deliberately:
 
 Everything protocol-affecting in this analysis has landed, which was the
 ordering constraint: logs are starting to be persisted.
+
+[yolop-backend]: https://github.com/everruns/yolop/blob/main/knowledge/specs/agentyk-backend.md

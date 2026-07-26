@@ -1,8 +1,14 @@
 ---
 type: Design
 title: Extending agentyk without changing core
-description: Defines composition seams for capabilities, middleware, providers, persistence, and hosts.
-tags: [extensibility, core, metadata, design]
+description: >-
+  Defines composition seams for capabilities, middleware, providers,
+  persistence, and hosts.
+tags:
+  - extensibility
+  - core
+  - metadata
+  - design
 ---
 
 # Extending agentyk without changing core
@@ -172,5 +178,7 @@ the log stays whole.
 
 [`EventData::Custom`]: https://docs.rs/agentyk-core/latest/agentyk_core/event/enum.EventData.html
 [`TurnState`]: https://docs.rs/agentyk-core/latest/agentyk_core/turn/struct.TurnState.html
-[`TurnState::current_message_id`]: https://docs.rs/agentyk-core/latest/agentyk_core/turn/struct.TurnState.html
-[`TurnState::pending_tool_actions`]: https://docs.rs/agentyk-core/latest/agentyk_core/turn/struct.TurnState.html
+[`TurnState::current_message_id`]:
+https://docs.rs/agentyk-core/latest/agentyk_core/turn/struct.TurnState.html
+[`TurnState::pending_tool_actions`]:
+https://docs.rs/agentyk-core/latest/agentyk_core/turn/struct.TurnState.html

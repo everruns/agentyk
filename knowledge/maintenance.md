@@ -35,7 +35,7 @@ no durable decision and leaves every existing claim accurate.
 
 ## Bundle maintenance
 
-The authoritative format is [Open Knowledge Format v0.2](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md).
+The authoritative format is [Open Knowledge Format v0.2][okf-spec].
 Agentyk adds a stricter repository profile on top of that format:
 
 - Keep one concept per Markdown file, as required by OKF’s concept model.
@@ -59,3 +59,5 @@ Agentyk adds a stricter repository profile on top of that format:
 [AGENTS.md](../AGENTS.md) requires agents to consult and maintain this bundle.
 The [ship workflow](../.claude/skills/ship/SKILL.md) enforces knowledge review
 as a required outcome, and [Shipping](shipping.md) defines the release bar.
+
+[okf-spec]: https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md

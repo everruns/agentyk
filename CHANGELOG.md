@@ -70,6 +70,9 @@ seams, and these are the gaps that port hit. See
 
 ### Changed
 
+- Replaced the repository-specific Python OKF validator with the published
+  `okf-lint` crate for canonical OKF linting and formatting in local workflows
+  and CI.
 - Aligned the knowledge bundle and repository guidance with the authoritative
   Google Cloud Open Knowledge Format v0.2 specification, including explicit
   bundle versioning, concept descriptions, and local conformance validation.

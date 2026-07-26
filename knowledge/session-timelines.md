@@ -1,8 +1,16 @@
 ---
 type: Design
 title: Session timelines
-description: Defines immutable history, branching, snapshots, and context assembly for long-lived sessions.
-tags: [sessions, events, replay, forks, snapshots, context]
+description: >-
+  Defines immutable history, branching, snapshots, and context assembly for
+  long-lived sessions.
+tags:
+  - sessions
+  - events
+  - replay
+  - forks
+  - snapshots
+  - context
 ---
 
 # Session timelines
