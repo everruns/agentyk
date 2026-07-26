@@ -81,6 +81,21 @@ impl ImageContentPart {
     }
 }
 
+/// So a turn can be opened with either a string or a whole message — see
+/// `Session::run`. Text is by far the common case and should stay a one-liner;
+/// an image the model is asked to look at should not need a different method.
+impl From<String> for Message {
+    fn from(text: String) -> Self {
+        Message::user(text)
+    }
+}
+
+impl From<&str> for Message {
+    fn from(text: &str) -> Self {
+        Message::user(text)
+    }
+}
+
 /// A part of message content: text or an image. Tool calls and tool results
 /// stay as dedicated [`Message`] fields rather than content-part variants —
 /// a deliberate simplification over everruns' unified content-part model.

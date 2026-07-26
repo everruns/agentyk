@@ -286,7 +286,11 @@ impl Session {
     /// Run one turn: user input in, final assistant text out. Uncancellable
     /// and on the agent's default model — see [`Session::run_with_options`]
     /// for cancellation and per-turn model/reasoning overrides.
-    pub async fn run(&mut self, input: impl Into<String>) -> Result<TurnResult> {
+    ///
+    /// Takes anything that becomes a [`Message`], so `run("hello")` stays a
+    /// one-liner while a turn opened with an image is
+    /// `run(Message::user_multimodal(parts))` rather than a different method.
+    pub async fn run(&mut self, input: impl Into<Message>) -> Result<TurnResult> {
         self.run_with_options(input, RunOptions::default()).await
     }
 
@@ -297,7 +301,7 @@ impl Session {
     /// Returns `Err(Error::Cancelled)` if the turn was stopped this way.
     pub async fn run_cancellable(
         &mut self,
-        input: impl Into<String>,
+        input: impl Into<Message>,
         token: CancellationToken,
     ) -> Result<TurnResult> {
         self.run_with_options(input, RunOptions::new().cancellation(token))
@@ -308,7 +312,7 @@ impl Session {
     /// rebuilding the agent — see [`TurnControls`].
     pub async fn run_controlled(
         &mut self,
-        input: impl Into<String>,
+        input: impl Into<Message>,
         controls: TurnControls,
     ) -> Result<TurnResult> {
         self.run_with_options(input, RunOptions::new().controls(controls))
@@ -320,7 +324,7 @@ impl Session {
     /// delegate to.
     pub async fn run_with_options(
         &mut self,
-        input: impl Into<String>,
+        input: impl Into<Message>,
         options: RunOptions,
     ) -> Result<TurnResult> {
         let definition = self.agent.definition();
@@ -336,7 +340,7 @@ impl Session {
         .cancellation(options.cancellation)
         .input(self.input.clone());
         InProcessExecutor::new()
-            .run_turn(&mut host, Message::user(input))
+            .run_turn(&mut host, input.into())
             .await
     }
 }

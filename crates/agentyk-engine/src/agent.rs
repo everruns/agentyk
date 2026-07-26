@@ -19,6 +19,7 @@ use agentyk_core::error::{Error, Result};
 use agentyk_core::event::EventListener;
 use agentyk_core::event_log::{EventLog, InMemoryEventLog};
 use agentyk_core::id::SessionId;
+use agentyk_core::message::Message;
 use agentyk_core::middleware::TurnMiddleware;
 use agentyk_core::profile::{ModelCatalog, ModelProfile};
 use agentyk_core::tool::Tool;
@@ -169,7 +170,7 @@ impl Agent {
     }
 
     /// One-shot convenience: run a single turn in a throwaway session.
-    pub async fn run(&self, input: impl Into<String>) -> Result<TurnResult> {
+    pub async fn run(&self, input: impl Into<Message>) -> Result<TurnResult> {
         self.session().run(input).await
     }
 }

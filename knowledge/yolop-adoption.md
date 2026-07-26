@@ -202,6 +202,17 @@ Real, worked around, but each one costs an adopter something.
     it is worth deciding deliberately rather than by omission, because every
     adopter with a UI hits it.
 
+## Found while consuming the fixes
+
+Adopting the five in yolop turned up one more, small enough to fix in the same
+pass: **`Session::run` took `impl Into<String>`**, so a turn could not be
+*opened* with an image even though `Message` and every driver already carried
+one — the tool-result half of multimodal had landed while the input half was
+unreachable. `run` now takes `impl Into<Message>`; `run("hello")` is
+unchanged. The lesson is worth keeping: a capability added at one end of a
+pipeline is not usable until every entry point admits it, and only an adopter
+notices.
+
 ## What is left
 
 Gaps 1–9 are closed. What remains is one open question and a short list of

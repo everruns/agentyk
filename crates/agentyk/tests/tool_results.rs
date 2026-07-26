@@ -81,3 +81,52 @@ async fn image_parts_survive_a_replay_of_the_log() -> Result<()> {
     assert_eq!(tool_result.content, session.messages()[2].content);
     Ok(())
 }
+
+#[tokio::test]
+async fn a_turn_can_be_opened_with_an_image() -> Result<()> {
+    use agentyk::{Message, SimDriver};
+
+    // The other half of multimodal: a user asking about a screenshot, not a
+    // tool returning one. `run` takes anything that becomes a `Message`, so
+    // this needs no separate entry point.
+    let agent = Agent::builder()
+        .model(ModelSpec::llmsim())
+        .driver(SimDriver::new([SimTurn::text("a login form")]))
+        .build()?;
+
+    let mut session = agent.session();
+    let turn = session
+        .run(Message::user_multimodal(vec![
+            ContentPart::text("what is this?"),
+            ContentPart::Image(ImageContentPart::from_base64("iVBORw0KGgo=", "image/png")),
+        ]))
+        .await?;
+    assert_eq!(turn.response, "a login form");
+
+    let input = session.messages().first().cloned().expect("input recorded");
+    assert_eq!(input.text(), "what is this?");
+    assert!(
+        matches!(input.content.last(), Some(ContentPart::Image(_))),
+        "the image is what the model was asked about: {:?}",
+        input.content
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_plain_string_still_opens_a_turn() -> Result<()> {
+    use agentyk::SimDriver;
+
+    let agent = Agent::builder()
+        .model(ModelSpec::llmsim())
+        // One scripted turn per session below.
+        .driver(SimDriver::new([SimTurn::text("hi"), SimTurn::text("hi")]))
+        .build()?;
+    assert_eq!(agent.session().run("hello").await?.response, "hi");
+    // …and an owned String, which is what a host that formats a prompt has.
+    assert_eq!(
+        agent.session().run(format!("hel{}", "lo")).await?.response,
+        "hi"
+    );
+    Ok(())
+}
