@@ -70,8 +70,11 @@ seams, and these are the gaps that port hit. See
 
 ### Changed
 
+- Aligned the knowledge bundle and repository guidance with the authoritative
+  Google Cloud Open Knowledge Format v0.2 specification, including explicit
+  bundle versioning, concept descriptions, and local conformance validation.
 - Migrated the repository’s durable design specs into `knowledge/`, an OKF
-  bundle explicitly maintained as persistent repository memory. Agent guidance,
+  v0.2 bundle explicitly maintained as persistent repository memory. Agent guidance,
   shipping checks, and the definition of done now require integrating durable
   decisions and stale-claim cleanup with each change.
 
@@ -372,7 +375,7 @@ see [`knowledge/extensibility.md`](knowledge/extensibility.md).
   `message_id` field. Internal — the `run`/executor API is unchanged.
 - **Docs → specs.** The internal design docs (`plan`, `everruns-adoption`,
   `extensibility`) moved out of `docs/` into `specs/`, which is now an
-  [Open Knowledge Format](https://okf.md) v0.1 bundle (per-file `type`
+  [Open Knowledge Format v0.2](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md) bundle (per-file `type`
   frontmatter + `specs/index.md`). `docs/` is reserved for public product docs
   (none yet — `README.md` is the entry point). Repo-internal only.
 

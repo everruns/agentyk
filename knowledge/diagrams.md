@@ -1,9 +1,8 @@
 ---
 type: Design
 title: Diagram specification
-description: Source, rendering, placement, visual language, accessibility, and review rules for technical diagrams.
+description: Defines how technical diagrams are authored, reviewed, and maintained.
 tags: [documentation, diagrams, svg, mermaid, visual-design]
-timestamp: 2026-07-25
 ---
 
 # Diagram specification
