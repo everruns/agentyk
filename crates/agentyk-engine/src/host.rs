@@ -8,6 +8,7 @@ use agentyk_core::error::Result;
 use agentyk_core::event::{EventData, EventRequest};
 use agentyk_core::event_log::{EventLog, ExpectedVersion};
 use agentyk_core::id::{EventId, SessionId, TurnId};
+use agentyk_core::input::InputQueue;
 use agentyk_core::replay::History;
 
 use crate::agent::{AgentDefinition, AgentEnvironment};
@@ -63,6 +64,10 @@ pub struct TurnHost<'a> {
     pub history: &'a mut History,
     /// Cooperative cancellation signal.
     pub cancellation: CancellationToken,
+    /// Messages that arrived while this turn was running — see
+    /// [`agentyk_core::input::InputQueue`]. Empty and inert unless the caller
+    /// attached one.
+    pub input: InputQueue,
 }
 
 impl<'a> TurnHost<'a> {
@@ -82,6 +87,7 @@ impl<'a> TurnHost<'a> {
             log,
             history,
             cancellation: CancellationToken::new(),
+            input: InputQueue::new(),
         }
     }
 
@@ -94,6 +100,12 @@ impl<'a> TurnHost<'a> {
     /// Attach the cooperative cancellation signal.
     pub fn cancellation(mut self, token: CancellationToken) -> Self {
         self.cancellation = token;
+        self
+    }
+
+    /// Attach the queue a caller steers this turn through.
+    pub fn input(mut self, input: InputQueue) -> Self {
+        self.input = input;
         self
     }
 

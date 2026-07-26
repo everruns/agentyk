@@ -82,11 +82,31 @@ impl TurnEngine {
 
         match state.next_action() {
             TurnAction::Reason => {
-                let events = state.on_reason_started(Some(&host.model.model));
+                // Steering lands here and nowhere else: a message wedged
+                // between a tool call and its result would make the exchange
+                // invalid for every provider, and a reasoning step is the
+                // first moment the model could act on it anyway. The drained
+                // messages are recorded as ordinary `input.message` events, so
+                // they enter history — and a replay — like any other input.
+                let steering = host.input.drain();
+                let mut events: Vec<EventData> = steering
+                    .iter()
+                    .cloned()
+                    .map(|message| EventData::InputMessage { message })
+                    .collect();
+                events.extend(state.on_reason_started(Some(&host.model.model)));
+
+                // The host records this step's events *after* prepare returns,
+                // so `host.history` does not know about the steering yet. It
+                // has to be in the request it is meant to steer, so it is
+                // appended here — the events above then bring history to the
+                // same place, and a replay produces exactly this list.
+                let mut history = host.history.messages().to_vec();
+                history.extend(steering);
                 let messages = host
                     .definition
                     .context_assembler
-                    .assemble(host.session_id, host.history.messages())
+                    .assemble(host.session_id, &history)
                     .await;
                 Ok(PreparedStep {
                     events,

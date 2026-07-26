@@ -15,6 +15,7 @@ use agentyk_core::error::Result;
 use agentyk_core::event::Event;
 use agentyk_core::event_log::EventLog;
 use agentyk_core::id::SessionId;
+use agentyk_core::input::InputQueue;
 use agentyk_core::message::Message;
 use agentyk_core::replay::History;
 use agentyk_core::tool::ToolOutput;
@@ -65,6 +66,7 @@ pub struct Session {
     id: SessionId,
     log: Arc<dyn EventLog>,
     history: History,
+    input: InputQueue,
 }
 
 impl Session {
@@ -74,6 +76,7 @@ impl Session {
             id: SessionId::new(),
             log,
             history: History::new(),
+            input: InputQueue::new(),
         }
     }
 
@@ -88,6 +91,7 @@ impl Session {
             id: session_id,
             log,
             history: History::from_events(&events),
+            input: InputQueue::new(),
         })
     }
 
@@ -95,6 +99,35 @@ impl Session {
     /// demand, never an input you must mint.
     pub fn id(&self) -> SessionId {
         self.id
+    }
+
+    /// A handle for steering a turn that is already running.
+    ///
+    /// `run` borrows the session for the whole turn, so this is taken
+    /// *before* starting one and used from wherever the input comes from — a
+    /// UI task, a socket, a signal handler. Messages join the conversation at
+    /// the turn's next reasoning step; see
+    /// [`agentyk_core::input::InputQueue::drain`] for why that boundary.
+    ///
+    /// Anything pushed while no turn is running waits for the next one, so a
+    /// UI never has to know whether the agent is busy.
+    ///
+    /// ```no_run
+    /// # use agentyk::{Agent, Message, Result};
+    /// # async fn demo(agent: Agent) -> Result<()> {
+    /// let mut session = agent.session();
+    /// let steering = session.input();
+    ///
+    /// tokio::spawn(async move {
+    ///     steering.push(Message::user("skip the tests, just build"));
+    /// });
+    ///
+    /// session.run("fix the failing test and verify").await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn input(&self) -> InputQueue {
+        self.input.clone()
     }
 
     /// The reconstructed-or-live message history — always equal to a replay
@@ -186,7 +219,8 @@ impl Session {
             &mut self.history,
         )
         .model(&effective_model)
-        .cancellation(options.cancellation);
+        .cancellation(options.cancellation)
+        .input(self.input.clone());
         InProcessExecutor::new()
             .run_turn(&mut host, Message::user(input))
             .await

@@ -55,6 +55,7 @@ pub mod event;
 pub mod event_log;
 pub mod extensions;
 pub mod id;
+pub mod input;
 pub mod message;
 pub mod middleware;
 pub mod replay;
@@ -75,6 +76,7 @@ pub use event::{Event, EventData, EventListener, EventRequest, event_types};
 pub use event_log::{EventLog, EventStore, ExpectedVersion, InMemoryEventLog};
 pub use extensions::Extensions;
 pub use id::{EventId, MessageId, SessionId, TurnId};
+pub use input::InputQueue;
 pub use message::{ContentPart, ImageContentPart, Message, Role, TextContentPart, ToolCall};
 pub use middleware::{
     ToolCallDecision, ToolChainOutcome, ToolInvocation, TurnMiddleware, after_tool_chain,
