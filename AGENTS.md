@@ -60,8 +60,8 @@ engine.
 
 - `knowledge/` is the repository’s persistent memory and durable design intent —
   the **why** and **what**, not exhaustive **how** (link to source for exact
-  fields/enums/API shapes). It is an [Open Knowledge Format](https://okf.md)
-  v0.1 bundle: one concept per markdown file with a `type` in its frontmatter,
+  fields/enums/API shapes). It is an [Open Knowledge Format v0.2](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md)
+  bundle: one concept per markdown file with a `type` in its frontmatter,
   listed in [`knowledge/index.md`](knowledge/index.md). Read the relevant
   knowledge before changing behavior in that area; integrate new decisions and
   update stale knowledge as part of the same change.
@@ -73,8 +73,8 @@ engine.
   rasterized for visual review before shipping.
 - Follow [`knowledge/maintenance.md`](knowledge/maintenance.md) for the
   definition of done and knowledge-maintenance rules. Validate the bundle after
-  editing it with yolop’s zero-dependency checker:
-  `python3 <yolop>/src/bundled/system-skills/okf/scripts/validate_okf.py knowledge --strict`.
+  editing it with the repository’s zero-dependency checker:
+  `python3 scripts/validate_okf.py knowledge`.
 - `.claude/skills/` holds workflows requestable by name: `/ship` lands a change
   (bar in [`knowledge/shipping.md`](knowledge/shipping.md), workflow in the skill).
 

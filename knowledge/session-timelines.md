@@ -1,9 +1,8 @@
 ---
 type: Design
 title: Session timelines
-description: Immutable session points, bounded event reads, forks, snapshots, and the boundary between context compaction and durable-history growth.
+description: Defines immutable history, branching, snapshots, and context assembly for long-lived sessions.
 tags: [sessions, events, replay, forks, snapshots, context]
-timestamp: 2026-07-25
 ---
 
 # Session timelines

@@ -39,6 +39,11 @@ jobs:
       - name: Check agentyk re-exports all of agentyk-core
         run: python3 scripts/check_reexports.py
 
+      - name: Validate OKF knowledge
+        run: |
+          python3 -m unittest scripts/test_validate_okf.py
+          python3 scripts/validate_okf.py knowledge
+
       - name: Build documentation
         run: cargo doc --workspace --no-deps --all-features
         env:

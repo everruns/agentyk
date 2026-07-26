@@ -1,9 +1,8 @@
 ---
 type: Analysis
 title: Everruns adoption — gap analysis
-description: What agentyk still lacks before everruns-core/runtime can be rebuilt on top, tiered by where each gap must land.
+description: Tracks migration of everruns-core and everruns-runtime capabilities into Agentyk.
 tags: [everruns, adoption, gaps, protocol]
-timestamp: 2026-07-24
 ---
 
 # Everruns adoption — gap analysis

@@ -1,9 +1,8 @@
 ---
 type: Plan
 title: agentyk plan
-description: Direction and phased roadmap — build agentyk value-first, harden for adoption, then rebuild everruns-core/runtime on top.
+description: Defines Agentyk’s product direction, vocabulary, invariants, and phased roadmap.
 tags: [roadmap, architecture, everruns, phases]
-timestamp: 2026-07-24
 ---
 
 # Agentyk — plan

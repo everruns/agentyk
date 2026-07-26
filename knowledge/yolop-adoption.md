@@ -1,9 +1,8 @@
 ---
 type: Analysis
 title: Yolop adoption — what a real coding agent hits
-description: Gaps found by porting yolop's execution story onto agentyk's seams, ordered by how hard they block a shipping coding agent.
+description: Tracks reusable Yolop capabilities and the order in which Agentyk should adopt them.
 tags: [adoption, yolop, gaps, drivers, tools, extensibility]
-timestamp: 2026-07-25
 ---
 
 # Yolop adoption — what a real coding agent hits
