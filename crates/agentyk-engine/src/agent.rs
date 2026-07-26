@@ -20,6 +20,7 @@ use agentyk_core::event::EventListener;
 use agentyk_core::event_log::{EventLog, InMemoryEventLog};
 use agentyk_core::id::SessionId;
 use agentyk_core::middleware::TurnMiddleware;
+use agentyk_core::profile::{ModelCatalog, ModelProfile};
 use agentyk_core::tool::Tool;
 use async_trait::async_trait;
 
@@ -49,6 +50,11 @@ pub struct AgentDefinition {
     pub budget_checker: Option<Arc<dyn BudgetChecker>>,
     /// Shapes durable history into model context.
     pub context_assembler: Arc<dyn ContextAssembler>,
+    /// What this agent's model supports, when the host said — see
+    /// [`AgentBuilder::model_catalog`]. Read it to size a context budget or
+    /// to show a user what the model can do; the builder has already used it
+    /// to validate the composition.
+    pub model_profile: Option<ModelProfile>,
 }
 
 impl std::fmt::Debug for AgentDefinition {
@@ -122,6 +128,12 @@ impl Agent {
     /// [`TurnControls`](agentyk_core::controls::TurnControls).
     pub fn model(&self) -> &ModelSpec {
         &self.definition.model
+    }
+
+    /// What the attached catalog says this agent's model supports, if
+    /// anything — see [`AgentBuilder::model_catalog`].
+    pub fn model_profile(&self) -> Option<&ModelProfile> {
+        self.definition.model_profile.as_ref()
     }
 
     /// Everything attached to this agent, in attachment order.
@@ -288,6 +300,42 @@ impl AgentBuilder {
         self
     }
 
+    /// Teach the builder what models support, so a composition the provider
+    /// would reject fails here instead — see
+    /// [`agentyk_core::profile::ModelCatalog`].
+    ///
+    /// Nothing is baked in: agentyk ships no model list, because a list in a
+    /// library is stale by its next release and a wrong entry is worse than a
+    /// missing one. A model the catalog does not know is passed through
+    /// untouched, so attaching one can only reject combinations you described.
+    ///
+    /// ```
+    /// use agentyk::{Agent, DriverId, InMemoryModelCatalog, ModelProfile, ModelSpec};
+    ///
+    /// let catalog = InMemoryModelCatalog::new().with(
+    ///     DriverId::openai(),
+    ///     "gpt-5.5",
+    ///     ModelProfile::new().reasoning_efforts(["low", "high"]),
+    /// );
+    ///
+    /// let rejected = Agent::builder()
+    ///     .model(ModelSpec::openai("gpt-5.5").reasoning_effort("medium"))
+    ///     .model_catalog(catalog)
+    ///     .build();
+    /// assert!(rejected.is_err(), "caught before a turn ever ran");
+    /// ```
+    pub fn model_catalog(mut self, catalog: impl ModelCatalog + 'static) -> Self {
+        self.config.model_catalog = Some(Arc::new(catalog));
+        self
+    }
+
+    /// Attach a catalog you already hold as an `Arc` — the way to share one
+    /// across agents.
+    pub fn model_catalog_arc(mut self, catalog: Arc<dyn ModelCatalog>) -> Self {
+        self.config.model_catalog = Some(catalog);
+        self
+    }
+
     /// Replace how replayed history is turned into what's sent to the model
     /// each turn (default: send it unchanged) — trimming, compaction, and
     /// memory injection are implementations of this seam, not changes to
@@ -330,6 +378,19 @@ impl AgentBuilder {
             return Err(Error::UnknownDriver(config.model().driver.to_string()));
         }
 
+        // Validated here rather than at the driver, so an unsupported
+        // reasoning effort is a composition error with a message naming the
+        // alternatives — not a provider 400 halfway through someone's turn.
+        let model_profile = config
+            .model_catalog
+            .as_ref()
+            .and_then(|catalog| catalog.profile(&config.model().driver, &config.model().model));
+        if let Some(profile) = &model_profile
+            && let Err(reason) = profile.validate(config.model())
+        {
+            return Err(Error::InvalidAgent(reason));
+        }
+
         let definition = AgentDefinition {
             name: config.name.clone(),
             instructions: config.system_prompt.clone(),
@@ -339,6 +400,7 @@ impl AgentBuilder {
             middleware: config.middleware.clone(),
             budget_checker: config.budget_checker.clone(),
             context_assembler: config.context_assembler.clone(),
+            model_profile,
         };
         let environment = AgentEnvironment {
             drivers: config.drivers.clone(),

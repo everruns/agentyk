@@ -58,6 +58,7 @@ pub mod id;
 pub mod input;
 pub mod message;
 pub mod middleware;
+pub mod profile;
 pub mod replay;
 pub mod tool;
 pub mod turn;
@@ -82,6 +83,7 @@ pub use middleware::{
     ToolCallDecision, ToolChainOutcome, ToolInvocation, TurnMiddleware, after_tool_chain,
     before_tool_chain,
 };
+pub use profile::{InMemoryModelCatalog, ModelCatalog, ModelProfile};
 pub use replay::{History, messages_from_events};
 pub use tool::{
     DeferrablePolicy, FnTool, Tool, ToolContext, ToolDefinition, ToolOutput, ToolPolicy,

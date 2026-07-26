@@ -11,6 +11,7 @@ use agentyk_core::driver::{DriverRegistry, ModelSpec};
 use agentyk_core::event::EventListener;
 use agentyk_core::extensions::Extensions;
 use agentyk_core::middleware::TurnMiddleware;
+use agentyk_core::profile::ModelCatalog;
 
 /// The default ceiling on reason/act iterations within one turn.
 pub(crate) const DEFAULT_MAX_ITERATIONS: usize = 16;
@@ -47,6 +48,9 @@ pub(crate) struct AgentConfig {
     pub(crate) context_assembler: Arc<dyn ContextAssembler>,
     /// Cloned into every [`agentyk_core::tool::ToolContext`] a turn constructs.
     pub(crate) extensions: Extensions,
+    /// What the host knows about models, used to validate the composed one.
+    /// `None` means no validation.
+    pub(crate) model_catalog: Option<Arc<dyn ModelCatalog>>,
 }
 
 impl Default for AgentConfig {
@@ -63,6 +67,7 @@ impl Default for AgentConfig {
             budget_checker: None,
             context_assembler: Arc::new(PassthroughContextAssembler),
             extensions: Extensions::new(),
+            model_catalog: None,
         }
     }
 }

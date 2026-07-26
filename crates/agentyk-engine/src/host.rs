@@ -235,6 +235,7 @@ mod tests {
             middleware: Vec::new(),
             budget_checker: None,
             context_assembler: Arc::new(PassthroughContextAssembler),
+            model_profile: None,
         };
         let environment = AgentEnvironment {
             drivers: DriverRegistry::new(),
@@ -274,6 +275,7 @@ mod tests {
             middleware: Vec::new(),
             budget_checker: None,
             context_assembler: Arc::new(PassthroughContextAssembler),
+            model_profile: None,
         };
         let environment = AgentEnvironment {
             drivers: DriverRegistry::new(),

@@ -74,7 +74,7 @@ pub mod mcp;
 // surface a decision.
 pub use agentyk_core::{
     atoms, budget, cancellation, capability, concurrency, context, controls, driver, error, event,
-    event_log, extensions, id, input, message, middleware, replay, tool, turn,
+    event_log, extensions, id, input, message, middleware, profile, replay, tool, turn,
 };
 
 pub use agentyk_core::{
@@ -82,12 +82,13 @@ pub use agentyk_core::{
     ChatResponse, CommandContext, CommandDescriptor, ContentPart, ContextAssembler,
     DeferrablePolicy, DeltaSink, DriverId, DriverRegistry, Error, Event, EventData, EventId,
     EventListener, EventLog, EventRequest, EventStore, ExpectedVersion, Extensions, FnTool,
-    History, ImageContentPart, InMemoryEventLog, InputQueue, LlmErrorKind, Message, MessageId,
-    ModelSpec, PassthroughContextAssembler, ReasoningConfig, Result, Role, SealReason, SessionId,
-    SystemPromptContext, TextContentPart, Tool, ToolCall, ToolCallDecision, ToolChainOutcome,
-    ToolContext, ToolDefinition, ToolInvocation, ToolOutput, ToolPolicy, ToolProgress,
-    ToolProgressSink, TurnAction, TurnControls, TurnId, TurnMiddleware, TurnOutcome, TurnPhase,
-    TurnState, Usage, after_tool_chain, before_tool_chain, event_types, messages_from_events,
+    History, ImageContentPart, InMemoryEventLog, InMemoryModelCatalog, InputQueue, LlmErrorKind,
+    Message, MessageId, ModelCatalog, ModelProfile, ModelSpec, PassthroughContextAssembler,
+    ReasoningConfig, Result, Role, SealReason, SessionId, SystemPromptContext, TextContentPart,
+    Tool, ToolCall, ToolCallDecision, ToolChainOutcome, ToolContext, ToolDefinition,
+    ToolInvocation, ToolOutput, ToolPolicy, ToolProgress, ToolProgressSink, TurnAction,
+    TurnControls, TurnId, TurnMiddleware, TurnOutcome, TurnPhase, TurnState, Usage,
+    after_tool_chain, before_tool_chain, event_types, messages_from_events,
 };
 
 /// The names most applications want in scope at once.
