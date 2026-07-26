@@ -39,7 +39,7 @@ impl OpenAiDriver {
     pub fn with_id(id: DriverId) -> Self {
         Self {
             id,
-            client: reqwest::Client::new(),
+            client: super::http::client(),
         }
     }
 

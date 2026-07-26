@@ -45,5 +45,12 @@ tokio = { version = "1" }
 tracing = "0.1"
 uuid = { version = "1", features = ["v7", "serde"] }
 regex = "1"
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+# Both root sets on purpose: `rustls-tls` brings the bundled public roots, and
+# `rustls-tls-native-roots` adds whatever the machine trusts. See
+# `drivers::http::client` for why an agent library needs the union.
+reqwest = { version = "0.12", default-features = false, features = [
+    "json",
+    "rustls-tls",
+    "rustls-tls-native-roots",
+] }
 tempfile = "3"
