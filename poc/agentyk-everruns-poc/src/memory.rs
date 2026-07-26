@@ -10,8 +10,7 @@
 //! The full, untrimmed history still lives in the event log — this is a
 //! per-turn *view*, not a mutation of what's recorded.
 
-use agentyk_core::context::ContextAssembler;
-use agentyk_core::id::SessionId;
+use agentyk_core::context::{ContextAssembler, ContextAssembly, ContextRequest};
 use agentyk_core::message::Message;
 use async_trait::async_trait;
 
@@ -53,7 +52,8 @@ impl MemoryAssembler {
 
 #[async_trait]
 impl ContextAssembler for MemoryAssembler {
-    async fn assemble(&self, _session_id: SessionId, messages: &[Message]) -> Vec<Message> {
+    async fn assemble(&self, request: ContextRequest<'_>) -> agentyk_core::Result<ContextAssembly> {
+        let messages = request.messages;
         let start = match self.keep_last {
             Some(n) => messages.len().saturating_sub(n),
             None => 0,
@@ -61,7 +61,7 @@ impl ContextAssembler for MemoryAssembler {
         let mut out = Vec::with_capacity(1 + messages.len() - start);
         out.push(self.note());
         out.extend_from_slice(&messages[start..]);
-        out
+        Ok(ContextAssembly::new(out))
     }
 }
 
@@ -74,13 +74,24 @@ mod tests {
     /// Drive a never-suspending assembler future to completion without a
     /// runtime — core carries no async runtime, and neither does this lib.
     fn assemble(assembler: &MemoryAssembler, messages: &[Message]) -> Vec<Message> {
-        let future = assembler.assemble(SessionId::new(), messages);
+        let session_id = agentyk_core::SessionId::new();
+        let model = agentyk_core::ModelSpec::llmsim();
+        let events = agentyk_core::InMemoryEventLog::new();
+        let future = assembler.assemble(ContextRequest {
+            point: agentyk_core::SessionPoint::new(session_id, messages.len() as u64),
+            turn_id: agentyk_core::TurnId::new(),
+            iteration: 1,
+            model: &model,
+            token_limit: None,
+            messages,
+            events: &events,
+        });
         let mut future = pin!(future);
         let waker = Waker::noop();
         let mut cx = Context::from_waker(waker);
         loop {
             if let Poll::Ready(out) = future.as_mut().poll(&mut cx) {
-                break out;
+                break out.unwrap().messages;
             }
         }
     }

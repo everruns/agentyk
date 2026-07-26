@@ -49,6 +49,8 @@ pub struct AgentDefinition {
     pub budget_checker: Option<Arc<dyn BudgetChecker>>,
     /// Shapes durable history into model context.
     pub context_assembler: Arc<dyn ContextAssembler>,
+    /// Optional input-token ceiling exposed to context assembly.
+    pub context_token_limit: Option<usize>,
 }
 
 impl std::fmt::Debug for AgentDefinition {
@@ -297,6 +299,14 @@ impl AgentBuilder {
         self
     }
 
+    /// Tell context assembly the maximum input-token budget for each model
+    /// call. The assembler owns estimation and reduction; the engine does not
+    /// silently trim messages.
+    pub fn context_token_limit(mut self, token_limit: usize) -> Self {
+        self.config.context_token_limit = Some(token_limit);
+        self
+    }
+
     /// Make a service available to every tool call via
     /// [`agentyk_core::tool::ToolContext::extensions`] — a credential
     /// store, a workspace handle, anything a tool needs but core shouldn't
@@ -339,6 +349,7 @@ impl AgentBuilder {
             middleware: config.middleware.clone(),
             budget_checker: config.budget_checker.clone(),
             context_assembler: config.context_assembler.clone(),
+            context_token_limit: config.context_token_limit,
         };
         let environment = AgentEnvironment {
             drivers: config.drivers.clone(),

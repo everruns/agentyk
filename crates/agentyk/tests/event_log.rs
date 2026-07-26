@@ -3,8 +3,8 @@
 use std::sync::Arc;
 
 use agentyk::{
-    Agent, Error, EventData, EventLog, EventRequest, ExpectedVersion, JsonlEventLog, ModelSpec,
-    Result, SessionId, SimDriver, SimTurn,
+    Agent, Error, EventData, EventLog, EventRange, EventRequest, ExpectedVersion, JsonlEventLog,
+    ModelSpec, Result, SessionId, SimDriver, SimTurn,
 };
 use serde_json::json;
 
@@ -168,5 +168,9 @@ async fn jsonl_batches_are_version_checked_and_incrementally_readable() -> Resul
         }
     ));
     assert_eq!(log.read_after(session_id, Some(1)).await?.len(), 1);
+    let page = log.read_page(EventRange::new(session_id).limit(1)).await?;
+    assert_eq!(page.events.len(), 1);
+    assert_eq!(page.head.sequence, 2);
+    assert_eq!(page.next.expect("second page").sequence, 1);
     Ok(())
 }

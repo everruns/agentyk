@@ -143,7 +143,12 @@ The event-store contract must support:
 
 - atomic append of a batch;
 - expected-version concurrency control;
-- ordered incremental reads.
+- ordered bounded reads and continuation points;
+- efficient stream-head lookup;
+- immutable branch creation from a safe historical point.
+
+The session timeline and snapshot rules are specified in
+[`session-timelines.md`](session-timelines.md).
 
 The engine advances live projections only after an append succeeds. A failed
 append must not leave in-memory history ahead of durable history.

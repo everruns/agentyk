@@ -51,6 +51,23 @@ seams, and these are the gaps that port hit. See
   `ToolDefinition.metadata` under `"hints"`, so an approval middleware gates on
   what a tool says about itself instead of on a hard-coded list of names.
 
+### Added — navigable session timelines
+
+- Added immutable `SessionPoint`s, read-only historical `SessionView`s, and
+  completed-turn `Session::fork` with durable `session.forked` lineage.
+- Added head-only `Session::resume_pending` for explicit recovery of an
+  incomplete turn, with documented at-least-once external-action semantics.
+- `EventStore` now exposes efficient heads and bounded `EventRange` pages with
+  continuation points. Engine writes no longer read the entire session merely
+  to discover its expected version.
+- Added the separate `SnapshotStore` contract and
+  `InMemorySnapshotStore` for named, schema-versioned, disposable replay
+  projections.
+- Expanded context assembly into `ContextRequest`/`ContextAssembly`: policies
+  receive the durable point, turn, iteration, model, optional token ceiling,
+  replayed messages, and paged event access, and can return accounting,
+  provenance, and durable observational events.
+
 ### Changed
 
 - Migrated the repository’s durable design specs into `knowledge/`, an OKF
