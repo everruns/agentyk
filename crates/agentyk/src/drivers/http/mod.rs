@@ -52,6 +52,31 @@ pub(crate) trait StreamAccumulator: Default {
 /// Deserialize one wire payload, turning a decode failure into a driver error
 /// that names the provider. Serde's message carries the offending field and
 /// position, which is the whole point of typing these.
+/// The HTTP client the bundled drivers use by default.
+///
+/// Trusts **both** the bundled public roots and the machine's own trust store.
+/// That second half is not optional in practice: plenty of environments —
+/// corporate networks, CI sandboxes, anything with an inspecting egress proxy
+/// — terminate TLS with a private CA installed on the machine. A client that
+/// only knows Mozilla's roots cannot reach *any* provider from inside one, and
+/// the failure it reports is an unhelpful "error sending request".
+///
+/// Found exactly that way: a live yolop run could not reach Anthropic through
+/// an intercepting proxy while `curl` on the same box could, because `curl`
+/// reads the system store and this client did not.
+///
+/// Falls back to a default client if the trust store cannot be read, so a
+/// minimal container with no CA bundle keeps working on the bundled roots
+/// rather than failing to construct.
+pub(crate) fn client() -> reqwest::Client {
+    reqwest::Client::builder()
+        .use_rustls_tls()
+        .tls_built_in_webpki_certs(true)
+        .tls_built_in_native_certs(true)
+        .build()
+        .unwrap_or_default()
+}
+
 pub(crate) fn decode<T: serde::de::DeserializeOwned>(label: &str, body: &str) -> Result<T> {
     serde_json::from_str(body).map_err(|e| {
         Error::driver(

@@ -33,7 +33,7 @@ pub struct AnthropicDriver {
 impl AnthropicDriver {
     /// A driver on a default HTTP client.
     pub fn new() -> Self {
-        Self::with_client(reqwest::Client::new())
+        Self::with_client(super::http::client())
     }
 
     /// Supply your own client — timeouts, proxies, and connection pooling are
