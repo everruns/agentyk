@@ -125,7 +125,7 @@ pub use filesystem::{
 pub use jsonl_log::JsonlEventLog;
 #[cfg(feature = "mcp")]
 #[cfg_attr(docsrs, doc(cfg(feature = "mcp")))]
-pub use mcp::{McpCapability, McpClient, McpServer};
+pub use mcp::{McpAuthProvider, McpCapability, McpClient, McpServer, McpTransport, StaticBearer};
 
 #[cfg(feature = "http")]
 #[cfg_attr(docsrs, doc(cfg(feature = "http")))]
