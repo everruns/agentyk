@@ -138,6 +138,7 @@ mod tests {
                     name: "echo".into(),
                     output: "out".into(),
                     is_error: false,
+                    metadata: serde_json::Value::Null,
                 },
             ),
         ];

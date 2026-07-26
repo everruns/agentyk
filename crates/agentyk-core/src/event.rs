@@ -56,6 +56,8 @@ pub mod event_types {
     pub const TOOL_DENIED: &str = "tool.denied";
     /// Middleware rewrote a tool call before it ran.
     pub const TOOL_REWRITTEN: &str = "tool.rewritten";
+    /// A running tool reported progress. Ephemeral — never persisted.
+    pub const TOOL_PROGRESS: &str = "tool.progress";
 }
 
 /// The payload of an [`Event`] — what actually happened.
@@ -165,6 +167,24 @@ pub enum EventData {
         /// Whether `output` describes a failure. Tool failures are results,
         /// not turn failures: the model gets to react to them.
         is_error: bool,
+        /// Structured result data for the host — see
+        /// [`crate::tool::ToolOutput::metadata`]. `Null` (and omitted from
+        /// serialization) unless the tool attached some, so logs written
+        /// before this field still deserialize.
+        #[serde(default, skip_serializing_if = "serde_json::Value::is_null")]
+        metadata: serde_json::Value,
+    },
+    /// A tool that is still running reported progress. **Ephemeral** —
+    /// delivered to listeners, never persisted and never folded into
+    /// history, exactly like a streaming message delta. Emitted by a host in
+    /// response to [`crate::tool::ToolContext::report_progress`].
+    ToolProgress {
+        /// Correlates with the `tool.started` event for this call.
+        call_id: String,
+        /// The tool reporting.
+        name: String,
+        /// What it reported.
+        progress: crate::tool::ToolProgress,
     },
     /// A [`crate::middleware::TurnMiddleware`] denied this call before it ran.
     /// Recorded alongside (not instead of) the usual
@@ -256,6 +276,7 @@ impl EventData {
             EventData::ToolCompleted { .. } => event_types::TOOL_COMPLETED,
             EventData::ToolDenied { .. } => event_types::TOOL_DENIED,
             EventData::ToolRewritten { .. } => event_types::TOOL_REWRITTEN,
+            EventData::ToolProgress { .. } => event_types::TOOL_PROGRESS,
             EventData::Custom { event_type, .. } => event_type,
         }
     }
@@ -265,7 +286,10 @@ impl EventData {
     /// `Custom` events are durable by default (a custom *ephemeral* event
     /// isn't representable yet — add one if a use case needs it).
     pub fn is_ephemeral(&self) -> bool {
-        matches!(self, EventData::OutputMessageDelta { .. })
+        matches!(
+            self,
+            EventData::OutputMessageDelta { .. } | EventData::ToolProgress { .. }
+        )
     }
 }
 
@@ -554,6 +578,7 @@ mod tests {
                 name: "read_file".into(),
                 output: "hi".into(),
                 is_error: false,
+                metadata: serde_json::Value::Null,
             },
         );
         let event = request.into_event(EventId::new(), Utc::now(), 3);

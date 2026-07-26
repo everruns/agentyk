@@ -67,6 +67,44 @@ impl FileEntry {
     }
 }
 
+/// What [`FileSystem::stat`] reports about one path.
+#[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
+pub struct FileStat {
+    /// The path as asked for.
+    pub path: String,
+    /// Whether anything exists there. `false` makes the other fields
+    /// meaningless — a missing file is an answer, not an error, because
+    /// "does this exist?" is the question `stat_file` is usually asked.
+    pub exists: bool,
+    /// Whether it is a directory.
+    pub is_dir: bool,
+    /// Size in bytes; `0` for directories and for anything missing.
+    pub size: u64,
+}
+
+impl FileStat {
+    /// A path that does not exist.
+    pub fn missing(path: impl Into<String>) -> Self {
+        Self {
+            path: path.into(),
+            exists: false,
+            is_dir: false,
+            size: 0,
+        }
+    }
+
+    /// A path that exists, described by its directory entry.
+    pub fn found(path: impl Into<String>, entry: &FileEntry) -> Self {
+        Self {
+            path: path.into(),
+            exists: true,
+            is_dir: entry.is_dir,
+            size: entry.size,
+        }
+    }
+}
+
 /// A workspace a [`FileSystemCapability`] reads and writes. Mirrors
 /// everruns' `SessionFileSystem`, minus the `session_id` parameter — see the
 /// module docs.
@@ -82,6 +120,41 @@ pub trait FileSystem: Send + Sync {
     /// Delete a file, or a directory when `recursive` is set. Deleting a
     /// non-empty directory without it must fail.
     async fn delete_file(&self, path: &str, recursive: bool) -> Result<()>;
+
+    /// Describe one path without reading it.
+    ///
+    /// Defaulted in terms of [`FileSystem::list_directory`], so every
+    /// existing implementation gains it for free; override it when the
+    /// backing store can answer directly (real disk does — see
+    /// [`RealDiskFileSystem`]) rather than by listing a parent that may hold
+    /// thousands of entries.
+    async fn stat(&self, path: &str) -> Result<FileStat> {
+        let trimmed = path.trim_matches('/');
+        if trimmed.is_empty() {
+            // The root always exists and is always a directory.
+            return Ok(FileStat {
+                path: path.to_string(),
+                exists: true,
+                is_dir: true,
+                size: 0,
+            });
+        }
+        let (parent, name) = match trimmed.rsplit_once('/') {
+            Some((parent, name)) => (parent, name),
+            None => ("", trimmed),
+        };
+        let entries = match self.list_directory(parent).await {
+            Ok(entries) => entries,
+            // A missing parent means a missing path, which is a `FileStat`,
+            // not a failure.
+            Err(_) => return Ok(FileStat::missing(path)),
+        };
+        Ok(entries
+            .iter()
+            .find(|entry| entry.name == name)
+            .map(|entry| FileStat::found(path, entry))
+            .unwrap_or_else(|| FileStat::missing(path)))
+    }
 }
 
 /// A real-disk workspace rooted at a fixed directory. Every path is resolved
@@ -123,6 +196,24 @@ impl RealDiskFileSystem {
 impl FileSystem for RealDiskFileSystem {
     async fn read_file(&self, path: &str) -> Result<String> {
         Ok(tokio::fs::read_to_string(self.resolve(path)?).await?)
+    }
+
+    /// Answered from the file's own metadata rather than by listing its
+    /// parent directory, which the default implementation would have to do.
+    async fn stat(&self, path: &str) -> Result<FileStat> {
+        let full = self.resolve(path)?;
+        match tokio::fs::metadata(full).await {
+            Ok(metadata) => Ok(FileStat {
+                path: path.to_string(),
+                exists: true,
+                is_dir: metadata.is_dir(),
+                size: if metadata.is_dir() { 0 } else { metadata.len() },
+            }),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                Ok(FileStat::missing(path))
+            }
+            Err(error) => Err(error.into()),
+        }
     }
 
     async fn write_file(&self, path: &str, content: &str) -> Result<()> {
@@ -327,7 +418,33 @@ impl FileSystem for WriteBlocklistFileSystem {
         }
         self.inner.delete_file(path, recursive).await
     }
+
+    /// Reads are never blocked, so this is a straight delegation — and it
+    /// must be one, or the decorator would silently downgrade the inner
+    /// store's efficient implementation to the trait default.
+    async fn stat(&self, path: &str) -> Result<FileStat> {
+        self.inner.stat(path).await
+    }
 }
+
+/// Risk hints for the host, carried in [`ToolDefinition::metadata`] under
+/// `"hints"` — the convention `agentyk-everruns-poc` established and the one
+/// an approval middleware reads to decide what needs a human. Never sent to
+/// the model.
+///
+/// Bundled tools declare their own so a host does not have to keep a list of
+/// tool names in sync with the library.
+fn hints(readonly: bool, destructive: bool) -> Value {
+    json!({"hints": {"readonly": readonly, "destructive": destructive}})
+}
+
+/// Ceiling on `grep_files` matches in one result, so a broad pattern cannot
+/// fill the model's context window.
+const MAX_GREP_MATCHES: usize = 200;
+
+/// Ceiling on files walked in one `grep_files` call, so a huge tree cannot
+/// hang a turn.
+const MAX_GREP_FILES: usize = 5_000;
 
 struct ReadFileTool {
     store: Arc<dyn FileSystem>,
@@ -338,25 +455,48 @@ impl Tool for ReadFileTool {
     fn definition(&self) -> ToolDefinition {
         ToolDefinition::new(
             "read_file",
-            "Read a file's full text content.",
+            "Read a file's text content. Use `offset`/`limit` to read part \
+             of a large file instead of all of it.",
             json!({
                 "type": "object",
                 "properties": {
-                    "path": {"type": "string", "description": "Path relative to the workspace root."}
+                    "path": {"type": "string", "description": "Path relative to the workspace root."},
+                    "offset": {"type": "integer", "description": "1-based line to start at. Default 1."},
+                    "limit": {"type": "integer", "description": "Maximum number of lines to return."},
                 },
                 "required": ["path"],
             }),
         )
+        .with_metadata(hints(true, false))
     }
 
     async fn execute(&self, arguments: Value, _context: &ToolContext) -> ToolOutput {
         let Some(path) = arguments["path"].as_str() else {
             return ToolOutput::error("missing required argument `path`");
         };
-        match self.store.read_file(path).await {
-            Ok(content) => ToolOutput::text(content),
-            Err(error) => ToolOutput::error(error.to_string()),
+        let content = match self.store.read_file(path).await {
+            Ok(content) => content,
+            Err(error) => return ToolOutput::error(error.to_string()),
+        };
+        let offset = arguments["offset"].as_u64().unwrap_or(1).max(1);
+        let limit = arguments["limit"].as_u64();
+        if offset == 1 && limit.is_none() {
+            return ToolOutput::text(content);
         }
+
+        let total = content.lines().count() as u64;
+        let taken: Vec<&str> = content
+            .lines()
+            .skip((offset - 1) as usize)
+            .take(limit.unwrap_or(u64::MAX).min(usize::MAX as u64) as usize)
+            .collect();
+        let last = offset + taken.len() as u64 - 1;
+        // The window is stated in the result, not just implied by it: a model
+        // that cannot tell a truncated read from a whole file will summarize
+        // half a file as if it were the whole one.
+        ToolOutput::text(taken.join("\n")).with_metadata(json!({
+            "lines": {"offset": offset, "returned": taken.len(), "total": total, "last": last},
+        }))
     }
 }
 
@@ -379,6 +519,7 @@ impl Tool for WriteFileTool {
                 "required": ["path", "content"],
             }),
         )
+        .with_metadata(hints(false, true))
     }
 
     async fn execute(&self, arguments: Value, _context: &ToolContext) -> ToolOutput {
@@ -412,6 +553,7 @@ impl Tool for ListDirectoryTool {
                 },
             }),
         )
+        .with_metadata(hints(true, false))
     }
 
     async fn execute(&self, arguments: Value, _context: &ToolContext) -> ToolOutput {
@@ -458,6 +600,7 @@ impl Tool for DeleteFileTool {
                 "required": ["path"],
             }),
         )
+        .with_metadata(hints(false, true))
     }
 
     async fn execute(&self, arguments: Value, _context: &ToolContext) -> ToolOutput {
@@ -472,11 +615,241 @@ impl Tool for DeleteFileTool {
     }
 }
 
-/// A capability exposing `read_file`/`write_file`/`list_directory`/
-/// `delete_file` tools backed by a [`FileSystem`]. Everruns' equivalent also
-/// has `edit_file` (content-hash compare-and-swap), `grep_files`, and
-/// `stat_file`; not ported here — this is the minimal set a coding agent
-/// needs to get started, not a full port of everruns' seven-tool surface.
+struct EditFileTool {
+    store: Arc<dyn FileSystem>,
+}
+
+#[async_trait]
+impl Tool for EditFileTool {
+    fn definition(&self) -> ToolDefinition {
+        ToolDefinition::new(
+            "edit_file",
+            "Replace an exact string in a file. Prefer this over write_file \
+             for changing part of an existing file: it never rewrites what it \
+             did not mean to touch.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "Path relative to the workspace root."},
+                    "old_string": {"type": "string", "description": "Exact text to replace, including indentation."},
+                    "new_string": {"type": "string", "description": "Replacement text."},
+                    "replace_all": {"type": "boolean", "description": "Replace every occurrence instead of requiring a unique one. Default false."},
+                },
+                "required": ["path", "old_string", "new_string"],
+            }),
+        )
+        .with_metadata(hints(false, true))
+    }
+
+    async fn execute(&self, arguments: Value, _context: &ToolContext) -> ToolOutput {
+        let (Some(path), Some(old), Some(new)) = (
+            arguments["path"].as_str(),
+            arguments["old_string"].as_str(),
+            arguments["new_string"].as_str(),
+        ) else {
+            return ToolOutput::error(
+                "missing required arguments: `path`, `old_string`, `new_string`",
+            );
+        };
+        if old.is_empty() {
+            return ToolOutput::error(
+                "`old_string` must not be empty — use write_file to create a file",
+            );
+        }
+        let content = match self.store.read_file(path).await {
+            Ok(content) => content,
+            Err(error) => return ToolOutput::error(error.to_string()),
+        };
+
+        // Uniqueness is the safety property, and it is why this is not just
+        // "read, string-replace, write" done by the model itself: an ambiguous
+        // match means the model does not know which occurrence it is editing,
+        // so the edit is refused rather than applied to a coin flip. It is
+        // the same guarantee everruns gets from a content hash, expressed in
+        // terms the model can act on — it can add surrounding context and
+        // retry, which it cannot do with a stale-hash error.
+        let occurrences = content.matches(old).count();
+        let replace_all = arguments["replace_all"].as_bool().unwrap_or(false);
+        if occurrences == 0 {
+            return ToolOutput::error(format!(
+                "`old_string` does not appear in {path} — read the file and match its exact text"
+            ));
+        }
+        if occurrences > 1 && !replace_all {
+            return ToolOutput::error(format!(
+                "`old_string` appears {occurrences} times in {path} — include surrounding \
+                 context to make it unique, or pass replace_all"
+            ));
+        }
+
+        let updated = match replace_all {
+            true => content.replace(old, new),
+            false => content.replacen(old, new, 1),
+        };
+        match self.store.write_file(path, &updated).await {
+            Ok(()) => ToolOutput::text(format!("edited {path} ({occurrences} replacement(s))"))
+                .with_metadata(json!({"path": path, "replacements": occurrences})),
+            Err(error) => ToolOutput::error(error.to_string()),
+        }
+    }
+}
+
+struct GrepFilesTool {
+    store: Arc<dyn FileSystem>,
+}
+
+impl GrepFilesTool {
+    /// Walk the tree under `root`, newest-first order not guaranteed, and
+    /// collect matching lines.
+    ///
+    /// Implemented against the [`FileSystem`] trait alone — `list_directory`
+    /// plus `read_file` — so it searches an in-memory store, a real disk, or
+    /// an adopter's remote workspace without knowing which it has. That is
+    /// the reason this lives in the library instead of in each host.
+    async fn search(&self, root: &str, pattern: &regex::Regex) -> Result<(Vec<String>, bool)> {
+        let mut matches = Vec::new();
+        let mut queue = vec![root.trim_matches('/').to_string()];
+        let mut files_seen = 0usize;
+        let mut truncated = false;
+
+        while let Some(directory) = queue.pop() {
+            let entries = match self.store.list_directory(&directory).await {
+                Ok(entries) => entries,
+                // An unreadable directory is skipped, not fatal: a search that
+                // dies on one permission error is useless on a real tree.
+                Err(_) => continue,
+            };
+            for entry in entries {
+                let path = match directory.is_empty() {
+                    true => entry.name.clone(),
+                    false => format!("{directory}/{}", entry.name),
+                };
+                if entry.is_dir {
+                    queue.push(path);
+                    continue;
+                }
+                files_seen += 1;
+                if files_seen > MAX_GREP_FILES {
+                    truncated = true;
+                    return Ok((matches, truncated));
+                }
+                // Binary and unreadable files are skipped the same way.
+                let Ok(content) = self.store.read_file(&path).await else {
+                    continue;
+                };
+                for (number, line) in content.lines().enumerate() {
+                    if pattern.is_match(line) {
+                        matches.push(format!("{path}:{}: {}", number + 1, line.trim_end()));
+                        if matches.len() >= MAX_GREP_MATCHES {
+                            truncated = true;
+                            return Ok((matches, truncated));
+                        }
+                    }
+                }
+            }
+        }
+        Ok((matches, truncated))
+    }
+}
+
+#[async_trait]
+impl Tool for GrepFilesTool {
+    fn definition(&self) -> ToolDefinition {
+        ToolDefinition::new(
+            "grep_files",
+            "Search the workspace for a regular expression, returning \
+             `path:line: text` matches. Prefer this over listing and reading \
+             files one by one to find something.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "pattern": {"type": "string", "description": "Rust regular expression, matched per line."},
+                    "path": {"type": "string", "description": "Directory to search under, relative to the workspace root. Defaults to the root."},
+                },
+                "required": ["pattern"],
+            }),
+        )
+        .with_metadata(hints(true, false))
+    }
+
+    async fn execute(&self, arguments: Value, _context: &ToolContext) -> ToolOutput {
+        let Some(pattern) = arguments["pattern"].as_str() else {
+            return ToolOutput::error("missing required argument `pattern`");
+        };
+        let regex = match regex::Regex::new(pattern) {
+            Ok(regex) => regex,
+            // The model wrote the pattern, so it is the one that can fix it.
+            Err(error) => return ToolOutput::error(format!("invalid pattern: {error}")),
+        };
+        let root = arguments["path"].as_str().unwrap_or("");
+        match self.search(root, &regex).await {
+            Ok((matches, truncated)) if matches.is_empty() => ToolOutput::text("(no matches)")
+                .with_metadata(json!({"matches": 0, "truncated": truncated})),
+            Ok((matches, truncated)) => {
+                let count = matches.len();
+                let mut body = matches.join("\n");
+                if truncated {
+                    body.push_str("\n… more matches were not shown; narrow the pattern or path");
+                }
+                ToolOutput::text(body)
+                    .with_metadata(json!({"matches": count, "truncated": truncated}))
+            }
+            Err(error) => ToolOutput::error(error.to_string()),
+        }
+    }
+}
+
+struct StatFileTool {
+    store: Arc<dyn FileSystem>,
+}
+
+#[async_trait]
+impl Tool for StatFileTool {
+    fn definition(&self) -> ToolDefinition {
+        ToolDefinition::new(
+            "stat_file",
+            "Report whether a path exists, whether it is a directory, and \
+             its size — without reading it.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "Path relative to the workspace root."},
+                },
+                "required": ["path"],
+            }),
+        )
+        .with_metadata(hints(true, false))
+    }
+
+    async fn execute(&self, arguments: Value, _context: &ToolContext) -> ToolOutput {
+        let Some(path) = arguments["path"].as_str() else {
+            return ToolOutput::error("missing required argument `path`");
+        };
+        match self.store.stat(path).await {
+            // A missing path is a successful answer, not a tool error: the
+            // model asked a question and got one.
+            Ok(stat) if !stat.exists => ToolOutput::text(format!("{path}: does not exist"))
+                .with_metadata(json!({"exists": false, "path": path})),
+            Ok(stat) => {
+                let kind = if stat.is_dir { "directory" } else { "file" };
+                ToolOutput::text(format!("{path}: {kind}, {} bytes", stat.size)).with_metadata(
+                    json!({"exists": true, "path": path, "is_dir": stat.is_dir, "size": stat.size}),
+                )
+            }
+            Err(error) => ToolOutput::error(error.to_string()),
+        }
+    }
+}
+
+/// A capability exposing the workspace tools a coding agent needs:
+/// `read_file` (whole or by line window), `write_file`, `edit_file`,
+/// `list_directory`, `grep_files`, `stat_file`, and `delete_file`, all backed
+/// by one [`FileSystem`].
+///
+/// Every definition carries risk hints in
+/// [`ToolDefinition::metadata`](agentyk_core::tool::ToolDefinition::metadata)
+/// under `"hints"`, so an approval middleware can gate the mutating ones
+/// without hard-coding tool names.
 pub struct FileSystemCapability {
     store: Arc<dyn FileSystem>,
 }
@@ -503,7 +876,7 @@ impl Capability for FileSystemCapability {
     }
 
     fn description(&self) -> &str {
-        "Tools to read, write, list, and delete files in the agent's workspace."
+        "Tools to read, search, write, edit, and delete files in the agent's workspace."
     }
 
     async fn tools(&self) -> Result<Vec<Arc<dyn Tool>>> {
@@ -514,7 +887,16 @@ impl Capability for FileSystemCapability {
             Arc::new(WriteFileTool {
                 store: self.store.clone(),
             }),
+            Arc::new(EditFileTool {
+                store: self.store.clone(),
+            }),
             Arc::new(ListDirectoryTool {
+                store: self.store.clone(),
+            }),
+            Arc::new(GrepFilesTool {
+                store: self.store.clone(),
+            }),
+            Arc::new(StatFileTool {
                 store: self.store.clone(),
             }),
             Arc::new(DeleteFileTool {

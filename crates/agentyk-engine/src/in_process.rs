@@ -1,18 +1,57 @@
 //! The in-process host for the canonical turn engine.
 
+use std::sync::Arc;
+
 use agentyk_core::atoms;
 use agentyk_core::cancellation::CancellationToken;
 use agentyk_core::driver::DeltaSink;
 use agentyk_core::error::{Error, Result};
-use agentyk_core::event::EventData;
-use agentyk_core::id::{MessageId, TurnId};
+use agentyk_core::event::{EventData, EventListener, EventRequest};
+use agentyk_core::id::{EventId, MessageId, SessionId, TurnId};
 use agentyk_core::message::Message;
-use agentyk_core::tool::ToolContext;
+use agentyk_core::tool::{ToolContext, ToolProgress, ToolProgressSink};
 use agentyk_core::turn::{TurnOutcome, TurnState};
 use async_trait::async_trait;
+use chrono::Utc;
 
 use crate::engine::{TurnEngine, TurnOperation};
 use crate::host::{TurnHost, TurnResult};
+
+/// Turns a running tool's progress reports into ephemeral `tool.progress`
+/// events for the session's listeners.
+///
+/// It fans out to listeners directly rather than going through
+/// [`TurnHost::record`], because the host is exclusively borrowed by the turn
+/// while the tool runs. That is sound precisely because the event is
+/// ephemeral: nothing is appended to the log and nothing is folded into
+/// history, so there is no ordering or sequencing to coordinate — the same
+/// reasoning that lets streaming deltas bypass storage.
+struct ListenerProgressSink {
+    listeners: Vec<Arc<dyn EventListener>>,
+    session_id: SessionId,
+    turn_id: TurnId,
+    call_id: String,
+    name: String,
+}
+
+#[async_trait]
+impl ToolProgressSink for ListenerProgressSink {
+    async fn progress(&self, progress: ToolProgress) {
+        if self.listeners.is_empty() {
+            return;
+        }
+        let data = EventData::ToolProgress {
+            call_id: self.call_id.clone(),
+            name: self.name.clone(),
+            progress,
+        };
+        let event = EventRequest::with_turn(self.session_id, self.turn_id, data)
+            .into_ephemeral_event(EventId::new(), Utc::now());
+        for listener in &self.listeners {
+            listener.on_event(&event).await;
+        }
+    }
+}
 
 struct RecordingDeltaSink<'h, 'a> {
     host: &'h mut TurnHost<'a>,
@@ -106,8 +145,36 @@ impl InProcessExecutor {
                             Some(output) => output,
                             None => {
                                 let context = ToolContext::new(host.session_id, turn_id)
-                                    .with_extensions(host.environment.extensions.clone());
-                                atoms::act(&assembled, &prepared.call, &context).await
+                                    .with_extensions(host.environment.extensions.clone())
+                                    .with_cancellation(host.cancellation.clone())
+                                    .with_progress(Arc::new(ListenerProgressSink {
+                                        listeners: host.environment.listeners.clone(),
+                                        session_id: host.session_id,
+                                        turn_id,
+                                        call_id: prepared.call.id.clone(),
+                                        name: prepared.call.name.clone(),
+                                    }));
+                                // Race the call against cancellation instead of
+                                // waiting it out: losing means the tool future is
+                                // dropped where it stood, which is what kills a
+                                // `kill_on_drop` child process. Without this a
+                                // cancelled turn still blocks on a long build.
+                                let cancellation = host.cancellation.clone();
+                                let executed = cancellation
+                                    .run_until_cancelled(atoms::act(
+                                        &assembled,
+                                        &prepared.call,
+                                        &context,
+                                    ))
+                                    .await;
+                                match executed {
+                                    Some(output) => output,
+                                    None => {
+                                        let events = state.on_cancel();
+                                        host.record(turn_id, events).await?;
+                                        return Err(Error::Cancelled);
+                                    }
+                                }
                             }
                         };
                         let events = engine

@@ -27,6 +27,7 @@ const DEFAULT_MAX_TOKENS: u64 = 8192;
 pub struct AnthropicDriver {
     client: reqwest::Client,
     max_tokens: u64,
+    prompt_caching: bool,
 }
 
 impl AnthropicDriver {
@@ -41,6 +42,7 @@ impl AnthropicDriver {
         Self {
             client,
             max_tokens: DEFAULT_MAX_TOKENS,
+            prompt_caching: true,
         }
     }
 
@@ -49,6 +51,81 @@ impl AnthropicDriver {
     pub fn max_tokens(mut self, max_tokens: u64) -> Self {
         self.max_tokens = max_tokens;
         self
+    }
+
+    /// Turn prompt caching on or off (default: **on**).
+    ///
+    /// An agent re-sends its whole transcript every turn, so by the tenth
+    /// turn most of every request is text the provider has already seen.
+    /// Caching marks that prefix so it is billed and processed at a fraction
+    /// of the cost. The driver places up to four `cache_control` breakpoints
+    /// per request: the tool array, the system prompt, and the last two
+    /// messages — the pair being what makes caching *incremental* across a
+    /// growing transcript.
+    ///
+    /// Reasons to turn it off: a proxy that rejects the field, or a workload
+    /// of one-shot prompts with nothing in common, where the cache writes
+    /// cost more than they save.
+    pub fn prompt_caching(mut self, enabled: bool) -> Self {
+        self.prompt_caching = enabled;
+        self
+    }
+
+    /// Place `cache_control` breakpoints on a built request body.
+    ///
+    /// Anthropic caches the request *prefix* up to each breakpoint and allows
+    /// at most four, so where they go decides what is reusable:
+    ///
+    /// 1. **Tools** — the last tool definition, which covers the whole tool
+    ///    array. Identical on every turn of a session.
+    /// 2. **System prompt** — after the tools in prefix order, and equally
+    ///    static.
+    /// 3. **The previous message** and 4. **the last message** — the growing
+    ///    part. Two breakpoints, not one, is what makes caching *incremental*:
+    ///    a turn reads the cache written one turn ago while writing a new one
+    ///    that covers everything up to now. With a single moving breakpoint
+    ///    each turn would write a cache nothing ever reads.
+    ///
+    /// A prefix shorter than the model's minimum cacheable length is simply
+    /// not cached — the API ignores the marker rather than failing, so no
+    /// length heuristic is needed here.
+    fn cache_breakpoints(body: &mut Value) {
+        let marker = json!({"type": "ephemeral"});
+
+        if let Some(tools) = body.get_mut("tools").and_then(Value::as_array_mut)
+            && let Some(last) = tools.last_mut()
+        {
+            last["cache_control"] = marker.clone();
+        }
+
+        // `system` is built as a plain string; caching needs the block form.
+        if let Some(system) = body.get("system").and_then(Value::as_str) {
+            body["system"] = json!([{
+                "type": "text",
+                "text": system,
+                "cache_control": marker.clone(),
+            }]);
+        }
+
+        let Some(messages) = body.get_mut("messages").and_then(Value::as_array_mut) else {
+            return;
+        };
+        let count = messages.len();
+        // The last message, and the one before it when there is one.
+        let breakpoints: Vec<usize> = match count {
+            0 => Vec::new(),
+            1 => vec![0],
+            _ => vec![count - 2, count - 1],
+        };
+        for index in breakpoints {
+            if let Some(blocks) = messages[index]
+                .get_mut("content")
+                .and_then(Value::as_array_mut)
+                && let Some(last) = blocks.last_mut()
+            {
+                last["cache_control"] = marker.clone();
+            }
+        }
     }
 }
 
@@ -171,11 +248,29 @@ struct WireUsage {
     input_tokens: u64,
     #[serde(default)]
     output_tokens: u64,
+    /// Input tokens written to the prompt cache this request.
+    #[serde(default)]
+    cache_creation_input_tokens: u64,
+    /// Input tokens served from the prompt cache this request.
+    #[serde(default)]
+    cache_read_input_tokens: u64,
 }
 
 impl From<WireUsage> for Usage {
+    /// Cached tokens are counted as input tokens.
+    ///
+    /// Anthropic reports them in separate fields (they are billed at
+    /// different rates), and `input_tokens` excludes them. Summing keeps
+    /// `Usage.input_tokens` meaning "tokens this request sent", so enabling
+    /// caching does not make a session look like it suddenly stopped sending
+    /// context. Cost, which does differ per field, is a host concern — a host
+    /// that needs the split reads it from its own accounting, not from a
+    /// provider-neutral `Usage`.
     fn from(usage: WireUsage) -> Self {
-        Usage::new(usage.input_tokens, usage.output_tokens)
+        Usage::new(
+            usage.input_tokens + usage.cache_creation_input_tokens + usage.cache_read_input_tokens,
+            usage.output_tokens,
+        )
     }
 }
 
@@ -471,6 +566,9 @@ impl HttpProvider for AnthropicDriver {
                     .collect(),
             );
         }
+        if self.prompt_caching {
+            Self::cache_breakpoints(&mut body);
+        }
         body
     }
 
@@ -521,6 +619,91 @@ mod tests {
 
     fn request(model: ModelSpec) -> ChatRequest {
         ChatRequest::new(model, vec![Message::user("hi")])
+    }
+
+    fn tool(name: &str) -> agentyk_core::tool::ToolDefinition {
+        agentyk_core::tool::ToolDefinition::new(name, "does a thing", json!({"type": "object"}))
+    }
+
+    #[test]
+    fn prompt_caching_marks_tools_system_and_the_last_two_messages() {
+        let driver = AnthropicDriver::new();
+        let mut request = ChatRequest::new(
+            ModelSpec::anthropic("claude-x"),
+            vec![
+                Message::user("first"),
+                Message::assistant("second"),
+                Message::user("third"),
+            ],
+        );
+        request.system_prompt = Some("be terse".into());
+        request.tools = vec![tool("read_file"), tool("write_file")];
+
+        let body = driver.build_body(&request);
+
+        // The system prompt becomes a block array so it can carry a marker.
+        assert_eq!(body["system"][0]["text"], "be terse");
+        assert_eq!(body["system"][0]["cache_control"]["type"], "ephemeral");
+        // Only the last tool is marked; the breakpoint covers the whole array.
+        assert!(body["tools"][0]["cache_control"].is_null());
+        assert_eq!(body["tools"][1]["cache_control"]["type"], "ephemeral");
+        // The last two messages, so each turn reads the previous turn's cache.
+        let messages = body["messages"].as_array().expect("messages");
+        assert!(messages[0]["content"][0]["cache_control"].is_null());
+        assert_eq!(
+            messages[1]["content"][0]["cache_control"]["type"],
+            "ephemeral"
+        );
+        assert_eq!(
+            messages[2]["content"][0]["cache_control"]["type"],
+            "ephemeral"
+        );
+        // Four is the API ceiling; never exceed it.
+        let markers = serde_json::to_string(&body)
+            .unwrap()
+            .matches("cache_control")
+            .count();
+        assert!(markers <= 4, "{markers} breakpoints exceeds the API limit");
+    }
+
+    #[test]
+    fn a_single_message_request_still_gets_one_conversation_breakpoint() {
+        let driver = AnthropicDriver::new();
+        let body = driver.build_body(&request(ModelSpec::anthropic("claude-x")));
+        assert_eq!(
+            body["messages"][0]["content"][0]["cache_control"]["type"],
+            "ephemeral"
+        );
+    }
+
+    #[test]
+    fn caching_can_be_turned_off_for_proxies_that_reject_it() {
+        let driver = AnthropicDriver::new().prompt_caching(false);
+        let mut request = request(ModelSpec::anthropic("claude-x"));
+        request.system_prompt = Some("be terse".into());
+        request.tools = vec![tool("read_file")];
+
+        let body = driver.build_body(&request);
+        assert_eq!(body["system"], json!("be terse"), "plain string, as before");
+        assert!(
+            !serde_json::to_string(&body)
+                .unwrap()
+                .contains("cache_control")
+        );
+    }
+
+    #[test]
+    fn cached_tokens_are_counted_as_input_tokens() {
+        let usage: Usage = serde_json::from_value::<WireUsage>(json!({
+            "input_tokens": 10,
+            "output_tokens": 5,
+            "cache_creation_input_tokens": 100,
+            "cache_read_input_tokens": 1000,
+        }))
+        .unwrap()
+        .into();
+        assert_eq!(usage.input_tokens, 1110);
+        assert_eq!(usage.output_tokens, 5);
     }
 
     #[test]

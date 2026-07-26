@@ -80,6 +80,28 @@ an argument had to fork the entire act loop, duplicating the cancel check, the
 delta sink, and the outcome mapping — code that then drifts. The canonical step
 engine removes the copied loop itself.
 
+## What needed a core change (0.1.2)
+
+Two more hatches, both from the yolop port
+([`yolop-adoption.md`](yolop-adoption.md)), both following the rule rather
+than bending it:
+
+- **`ToolOutput.metadata`** — structured result data for the host. A tool
+  result is one string because that is what every provider's wire format
+  accepts; that is lossy for a UI, which then re-parses prose to render a diff
+  or an exit code. The structured form is host-owned, so it is a hatch, and it
+  rides on `tool.completed` so listeners and replay both see it.
+- **`ModelSpec.metadata`** — provider-flavored configuration (OAuth refresh
+  token, account id, organization id, gateway headers). Only the driver that
+  understands a given provider reads it, which is the definition of
+  everruns-flavored richness. Treated as sensitive: redacted in `Debug`
+  alongside `api_key`, and a `ModelSpec` still never reaches an event.
+
+`EventData::ToolProgress` is the counter-example worth noting — it is a typed
+variant, not `Custom`, because ephemerality is a **protocol** property. The
+recorder must know not to persist it, and "must not be written to the log" is
+not something a host can express through an opaque payload.
+
 ## What needed a core change (0.1.1)
 
 Three protocol types must physically carry data an external crate can't add,

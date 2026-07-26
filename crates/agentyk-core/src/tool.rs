@@ -6,6 +6,7 @@
 
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -101,6 +102,21 @@ pub struct ToolOutput {
     /// Whether `content` describes a failure. A tool failure is a *result*,
     /// not a turn failure: the model sees it and gets to react.
     pub is_error: bool,
+    /// Structured result data for the **host**, never sent to the model —
+    /// the tool-result analogue of [`ToolDefinition::metadata`].
+    ///
+    /// A tool result is one string because that is what every provider's
+    /// wire format accepts. That is fine for the model and lossy for
+    /// everything else: a UI that wants to render a diff, a file list, an
+    /// exit code, or a preview has to re-parse prose. Put the structured
+    /// form here and the flat form in `content`, and both consumers get what
+    /// they need. It rides on `tool.completed`, so listeners see it live and
+    /// replay sees it again.
+    ///
+    /// `Null` for the common case, and omitted from serialization then, so
+    /// existing logs still deserialize.
+    #[serde(default, skip_serializing_if = "serde_json::Value::is_null")]
+    pub metadata: serde_json::Value,
 }
 
 impl ToolOutput {
@@ -110,30 +126,81 @@ impl ToolOutput {
         Self {
             content: content.into(),
             is_error,
+            metadata: serde_json::Value::Null,
         }
     }
 
     /// A successful result.
     pub fn text(content: impl Into<String>) -> Self {
-        Self {
-            content: content.into(),
-            is_error: false,
-        }
+        Self::new(content, false)
     }
 
     /// A failure the model should see and can react to. Prefer this over
     /// failing the turn: "file not found" is something a model can recover
     /// from.
     pub fn error(content: impl Into<String>) -> Self {
-        Self {
-            content: content.into(),
-            is_error: true,
-        }
+        Self::new(content, true)
+    }
+
+    /// Attach structured data for the host — see [`ToolOutput::metadata`].
+    pub fn with_metadata(mut self, metadata: serde_json::Value) -> Self {
+        self.metadata = metadata;
+        self
     }
 }
 
+/// One progress report from a tool that is still running.
+///
+/// Tools that take real time — a build, a test run, a large fetch — are
+/// otherwise silent between `tool.started` and `tool.completed`, which is the
+/// exact window a user is waiting through. A report is **ephemeral**: it
+/// reaches listeners and is never persisted, the same contract as a streaming
+/// message delta.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[non_exhaustive]
+pub struct ToolProgress {
+    /// One line for a human, e.g. `"compiling agentyk-core"`.
+    pub message: String,
+    /// Optional structured detail for a host that renders more than a line —
+    /// a percentage, a byte count, a chunk of streamed output. Host-defined;
+    /// core never interprets it.
+    #[serde(default, skip_serializing_if = "serde_json::Value::is_null")]
+    pub detail: serde_json::Value,
+}
+
+impl ToolProgress {
+    /// A plain progress line.
+    pub fn message(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            detail: serde_json::Value::Null,
+        }
+    }
+
+    /// Attach structured detail — see [`ToolProgress::detail`].
+    pub fn with_detail(mut self, detail: serde_json::Value) -> Self {
+        self.detail = detail;
+        self
+    }
+}
+
+/// Where a running tool's progress reports go.
+///
+/// Implemented by the host, not by tools: the in-process executor's
+/// implementation turns each report into an ephemeral `tool.progress` event
+/// for the session's listeners. A durable host might instead forward them to
+/// a queue. Tools never construct one — they call
+/// [`ToolContext::report_progress`], which does nothing when no host supplied
+/// a sink (a unit test, say).
+#[async_trait]
+pub trait ToolProgressSink: Send + Sync {
+    /// Deliver one report. Must not fail the tool: a host that cannot
+    /// deliver drops the report.
+    async fn progress(&self, progress: ToolProgress);
+}
+
 /// Execution-time context handed to a tool.
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Default)]
 #[non_exhaustive]
 pub struct ToolContext {
     /// The session this call belongs to — the scope for anything the tool
@@ -145,15 +212,43 @@ pub struct ToolContext {
     /// [`crate::extensions::Extensions`]. Empty unless the agent's builder
     /// set some.
     pub extensions: crate::extensions::Extensions,
+    /// The turn's cancellation signal.
+    ///
+    /// A host already drops a tool's future when the turn is cancelled, so a
+    /// tool needs this only to do something *better* than being dropped —
+    /// flush a partial result, remove a temp file, report what it got done.
+    /// A tool that ignores it is still cancellable.
+    ///
+    /// Middleware reaches it the same way (via
+    /// [`crate::middleware::ToolInvocation::context`]), which is how an
+    /// approval prompt stops waiting when the turn is cancelled.
+    pub cancellation: crate::cancellation::CancellationToken,
+    /// Where [`ToolContext::report_progress`] sends its reports. `None` when
+    /// no host is listening.
+    pub progress: Option<Arc<dyn ToolProgressSink>>,
+}
+
+impl std::fmt::Debug for ToolContext {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ToolContext")
+            .field("session_id", &self.session_id)
+            .field("turn_id", &self.turn_id)
+            .field("cancellation", &self.cancellation)
+            .field("progress", &self.progress.is_some())
+            .finish_non_exhaustive()
+    }
 }
 
 impl ToolContext {
-    /// Context for a call in this session and turn, with no extensions.
+    /// Context for a call in this session and turn: no extensions, no
+    /// progress sink, and a token nobody else holds (so nothing cancels it).
     pub fn new(session_id: SessionId, turn_id: TurnId) -> Self {
         Self {
             session_id,
             turn_id,
             extensions: crate::extensions::Extensions::new(),
+            cancellation: crate::cancellation::CancellationToken::new(),
+            progress: None,
         }
     }
 
@@ -161,6 +256,40 @@ impl ToolContext {
     pub fn with_extensions(mut self, extensions: crate::extensions::Extensions) -> Self {
         self.extensions = extensions;
         self
+    }
+
+    /// Share the turn's cancellation signal with this call.
+    pub fn with_cancellation(
+        mut self,
+        cancellation: crate::cancellation::CancellationToken,
+    ) -> Self {
+        self.cancellation = cancellation;
+        self
+    }
+
+    /// Route this call's progress reports to the host.
+    pub fn with_progress(mut self, progress: Arc<dyn ToolProgressSink>) -> Self {
+        self.progress = Some(progress);
+        self
+    }
+
+    /// Report progress, if anyone is listening.
+    ///
+    /// Deliberately infallible and silent when unwired: a tool should be
+    /// able to narrate what it is doing without branching on whether a host
+    /// cares.
+    ///
+    /// ```
+    /// # use agentyk_core::{ToolContext, ToolOutput, ToolProgress};
+    /// # async fn run(context: &ToolContext) -> ToolOutput {
+    /// context.report_progress(ToolProgress::message("running tests")).await;
+    /// ToolOutput::text("ok")
+    /// # }
+    /// ```
+    pub async fn report_progress(&self, progress: ToolProgress) {
+        if let Some(sink) = &self.progress {
+            sink.progress(progress).await;
+        }
     }
 }
 

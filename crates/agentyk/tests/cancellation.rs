@@ -1,10 +1,14 @@
 //! Cooperative turn cancellation.
 
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
+
 use async_trait::async_trait;
 
 use agentyk::{
     Agent, CancellationToken, ChatDriver, ChatRequest, ChatResponse, DeltaSink, DriverId, Error,
-    EventData, ModelSpec, Result, SimDriver, SimTurn, Usage, event_types,
+    EventData, ModelSpec, Result, SimDriver, SimTurn, Tool, ToolCallDecision, ToolContext,
+    ToolDefinition, ToolInvocation, ToolOutput, TurnMiddleware, Usage, event_types,
 };
 
 #[tokio::test]
@@ -129,5 +133,130 @@ async fn cancelling_after_a_successful_turn_has_no_effect() -> Result<()> {
             .iter()
             .any(|e| matches!(e.data, EventData::TurnCancelled))
     );
+    Ok(())
+}
+
+/// A tool that never finishes on its own, and reports whether its future was
+/// dropped — the observable half of "the call was actually abandoned".
+struct NeverEndingTool {
+    /// Cancelled by the tool once it has started, so the test does not race
+    /// the executor.
+    token: CancellationToken,
+    dropped: Arc<AtomicBool>,
+}
+
+struct DropFlag(Arc<AtomicBool>);
+
+impl Drop for DropFlag {
+    fn drop(&mut self) {
+        self.0.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+#[async_trait]
+impl Tool for NeverEndingTool {
+    fn definition(&self) -> ToolDefinition {
+        ToolDefinition::new("hang", "Never returns.", serde_json::json!({}))
+    }
+
+    async fn execute(&self, _arguments: serde_json::Value, _context: &ToolContext) -> ToolOutput {
+        let _flag = DropFlag(self.dropped.clone());
+        // Cancel from inside the call: the turn is now blocked on a tool that
+        // will never return, which is exactly the situation the race exists
+        // for.
+        self.token.cancel();
+        std::future::pending::<()>().await;
+        unreachable!("the executor must drop this future")
+    }
+}
+
+#[tokio::test]
+async fn cancelling_during_a_tool_call_drops_it_instead_of_waiting() -> Result<()> {
+    let token = CancellationToken::new();
+    let dropped = Arc::new(AtomicBool::new(false));
+    let agent = Agent::builder()
+        .model(ModelSpec::llmsim())
+        .driver(SimDriver::new([
+            SimTurn::tool_call("hang", serde_json::json!({})),
+            SimTurn::text("never reached"),
+        ]))
+        .tool(NeverEndingTool {
+            token: token.clone(),
+            dropped: dropped.clone(),
+        })
+        .build()?;
+
+    let mut session = agent.session();
+    let error = session
+        .run_cancellable("go", token)
+        .await
+        .expect_err("a cancelled turn must not wait for the tool");
+    assert!(matches!(error, Error::Cancelled));
+    assert!(
+        dropped.load(std::sync::atomic::Ordering::SeqCst),
+        "the tool future must be dropped, not left running"
+    );
+
+    let types: Vec<String> = session
+        .events()
+        .await?
+        .iter()
+        .map(|event| event.event_type.clone())
+        .collect();
+    assert!(types.contains(&event_types::TOOL_STARTED.to_string()));
+    assert!(
+        !types.contains(&event_types::TOOL_COMPLETED.to_string()),
+        "an abandoned call never completes: {types:?}"
+    );
+    assert_eq!(
+        types.last().map(String::as_str),
+        Some(event_types::TURN_CANCELLED)
+    );
+    Ok(())
+}
+
+/// Middleware that waits for cancellation the way an approval prompt waits
+/// for an operator — and gives up when the turn is cancelled.
+struct WaitsForOperator;
+
+#[async_trait]
+impl TurnMiddleware for WaitsForOperator {
+    fn name(&self) -> &str {
+        "waits-for-operator"
+    }
+
+    async fn before_tool(&self, invocation: &ToolInvocation<'_>) -> ToolCallDecision {
+        invocation.context.cancellation.cancelled().await;
+        ToolCallDecision::Deny {
+            reason: "the turn was cancelled while waiting for approval".into(),
+        }
+    }
+}
+
+#[tokio::test]
+async fn middleware_can_stop_waiting_when_the_turn_is_cancelled() -> Result<()> {
+    let token = CancellationToken::new();
+    let agent = Agent::builder()
+        .model(ModelSpec::llmsim())
+        .driver(SimDriver::new([
+            SimTurn::tool_call("hang", serde_json::json!({})),
+            SimTurn::text("never reached"),
+        ]))
+        .tool(NeverEndingTool {
+            token: CancellationToken::new(),
+            dropped: Arc::new(AtomicBool::new(false)),
+        })
+        .middleware(WaitsForOperator)
+        .build()?;
+
+    // Cancel first: the middleware's await then resolves immediately, which
+    // is the behavior a real prompt needs (it would otherwise hang forever).
+    token.cancel();
+    let mut session = agent.session();
+    let error = session
+        .run_cancellable("go", token)
+        .await
+        .expect_err("cancelled before the prompt could be answered");
+    assert!(matches!(error, Error::Cancelled));
     Ok(())
 }

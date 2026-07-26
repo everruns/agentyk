@@ -30,6 +30,8 @@ reqwest = { workspace = true, optional = true, features = ["stream"] }
 # Only the HTTP drivers deserialize provider wire types.
 serde = { workspace = true, optional = true }
 futures-util = { version = "0.3", optional = true, default-features = false }
+# Only `grep_files` (feature `fs`) needs pattern matching.
+regex = { workspace = true, optional = true }
 
 [features]
 # Empty by default: a bare `agentyk` compiles the turn loop, the event logs,
@@ -41,7 +43,11 @@ http = ["dep:reqwest", "dep:futures-util", "dep:serde"]
 # MCP stdio client + capability. Spawns and talks to a child process.
 mcp = ["dep:tokio", "tokio/rt", "tokio/process", "tokio/io-util", "tokio/sync", "tokio/time"]
 # FileSystemCapability + RealDisk/InMemory stores.
-fs = ["dep:tokio", "tokio/fs", "tokio/sync"]
+# `regex` rides along because `grep_files` is the tool a coding agent reaches
+# for most, and a literal-only search sends it back to the shell for every
+# lookup — which is both slower and outside whatever gate the host puts on
+# shell access.
+fs = ["dep:tokio", "tokio/fs", "tokio/sync", "dep:regex"]
 # Everything the framework bundles.
 full = ["http", "mcp", "fs"]
 

@@ -31,12 +31,23 @@ println!("{}", turn.response);
   sessions resume by replaying them.
 - **Capabilities** — composable extensions contributing system-prompt text and
   tools, attached by object:
-  `.capability(FileSystemCapability::new(store))`.
+  `.capability(FileSystemCapability::new(store))`. The bundled filesystem one
+  covers what a coding agent needs: read (whole file or a line window),
+  write, targeted `edit_file`, `grep_files`, `stat_file`, list, delete.
+- **Cancellation that lands** — a `CancellationToken` stops the turn *and*
+  drops the tool call in flight, so cancelling during a long build or test run
+  takes effect immediately instead of when the command happens to finish.
+- **Live tool progress** — a running tool calls
+  `ToolContext::report_progress`, and the host sees ephemeral `tool.progress`
+  events while it works. Results can carry structured `metadata` for the host
+  alongside the text the model reads.
 - **MCP** — `McpCapability` connects to Model Context Protocol servers over
   stdio and exposes their tools to the model.
 - **Multi-provider drivers** — `ChatDriver` implementations routed by
   `DriverId`: OpenAI-compatible and Anthropic (feature `http`), plus a
-  scripted `SimDriver` for deterministic offline tests and examples.
+  scripted `SimDriver` for deterministic offline tests and examples. The
+  Anthropic driver places prompt-cache breakpoints by default, so a long
+  session does not pay full price to re-send its own transcript.
 
 ## Packaging
 
@@ -67,7 +78,7 @@ nothing that can open a socket or spawn a process. Opt in to what you need.
 | *(none)* | turn loop, `InMemoryEventLog`, `JsonlEventLog`, `SimDriver` | — |
 | `http` | `OpenAiDriver`, `AnthropicDriver` (SSE streaming) | `reqwest`, `futures-util` |
 | `mcp` | `McpCapability` / `McpClient` over stdio | `tokio` (rt, process, io-util, sync, time) |
-| `fs` | `FileSystemCapability`, real-disk and in-memory stores | `tokio` (fs, sync) |
+| `fs` | `FileSystemCapability`, real-disk and in-memory stores | `tokio` (fs, sync), `regex` |
 | `full` | all of the above | all of the above |
 
 ```toml

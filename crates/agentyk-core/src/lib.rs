@@ -82,5 +82,6 @@ pub use middleware::{
 pub use replay::{History, messages_from_events};
 pub use tool::{
     DeferrablePolicy, FnTool, Tool, ToolContext, ToolDefinition, ToolOutput, ToolPolicy,
+    ToolProgress, ToolProgressSink,
 };
 pub use turn::{SealReason, TurnAction, TurnOutcome, TurnPhase, TurnState};

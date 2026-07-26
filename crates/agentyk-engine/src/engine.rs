@@ -108,8 +108,12 @@ impl TurnEngine {
                         })
                         .collect()
                 };
+                // Middleware sees the turn's cancellation signal, so an
+                // approval prompt (or any other await inside `before_tool`)
+                // can stop waiting when the turn is cancelled.
                 let context = ToolContext::new(host.session_id, state.turn_id)
-                    .with_extensions(host.environment.extensions.clone());
+                    .with_extensions(host.environment.extensions.clone())
+                    .with_cancellation(host.cancellation.clone());
                 let mut events = Vec::new();
                 let mut prepared = Vec::with_capacity(calls.len());
                 for call in calls {
@@ -213,7 +217,8 @@ impl TurnEngine {
             output
         } else {
             let context = ToolContext::new(host.session_id, state.turn_id)
-                .with_extensions(host.environment.extensions.clone());
+                .with_extensions(host.environment.extensions.clone())
+                .with_cancellation(host.cancellation.clone());
             let definition = assembled.tool(&call.name).map(|tool| tool.definition());
             middleware::after_tool_chain(
                 &host.definition.middleware,
