@@ -56,7 +56,7 @@ identity-first lifecycle. See
 | MCP server merging (`mcp_servers()`) | A `Capability` whose `tools()` connects and returns the servers' tools (see the bundled `McpCapability`) |
 | Tool risk taxonomy / `ToolHints` | A tool wrapper + engine middleware; hints are host-side, never sent to the model — carry them in `ToolDefinition.metadata` |
 | Narration, `status()`/`category()`/`icon()`, `facts()`, richer command results | Capabilities + `EventListener`s (narration is a listener over the event stream); `Capability::metadata()` for status/category |
-| Compaction / infinity-context | A real `ContextAssembler` + `EventData::Custom` for `context.compacting`/`context.compacted` |
+| Compaction / infinity-context | A `ContextAssembler` using the request's model, token limit, immutable point, and paged events; return provenance and context events in `ContextAssembly` |
 | File-system depth (mounts, grep, stat, edit) | More `FileSystem` tools + store impls behind the `fs` feature |
 | Host services reaching tools | `ToolContext.extensions` (typed, `TypeId`-keyed bag) |
 | A domain event core lacks | `EventData::Custom { event_type, payload }` |

@@ -32,6 +32,9 @@ not here — nothing in this bundle is a user-facing product doc.
 - [release](release.md) (`Process`) — the CI-driven publishing flow: a
   `chore(release)` commit tags, releases, and publishes `agentyk-core`,
   `agentyk-engine`, then `agentyk` to crates.io.
+- [session-timelines](session-timelines.md) (`Design`) — immutable historical
+  points, bounded reads, branch lineage, disposable snapshots, and context
+  assembly over long-lived event streams.
 - [shipping](shipping.md) (`Process`) — the bar a change clears before it
   merges: offline proof matching the risk, a contract review over the promises
   the crates make, green CI. Adopted from yolop and reduced to a library's

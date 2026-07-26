@@ -28,7 +28,8 @@ println!("{}", turn.response);
 - **Event log** — every step is a typed event (`turn.started`,
   `input.message`, `tool.completed`, …). Logs are pluggable
   (`InMemoryEventLog`, `JsonlEventLog`, or your own `EventLog` impl) and
-  sessions resume by replaying them.
+  sessions resume by replaying them. Bounded pages, immutable historical
+  points, forks, and disposable snapshots support long-lived timelines.
 - **Capabilities** — composable extensions contributing system-prompt text and
   tools, attached by object:
   `.capability(FileSystemCapability::new(store))`. The bundled filesystem one
@@ -93,6 +94,29 @@ For scale: the default build resolves 28 crates, `full` resolves 100.
 cargo run -p agentyk --example hello
 cargo test --workspace --all-features
 ```
+
+## Inspect and fork history
+
+Every durable head is an immutable `SessionPoint`. Inspection is read-only;
+forking creates a new session and leaves the original branch intact.
+
+```rust
+let point = session.point().await?;
+let past = session.inspect(point).await?;
+println!("{} messages", past.messages().len());
+
+let mut alternative = session.fork(point).await?;
+alternative.run("try a different approach").await?;
+```
+
+Forks are accepted at empty or completed-turn boundaries. Mid-turn points are
+still inspectable, but cannot be continued as a new branch because doing so
+could repeat a partially completed external action.
+
+After a process failure, `session.resume_pending().await?` continues an
+incomplete turn only at the current head. Tool execution is at-least-once
+across that recovery boundary, so side-effecting tools should use idempotency
+keys when a host requires deduplication.
 
 ## A real application
 

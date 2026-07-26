@@ -5,7 +5,10 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 
-use agentyk::{Agent, ContextAssembler, Message, ModelSpec, Result, SessionId, SimDriver, SimTurn};
+use agentyk::{
+    Agent, ContextAssembler, ContextAssembly, ContextEvent, ContextRequest, ContextSource,
+    ModelSpec, Result, SimDriver, SimTurn,
+};
 
 /// Keeps only the most recent `keep` messages — a minimal stand-in for
 /// real compaction/trimming.
@@ -15,9 +18,28 @@ struct KeepLast {
 
 #[async_trait]
 impl ContextAssembler for KeepLast {
-    async fn assemble(&self, _session_id: SessionId, messages: &[Message]) -> Vec<Message> {
+    async fn assemble(&self, request: ContextRequest<'_>) -> Result<ContextAssembly> {
+        let observed_head = request.events.head(request.point.session_id).await?;
+        let messages = request.messages;
         let start = messages.len().saturating_sub(self.keep);
-        messages[start..].to_vec()
+        let mut assembly = ContextAssembly::new(messages[start..].to_vec());
+        assembly.estimated_tokens = Some(assembly.messages.len() * 4);
+        assembly.sources.push(ContextSource {
+            kind: "recent_history".into(),
+            from: None,
+            through: Some(request.point),
+        });
+        assembly.events.push(ContextEvent {
+            event_type: "context.compacted".into(),
+            payload: serde_json::json!({
+                "through": request.point.sequence,
+                "iteration": request.iteration,
+                "token_limit": request.token_limit,
+                "model": request.model.model,
+                "observed_head": observed_head.sequence,
+            }),
+        });
+        Ok(assembly)
     }
 }
 
@@ -54,6 +76,7 @@ async fn custom_assembler_trims_what_is_sent_without_touching_the_log() -> Resul
         .model(ModelSpec::llmsim())
         .driver(ForwardingDriver(sim.clone()))
         .context_assembler(KeepLast { keep: 1 })
+        .context_token_limit(128)
         .build()?;
 
     let mut session = agent.session();
@@ -68,6 +91,20 @@ async fn custom_assembler_trims_what_is_sent_without_touching_the_log() -> Resul
     // ...but the full, untrimmed history is still what's in the log —
     // trimming is a per-turn view, not a mutation of what's recorded.
     assert_eq!(session.messages().len(), 6); // 3 user + 3 assistant
+    let context_events = session
+        .events()
+        .await?
+        .into_iter()
+        .filter(|event| event.event_type == "context.assembled")
+        .count();
+    assert_eq!(context_events, 3);
+    let compacted_events = session
+        .events()
+        .await?
+        .into_iter()
+        .filter(|event| event.event_type == "context.compacted")
+        .count();
+    assert_eq!(compacted_events, 3);
     Ok(())
 }
 

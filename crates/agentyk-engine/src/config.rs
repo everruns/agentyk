@@ -45,6 +45,8 @@ pub(crate) struct AgentConfig {
     pub(crate) budget_checker: Option<Arc<dyn BudgetChecker>>,
     /// Transforms replayed history into what is actually sent to the model.
     pub(crate) context_assembler: Arc<dyn ContextAssembler>,
+    /// Optional input-token ceiling exposed to context assembly.
+    pub(crate) context_token_limit: Option<usize>,
     /// Cloned into every [`agentyk_core::tool::ToolContext`] a turn constructs.
     pub(crate) extensions: Extensions,
 }
@@ -62,6 +64,7 @@ impl Default for AgentConfig {
             middleware: Vec::new(),
             budget_checker: None,
             context_assembler: Arc::new(PassthroughContextAssembler),
+            context_token_limit: None,
             extensions: Extensions::new(),
         }
     }

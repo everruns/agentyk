@@ -2,6 +2,7 @@
 
 use agentyk_core::atoms::{self, AssembledTurn};
 use agentyk_core::budget::BudgetDecision;
+use agentyk_core::context::ContextRequest;
 use agentyk_core::driver::{ChatRequest, ChatResponse};
 use agentyk_core::error::{Error, Result};
 use agentyk_core::event::EventData;
@@ -82,12 +83,23 @@ impl TurnEngine {
 
         match state.next_action() {
             TurnAction::Reason => {
-                let events = state.on_reason_started(Some(&host.model.model));
-                let messages = host
+                let mut events = state.on_reason_started(Some(&host.model.model));
+                let point = host.log.head(host.session_id).await?;
+                let context = host
                     .definition
                     .context_assembler
-                    .assemble(host.session_id, host.history.messages())
-                    .await;
+                    .assemble(ContextRequest {
+                        point,
+                        turn_id: state.turn_id,
+                        iteration: state.iterations + 1,
+                        model: host.model,
+                        token_limit: host.definition.context_token_limit,
+                        messages: host.history.messages(),
+                        events: host.log,
+                    })
+                    .await?;
+                let (messages, context_events) = context.into_messages_and_events();
+                events.extend(context_events);
                 Ok(PreparedStep {
                     events,
                     operation: TurnOperation::InvokeModel {

@@ -138,7 +138,24 @@ snapshot + later events == all events reduced from the beginning
 
 The event store appends a batch with an expected stream version. This gives a
 server host an atomic write boundary and prevents two workers from advancing
-the same session concurrently.
+the same session concurrently. It also exposes an indexed head and bounded
+event pages, so a write or historical read does not require loading the whole
+stream.
+
+`SessionPoint` addresses an immutable event prefix. A session can inspect such
+a point without executing, or fork a completed-turn point into an independent
+session whose `session.forked` event records the lineage. The original branch
+is never rewritten. Separately, `Session::resume_pending` can continue the
+newest incomplete turn at the current head with at-least-once external-action
+semantics. `SnapshotStore` is a separate optional contract for named,
+schema-versioned projection caches; snapshots accelerate replay but never
+replace events as the authority.
+
+Context assembly receives the exact session point, turn and iteration,
+effective model, optional token ceiling, and event-store access. Its result can
+carry provider messages, token accounting, provenance, and observational
+events. This supports trimming, summaries, and memory without confusing
+model-context compaction with durable-history retention.
 
 Streaming deltas and similar transient notifications use an event observer,
 not the durable event store. Unknown observational events may be ignored;

@@ -8,7 +8,7 @@ use std::sync::Mutex;
 
 use agentyk_core::error::{Error, Result};
 use agentyk_core::event::{Event, EventRequest};
-use agentyk_core::event_log::{EventLog, ExpectedVersion};
+use agentyk_core::event_log::{EventLog, EventPage, EventRange, ExpectedVersion, SessionPoint};
 use agentyk_core::id::{EventId, SessionId};
 use async_trait::async_trait;
 use chrono::Utc;
@@ -144,5 +144,51 @@ impl EventLog for JsonlEventLog {
         }
         events.sort_by_key(|e| e.sequence);
         Ok(events)
+    }
+
+    async fn head(&self, session_id: SessionId) -> Result<SessionPoint> {
+        let state = self.state.lock().expect("event log poisoned");
+        Ok(SessionPoint::new(
+            session_id,
+            state.sequences.get(&session_id).copied().unwrap_or(0),
+        ))
+    }
+
+    async fn read_page(&self, range: EventRange) -> Result<EventPage> {
+        let state = self.state.lock().expect("event log poisoned");
+        let head = SessionPoint::new(
+            range.session_id,
+            state.sequences.get(&range.session_id).copied().unwrap_or(0),
+        );
+        let reader = BufReader::new(std::fs::File::open(&self.path)?);
+        let after = range.after.unwrap_or(0);
+        let through = range.through.unwrap_or(u64::MAX);
+        let mut events = Vec::new();
+        let mut has_more = false;
+        for line in reader.lines() {
+            let line = line?;
+            if line.trim().is_empty() {
+                continue;
+            }
+            let event: Event = serde_json::from_str(&line)
+                .map_err(|e| Error::EventLog(format!("corrupt log line: {e}")))?;
+            if event.session_id != range.session_id
+                || !event
+                    .sequence
+                    .is_some_and(|sequence| sequence > after && sequence <= through)
+            {
+                continue;
+            }
+            if events.len() == range.limit {
+                has_more = true;
+                break;
+            }
+            events.push(event);
+        }
+        let next = has_more
+            .then(|| events.last().and_then(|event| event.sequence))
+            .flatten()
+            .map(|sequence| SessionPoint::new(range.session_id, sequence));
+        Ok(EventPage { events, next, head })
     }
 }

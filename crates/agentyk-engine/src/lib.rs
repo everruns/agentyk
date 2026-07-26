@@ -16,4 +16,4 @@ pub use agent::{Agent, AgentBuilder, AgentDefinition, AgentEnvironment};
 pub use engine::{PreparedStep, PreparedToolCall, TurnEngine, TurnOperation};
 pub use host::{TurnHost, TurnResult};
 pub use in_process::InProcessExecutor;
-pub use session::{RunOptions, Session};
+pub use session::{RunOptions, Session, SessionView};
