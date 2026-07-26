@@ -12,13 +12,15 @@ use agentyk_core::cancellation::CancellationToken;
 use agentyk_core::capability::{CommandContext, CommandDescriptor};
 use agentyk_core::controls::TurnControls;
 use agentyk_core::error::Result;
-use agentyk_core::event::Event;
+use agentyk_core::event::{Event, EventData};
 use agentyk_core::event_log::EventLog;
+use agentyk_core::event_log::SessionPoint;
 use agentyk_core::id::SessionId;
 use agentyk_core::input::InputQueue;
 use agentyk_core::message::Message;
 use agentyk_core::replay::History;
 use agentyk_core::tool::ToolOutput;
+use agentyk_core::turn::TurnState;
 
 use crate::agent::Agent;
 use crate::host::{TurnHost, TurnResult};
@@ -69,6 +71,31 @@ pub struct Session {
     input: InputQueue,
 }
 
+/// Read-only projection of a session at an immutable historical point.
+#[derive(Debug, Clone)]
+pub struct SessionView {
+    point: SessionPoint,
+    events: Vec<Event>,
+    history: History,
+}
+
+impl SessionView {
+    /// Exact event position this view includes.
+    pub fn point(&self) -> SessionPoint {
+        self.point
+    }
+
+    /// Durable events through [`Self::point`], in sequence order.
+    pub fn events(&self) -> &[Event] {
+        &self.events
+    }
+
+    /// Message projection at this point.
+    pub fn messages(&self) -> &[Message] {
+        self.history.messages()
+    }
+}
+
 impl Session {
     pub(crate) fn new(agent: Agent, log: Arc<dyn EventLog>) -> Self {
         Self {
@@ -112,22 +139,109 @@ impl Session {
     /// Anything pushed while no turn is running waits for the next one, so a
     /// UI never has to know whether the agent is busy.
     ///
-    /// ```no_run
-    /// # use agentyk::{Agent, Message, Result};
-    /// # async fn demo(agent: Agent) -> Result<()> {
-    /// let mut session = agent.session();
-    /// let steering = session.input();
+    /// ```
+    /// use agentyk_core::{input::InputQueue, message::Message};
     ///
-    /// tokio::spawn(async move {
-    ///     steering.push(Message::user("skip the tests, just build"));
-    /// });
+    /// // What `session.input()` hands out: a queue whose clones share one
+    /// // backlog, so a UI task can push while the turn runs.
+    /// let steering = InputQueue::new();
+    /// let from_the_ui = steering.clone();
+    /// from_the_ui.push(Message::user("skip the tests, just build"));
     ///
-    /// session.run("fix the failing test and verify").await?;
-    /// # Ok(())
-    /// # }
+    /// assert_eq!(steering.drain().len(), 1);
     /// ```
     pub fn input(&self) -> InputQueue {
         self.input.clone()
+    }
+
+    /// Current immutable point at the session's durable head.
+    pub async fn point(&self) -> Result<SessionPoint> {
+        self.log.head(self.id).await
+    }
+
+    /// Reconstruct a read-only view without executing or modifying history.
+    pub async fn inspect(&self, point: SessionPoint) -> Result<SessionView> {
+        if point.session_id != self.id {
+            return Err(agentyk_core::error::Error::EventLog(format!(
+                "point belongs to {}, not session {}",
+                point.session_id, self.id
+            )));
+        }
+        let head = self.log.head(self.id).await?;
+        if point.sequence > head.sequence {
+            return Err(agentyk_core::error::Error::EventLog(format!(
+                "point {} is past session head {}",
+                point.sequence, head.sequence
+            )));
+        }
+        let events = self.log.read_through(point).await?;
+        Ok(SessionView {
+            point,
+            history: History::from_events(&events),
+            events,
+        })
+    }
+
+    /// Create an independent branch from a completed-turn boundary.
+    ///
+    /// The original session remains unchanged. The returned session inherits
+    /// history through `point` and records `session.forked` lineage before new
+    /// turns are appended.
+    pub async fn fork(&self, point: SessionPoint) -> Result<Self> {
+        let view = self.inspect(point).await?;
+        if !is_completed_turn_boundary(view.events()) {
+            return Err(agentyk_core::error::Error::EventLog(
+                "sessions can only fork from an empty stream or a completed-turn boundary".into(),
+            ));
+        }
+        let child_id = self.log.fork(point).await?;
+        Self::resume(self.agent.clone(), self.log.clone(), child_id).await
+    }
+
+    /// Continue the newest incomplete turn at this session's current head.
+    ///
+    /// Returns `None` when the session has no incomplete turn. Recovery is
+    /// at-least-once for external actions; see
+    /// [`InProcessExecutor::resume_turn`]. The agent's default model is used.
+    pub async fn resume_pending(&mut self) -> Result<Option<TurnResult>> {
+        self.resume_pending_with_options(RunOptions::default())
+            .await
+    }
+
+    /// Continue the newest incomplete turn with explicit cancellation and
+    /// model controls.
+    pub async fn resume_pending_with_options(
+        &mut self,
+        options: RunOptions,
+    ) -> Result<Option<TurnResult>> {
+        let events = self.log.read(self.id).await?;
+        let Some(turn_id) = events.iter().rev().find_map(|event| {
+            matches!(event.data, EventData::TurnStarted { .. })
+                .then_some(event.turn_id)
+                .flatten()
+        }) else {
+            return Ok(None);
+        };
+        let state = TurnState::replay(&events, turn_id)?;
+        if state.is_complete() {
+            return Ok(None);
+        }
+
+        let definition = self.agent.definition();
+        let effective_model = options.controls.resolve(&definition.model);
+        let mut host = TurnHost::new(
+            self.id,
+            definition,
+            self.agent.environment(),
+            self.log.as_ref(),
+            &mut self.history,
+        )
+        .model(&effective_model)
+        .cancellation(options.cancellation);
+        InProcessExecutor::new()
+            .resume_turn(&mut host, state)
+            .await
+            .map(Some)
     }
 
     /// The reconstructed-or-live message history — always equal to a replay
@@ -225,4 +339,20 @@ impl Session {
             .run_turn(&mut host, Message::user(input))
             .await
     }
+}
+
+fn is_completed_turn_boundary(events: &[Event]) -> bool {
+    let Some(turn_id) = events.iter().rev().find_map(|event| event.turn_id) else {
+        return true;
+    };
+    events.iter().any(|event| {
+        event.turn_id == Some(turn_id)
+            && matches!(
+                event.data,
+                EventData::TurnCompleted { .. }
+                    | EventData::TurnFailed { .. }
+                    | EventData::TurnCancelled
+                    | EventData::TurnSealed { .. }
+            )
+    })
 }

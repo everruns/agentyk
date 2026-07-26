@@ -85,10 +85,33 @@ seams, and these are the gaps that port hit. See
   `ToolDefinition.metadata` under `"hints"`, so an approval middleware gates on
   what a tool says about itself instead of on a hard-coded list of names.
 
+### Added — navigable session timelines
+
+- Added immutable `SessionPoint`s, read-only historical `SessionView`s, and
+  completed-turn `Session::fork` with durable `session.forked` lineage.
+- Added head-only `Session::resume_pending` for explicit recovery of an
+  incomplete turn, with documented at-least-once external-action semantics.
+- `EventStore` now exposes efficient heads and bounded `EventRange` pages with
+  continuation points. Engine writes no longer read the entire session merely
+  to discover its expected version.
+- Added the separate `SnapshotStore` contract and
+  `InMemorySnapshotStore` for named, schema-versioned, disposable replay
+  projections.
+- Expanded context assembly into `ContextRequest`/`ContextAssembly`: policies
+  receive the durable point, turn, iteration, model, optional token ceiling,
+  replayed messages, and paged event access, and can return accounting,
+  provenance, and durable observational events.
+
 ### Changed
 
+- Replaced the repository-specific Python OKF validator with the published
+  `okf-lint` crate for canonical OKF linting and formatting in local workflows
+  and CI.
+- Aligned the knowledge bundle and repository guidance with the authoritative
+  Google Cloud Open Knowledge Format v0.2 specification, including explicit
+  bundle versioning, concept descriptions, and local conformance validation.
 - Migrated the repository’s durable design specs into `knowledge/`, an OKF
-  bundle explicitly maintained as persistent repository memory. Agent guidance,
+  v0.2 bundle explicitly maintained as persistent repository memory. Agent guidance,
   shipping checks, and the definition of done now require integrating durable
   decisions and stale-claim cleanup with each change.
 
@@ -389,7 +412,7 @@ see [`knowledge/extensibility.md`](knowledge/extensibility.md).
   `message_id` field. Internal — the `run`/executor API is unchanged.
 - **Docs → specs.** The internal design docs (`plan`, `everruns-adoption`,
   `extensibility`) moved out of `docs/` into `specs/`, which is now an
-  [Open Knowledge Format](https://okf.md) v0.1 bundle (per-file `type`
+  [Open Knowledge Format v0.2](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md) bundle (per-file `type`
   frontmatter + `specs/index.md`). `docs/` is reserved for public product docs
   (none yet — `README.md` is the entry point). Repo-internal only.
 

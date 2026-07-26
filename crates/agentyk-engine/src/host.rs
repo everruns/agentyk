@@ -126,13 +126,7 @@ impl<'a> TurnHost<'a> {
         let recorded = if durable.is_empty() {
             Vec::new()
         } else {
-            let version = self
-                .log
-                .read_after(self.session_id, None)
-                .await?
-                .last()
-                .and_then(|event| event.sequence)
-                .unwrap_or(0);
+            let version = self.log.head(self.session_id).await?.sequence;
             self.log
                 .append_batch(self.session_id, ExpectedVersion::Exact(version), durable)
                 .await?
@@ -236,6 +230,7 @@ mod tests {
             budget_checker: None,
             context_assembler: Arc::new(PassthroughContextAssembler),
             model_profile: None,
+            context_token_limit: None,
         };
         let environment = AgentEnvironment {
             drivers: DriverRegistry::new(),
@@ -276,6 +271,7 @@ mod tests {
             budget_checker: None,
             context_assembler: Arc::new(PassthroughContextAssembler),
             model_profile: None,
+            context_token_limit: None,
         };
         let environment = AgentEnvironment {
             drivers: DriverRegistry::new(),

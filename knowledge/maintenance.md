@@ -2,13 +2,13 @@
 title: Knowledge Maintenance
 type: Process
 description: Defines the repository definition of done for maintaining persistent OKF knowledge.
-timestamp: 2026-07-25
-status: active
+status: stable
 ---
 
 # Knowledge Maintenance
 
-`knowledge/` is Agentyk's persistent repository memory. It records durable
+`knowledge/` is Agentyk's persistent repository memory and an OKF v0.2 bundle.
+It records durable
 product and architecture intent so future maintainers and agents can recover
 why the repository works as it does without relying on chat history.
 
@@ -35,9 +35,19 @@ no durable decision and leaves every existing claim accurate.
 
 ## Bundle maintenance
 
-- Keep one concept per Markdown file.
-- Give every document YAML frontmatter with a valid OKF `type`.
-- List every document exactly once in [Knowledge](index.md).
+The authoritative format is [Open Knowledge Format v0.2][okf-spec].
+Agentyk adds a stricter repository profile on top of that format:
+
+- Keep one concept per Markdown file, as required by OKF’s concept model.
+- Give every concept YAML frontmatter with `type`, `title`, and a one-sentence
+  `description`; OKF itself requires only `type`.
+- Declare `okf_version: "0.2"` in the root [index](index.md), group entries for
+  progressive disclosure, and list every concept exactly once using its
+  frontmatter description.
+- Use OKF `sources` for material a concept derives from and keyed Markdown
+  footnotes for per-claim attribution. Do not add a body citations list.
+- Use `generated`, `verified`, `status`, and `stale_after` only when their OKF
+  semantics apply; do not use the obsolete `timestamp` field.
 - Prefer links to duplication; a linked concept remains the single source of
   truth.
 - Review nearby concepts when changing one so relationships and terminology
@@ -49,3 +59,5 @@ no durable decision and leaves every existing claim accurate.
 [AGENTS.md](../AGENTS.md) requires agents to consult and maintain this bundle.
 The [ship workflow](../.claude/skills/ship/SKILL.md) enforces knowledge review
 as a required outcome, and [Shipping](shipping.md) defines the release bar.
+
+[okf-spec]: https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md

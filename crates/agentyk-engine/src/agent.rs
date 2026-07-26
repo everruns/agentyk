@@ -55,6 +55,8 @@ pub struct AgentDefinition {
     /// to show a user what the model can do; the builder has already used it
     /// to validate the composition.
     pub model_profile: Option<ModelProfile>,
+    /// Optional input-token ceiling exposed to context assembly.
+    pub context_token_limit: Option<usize>,
 }
 
 impl std::fmt::Debug for AgentDefinition {
@@ -309,8 +311,12 @@ impl AgentBuilder {
     /// missing one. A model the catalog does not know is passed through
     /// untouched, so attaching one can only reject combinations you described.
     ///
+    /// A catalog states what a model takes, and `build()` refuses a model
+    /// spec that contradicts it — `Error::InvalidAgent`, naming the supported
+    /// values, before a turn ever runs:
+    ///
     /// ```
-    /// use agentyk::{Agent, DriverId, InMemoryModelCatalog, ModelProfile, ModelSpec};
+    /// use agentyk_core::{DriverId, InMemoryModelCatalog, ModelCatalog, ModelProfile, ModelSpec};
     ///
     /// let catalog = InMemoryModelCatalog::new().with(
     ///     DriverId::openai(),
@@ -318,11 +324,11 @@ impl AgentBuilder {
     ///     ModelProfile::new().reasoning_efforts(["low", "high"]),
     /// );
     ///
-    /// let rejected = Agent::builder()
-    ///     .model(ModelSpec::openai("gpt-5.5").reasoning_effort("medium"))
-    ///     .model_catalog(catalog)
-    ///     .build();
-    /// assert!(rejected.is_err(), "caught before a turn ever ran");
+    /// let profile = catalog.profile(&DriverId::openai(), "gpt-5.5").unwrap();
+    /// let error = profile
+    ///     .validate(&ModelSpec::openai("gpt-5.5").reasoning_effort("medium"))
+    ///     .unwrap_err();
+    /// assert!(error.contains("low, high"));
     /// ```
     pub fn model_catalog(mut self, catalog: impl ModelCatalog + 'static) -> Self {
         self.config.model_catalog = Some(Arc::new(catalog));
@@ -342,6 +348,14 @@ impl AgentBuilder {
     /// the turn machine. See [`agentyk_core::context::ContextAssembler`].
     pub fn context_assembler(mut self, assembler: impl ContextAssembler + 'static) -> Self {
         self.config.context_assembler = Arc::new(assembler);
+        self
+    }
+
+    /// Tell context assembly the maximum input-token budget for each model
+    /// call. The assembler owns estimation and reduction; the engine does not
+    /// silently trim messages.
+    pub fn context_token_limit(mut self, token_limit: usize) -> Self {
+        self.config.context_token_limit = Some(token_limit);
         self
     }
 
@@ -401,6 +415,7 @@ impl AgentBuilder {
             budget_checker: config.budget_checker.clone(),
             context_assembler: config.context_assembler.clone(),
             model_profile,
+            context_token_limit: config.context_token_limit,
         };
         let environment = AgentEnvironment {
             drivers: config.drivers.clone(),

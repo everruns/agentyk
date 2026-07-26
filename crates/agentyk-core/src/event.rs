@@ -29,6 +29,8 @@ use crate::message::{Message, ToolCall};
 /// Match on these rather than on string literals: a typo in a literal is a
 /// filter that silently never fires.
 pub mod event_types {
+    /// A session branch was created from an immutable point in another session.
+    pub const SESSION_FORKED: &str = "session.forked";
     /// A turn began; the input message follows.
     pub const TURN_STARTED: &str = "turn.started";
     /// A turn ended with a final assistant answer.
@@ -69,6 +71,16 @@ pub mod event_types {
 #[serde(tag = "kind", rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum EventData {
+    /// This session began as a fork of an immutable point in another session.
+    ///
+    /// Stores may materialize the inherited prefix or retain it by reference;
+    /// this event keeps the logical lineage observable either way.
+    SessionForked {
+        /// Session whose history this branch inherited.
+        parent_session_id: SessionId,
+        /// Inclusive durable sequence inherited from the parent.
+        parent_sequence: u64,
+    },
     /// A turn began. The `input.message` event follows immediately.
     TurnStarted {
         /// Reason-step ceiling captured in the event so replay reconstructs
@@ -269,6 +281,7 @@ impl EventData {
     /// The dot-notation type string for this payload.
     pub fn event_type(&self) -> &str {
         match self {
+            EventData::SessionForked { .. } => event_types::SESSION_FORKED,
             EventData::TurnStarted { .. } => event_types::TURN_STARTED,
             EventData::TurnCompleted { .. } => event_types::TURN_COMPLETED,
             EventData::TurnFailed { .. } => event_types::TURN_FAILED,

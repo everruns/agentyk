@@ -120,6 +120,30 @@ impl InProcessExecutor {
 impl InProcessExecutor {
     /// Run one turn by immediately executing every prepared engine operation.
     pub async fn run_turn(&self, host: &mut TurnHost<'_>, input: Message) -> Result<TurnResult> {
+        let (state, events) =
+            TurnState::start(host.session_id, host.definition.max_iterations, &input);
+        let turn_id = state.turn_id;
+        host.record(turn_id, events).await?;
+        self.resume_turn(host, state).await
+    }
+
+    /// Continue a replayed, incomplete turn from its current durable head.
+    ///
+    /// External operations are at-least-once: if a process failed after a tool
+    /// performed its side effect but before `tool.completed` was recorded,
+    /// recovery invokes that tool again. Hosts that need stronger guarantees
+    /// must give tools idempotency keys or deduplicate at the activity boundary.
+    pub async fn resume_turn(
+        &self,
+        host: &mut TurnHost<'_>,
+        mut state: TurnState,
+    ) -> Result<TurnResult> {
+        if state.session_id != host.session_id {
+            return Err(Error::Other(format!(
+                "turn belongs to {}, not session {}",
+                state.session_id, host.session_id
+            )));
+        }
         let engine = TurnEngine;
         let assembled = engine.assemble(host).await?;
         let driver = host
@@ -127,10 +151,7 @@ impl InProcessExecutor {
             .drivers
             .get(&host.model.driver)
             .ok_or_else(|| Error::UnknownDriver(host.model.driver.to_string()))?;
-        let (mut state, events) =
-            TurnState::start(host.session_id, host.definition.max_iterations, &input);
         let turn_id = state.turn_id;
-        host.record(turn_id, events).await?;
 
         loop {
             let step = engine.prepare(host, &assembled, &mut state).await?;

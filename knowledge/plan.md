@@ -1,9 +1,8 @@
 ---
 type: Plan
 title: agentyk plan
-description: Direction and phased roadmap — build agentyk value-first, harden for adoption, then rebuild everruns-core/runtime on top.
+description: Defines Agentyk’s product direction, vocabulary, invariants, and phased roadmap.
 tags: [roadmap, architecture, everruns, phases]
-timestamp: 2026-07-24
 ---
 
 # Agentyk — plan
@@ -130,6 +129,10 @@ server):
 - Event protocol + logs — `InMemoryEventLog`, `JsonlEventLog` (shared files,
   per-session sequences, reopen + resume); `Agent::resume_session` rebuilds
   history purely from the log.
+- Session timelines — immutable `SessionPoint`s, historical inspection,
+  completed-turn forks with recorded lineage, bounded `EventRange` pages,
+  efficient heads in bundled stores, and optional schema-versioned projection
+  snapshots. See [`session-timelines.md`](session-timelines.md).
 - Capabilities — trait with prompt contributions and async tool discovery.
 - Tools — `Tool`, `FnTool`; unknown-tool calls surface as error results the
   model can recover from.
@@ -176,8 +179,11 @@ server):
 - Tool policy — `ToolPolicy`/`DeferrablePolicy`; `Deferred` tools stay
   executable but are excluded from what `atoms::assemble` offers the model.
 - Context assembly — `ContextAssembler` on `AgentBuilder`, default
-  passthrough. Sits between replay and `atoms::reason`; no compaction/memory
-  implementation ships, just the seam.
+  passthrough. `ContextRequest` exposes the exact durable point, turn,
+  iteration, effective model, optional token limit, replayed messages, and
+  paged event access. `ContextAssembly` returns messages plus accounting,
+  provenance, and durable observational events. No opinionated
+  compaction/memory policy ships.
 - Capability commands + typed `ToolContext` extensions —
   `Capability::{commands, execute_command}` with `Session::commands()`/
   `execute_command()` routing outside the turn loop; `ToolContext.extensions`

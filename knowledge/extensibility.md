@@ -1,9 +1,14 @@
 ---
 type: Design
 title: Extending agentyk without changing core
-description: The rule for what earns a first-class core field versus a metadata hatch — behavior is external, data extensibility is core.
-tags: [extensibility, core, metadata, design]
-timestamp: 2026-07-24
+description: >-
+  Defines composition seams for capabilities, middleware, providers,
+  persistence, and hosts.
+tags:
+  - extensibility
+  - core
+  - metadata
+  - design
 ---
 
 # Extending agentyk without changing core
@@ -56,7 +61,7 @@ identity-first lifecycle. See
 | MCP server merging (`mcp_servers()`) | A `Capability` whose `tools()` connects and returns the servers' tools (see the bundled `McpCapability`) |
 | Tool risk taxonomy / `ToolHints` | A tool wrapper + engine middleware; hints are host-side, never sent to the model — carry them in `ToolDefinition.metadata` |
 | Narration, `status()`/`category()`/`icon()`, `facts()`, richer command results | Capabilities + `EventListener`s (narration is a listener over the event stream); `Capability::metadata()` for status/category |
-| Compaction / infinity-context | A real `ContextAssembler` + `EventData::Custom` for `context.compacting`/`context.compacted` |
+| Compaction / infinity-context | A `ContextAssembler` using the request's model, token limit, immutable point, and paged events; return provenance and context events in `ContextAssembly` |
 | File-system depth (mounts, grep, stat, edit) | More `FileSystem` tools + store impls behind the `fs` feature |
 | Host services reaching tools | `ToolContext.extensions` (typed, `TypeId`-keyed bag) |
 | A domain event core lacks | `EventData::Custom { event_type, payload }` |
@@ -181,5 +186,7 @@ the log stays whole.
 
 [`EventData::Custom`]: https://docs.rs/agentyk-core/latest/agentyk_core/event/enum.EventData.html
 [`TurnState`]: https://docs.rs/agentyk-core/latest/agentyk_core/turn/struct.TurnState.html
-[`TurnState::current_message_id`]: https://docs.rs/agentyk-core/latest/agentyk_core/turn/struct.TurnState.html
-[`TurnState::pending_tool_actions`]: https://docs.rs/agentyk-core/latest/agentyk_core/turn/struct.TurnState.html
+[`TurnState::current_message_id`]:
+https://docs.rs/agentyk-core/latest/agentyk_core/turn/struct.TurnState.html
+[`TurnState::pending_tool_actions`]:
+https://docs.rs/agentyk-core/latest/agentyk_core/turn/struct.TurnState.html

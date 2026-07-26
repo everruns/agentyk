@@ -66,7 +66,10 @@ pub mod turn;
 pub use budget::{BudgetChecker, BudgetDecision};
 pub use cancellation::CancellationToken;
 pub use capability::{Capability, CommandContext, CommandDescriptor, SystemPromptContext};
-pub use context::{ContextAssembler, PassthroughContextAssembler};
+pub use context::{
+    ContextAssembler, ContextAssembly, ContextEvent, ContextRequest, ContextSource,
+    PassthroughContextAssembler,
+};
 pub use controls::TurnControls;
 pub use driver::{
     ChatDriver, ChatRequest, ChatResponse, DeltaSink, DriverId, DriverRegistry, ModelSpec,
@@ -74,7 +77,10 @@ pub use driver::{
 };
 pub use error::{Error, LlmErrorKind, Result};
 pub use event::{Event, EventData, EventListener, EventRequest, event_types};
-pub use event_log::{EventLog, EventStore, ExpectedVersion, InMemoryEventLog};
+pub use event_log::{
+    EventLog, EventPage, EventRange, EventStore, ExpectedVersion, InMemoryEventLog,
+    InMemorySnapshotStore, ProjectionSnapshot, SessionPoint, SnapshotStore,
+};
 pub use extensions::Extensions;
 pub use id::{EventId, MessageId, SessionId, TurnId};
 pub use input::InputQueue;

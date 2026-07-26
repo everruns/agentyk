@@ -1,9 +1,8 @@
 ---
 type: Analysis
 title: Yolop adoption — what a real coding agent hits
-description: Gaps found by porting yolop's execution story onto agentyk's seams, ordered by how hard they block a shipping coding agent.
+description: Tracks reusable Yolop capabilities and the order in which Agentyk should adopt them.
 tags: [adoption, yolop, gaps, drivers, tools, extensibility]
-timestamp: 2026-07-25
 ---
 
 # Yolop adoption — what a real coding agent hits
@@ -20,7 +19,7 @@ everything below was hit, not predicted, and the ordering is by how hard it
 blocks a shipping coding agent rather than by where the fix lands.
 
 The backend's own record of the port (what it covers, what it skipped) is
-[`knowledge/specs/agentyk-backend.md`](https://github.com/everruns/yolop/blob/main/knowledge/specs/agentyk-backend.md)
+[`knowledge/specs/agentyk-backend.md`][yolop-backend]
 in the yolop repository.
 
 ## What held up
@@ -220,3 +219,5 @@ things this analysis never claimed:
 
 Everything protocol-affecting has landed, which was the ordering constraint:
 logs are starting to be persisted.
+
+[yolop-backend]: https://github.com/everruns/yolop/blob/main/knowledge/specs/agentyk-backend.md

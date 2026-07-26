@@ -1,9 +1,8 @@
 ---
 type: Process
 title: Shipping process
-description: The evidence and safety bar every change clears before it merges — offline proof matching the risk, a contract review, green CI.
+description: Defines the evidence and quality bar required before a repository change ships.
 tags: [shipping, review, testing, ci]
-timestamp: 2026-07-25
 ---
 
 # Shipping process

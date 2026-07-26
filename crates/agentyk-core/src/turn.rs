@@ -170,6 +170,7 @@ impl TurnState {
         let mut state: Option<Self> = None;
         for event in ordered {
             match &event.data {
+                EventData::SessionForked { .. } => {}
                 EventData::TurnStarted { max_iterations } => {
                     state = Some(Self {
                         session_id: event.session_id,

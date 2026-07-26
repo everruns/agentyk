@@ -16,8 +16,9 @@
 //! use agentyk_core::concurrency::join_all;
 //!
 //! # async fn demo() {
-//! let results = join_all(vec![async { 1 }, async { 2 }]).await;
-//! assert_eq!(results, vec![1, 2]);
+//! // One future per item — here two reads that should not wait for each other.
+//! let reads = ["a.txt", "b.txt"].map(|path| async move { path.len() });
+//! assert_eq!(join_all(reads).await, vec![5, 5]);
 //! # }
 //! ```
 
