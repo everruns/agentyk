@@ -16,7 +16,7 @@ Implemented.
 Technical diagrams should be readable, diffable, consistent across public
 documentation, and independent of a particular documentation renderer. This
 spec is adopted from
-[`everruns/everruns/specs/diagrams.md`](https://github.com/everruns/everruns/blob/main/specs/diagrams.md),
+[`everruns/everruns/specs/diagrams.md`][everruns-diagrams],
 with one deliberate exception: additional colors are allowed when they carry
 necessary semantic information.
 
@@ -83,7 +83,10 @@ Each SVG embeds its own style block and has no external CSS:
   text { font-family: 'Geist', 'Inter', system-ui, sans-serif; }
   .label { font-size: 13px; fill: #0A0A0A; font-weight: 600; }
   .sublabel { font-size: 11px; fill: #404040; font-weight: 400; }
-  .header-text { font-size: 11px; fill: #A0A0A0; font-weight: 400; letter-spacing: 0.08em; text-transform: uppercase; }
+  .header-text {
+    font-size: 11px; fill: #A0A0A0; font-weight: 400;
+    letter-spacing: 0.08em; text-transform: uppercase;
+  }
   .mono { font-family: 'Geist Mono', 'SF Mono', monospace; font-size: 10px; fill: #404040; }
   .step-num { font-size: 10px; fill: #FFFFFF; font-weight: 600; }
   .arrow-label { font-size: 10px; fill: #0A1636; font-weight: 500; }
@@ -155,7 +158,8 @@ Arrow with step badge:
 Annotation:
 
 ```xml
-<rect x="280" y="170" width="240" height="90" fill="#FFFFFF" stroke="#404040" stroke-width="1" stroke-dasharray="4 3"/>
+<rect x="280" y="170" width="240" height="90" fill="#FFFFFF"
+      stroke="#404040" stroke-width="1" stroke-dasharray="4 3"/>
 <text x="400" y="193" text-anchor="middle" class="sublabel" font-weight="500">Annotation</text>
 <text x="400" y="213" text-anchor="middle" class="mono">Technical detail</text>
 ```
@@ -186,14 +190,18 @@ Do not ship an SVG that has not passed raster review.
 ## Template
 
 ```xml
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 {HEIGHT}" fill="none" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 {HEIGHT}"
+     fill="none" role="img" aria-labelledby="title desc">
   <title id="title">Diagram title</title>
   <desc id="desc">Concise description of the diagram.</desc>
   <style>
     text { font-family: 'Geist', 'Inter', system-ui, sans-serif; }
     .label { font-size: 13px; fill: #0A0A0A; font-weight: 600; }
     .sublabel { font-size: 11px; fill: #404040; font-weight: 400; }
-    .header-text { font-size: 11px; fill: #A0A0A0; font-weight: 400; letter-spacing: 0.08em; text-transform: uppercase; }
+    .header-text {
+    font-size: 11px; fill: #A0A0A0; font-weight: 400;
+    letter-spacing: 0.08em; text-transform: uppercase;
+  }
     .mono { font-family: 'Geist Mono', 'SF Mono', monospace; font-size: 10px; fill: #404040; }
     .step-num { font-size: 10px; fill: #FFFFFF; font-weight: 600; }
     .arrow-label { font-size: 10px; fill: #0A1636; font-weight: 500; }
@@ -201,3 +209,5 @@ Do not ship an SVG that has not passed raster review.
   <rect width="800" height="{HEIGHT}" fill="#FFFFFF"/>
 </svg>
 ```
+
+[everruns-diagrams]: https://github.com/everruns/everruns/blob/main/specs/diagrams.md

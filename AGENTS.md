@@ -73,8 +73,9 @@ engine.
   rasterized for visual review before shipping.
 - Follow [`knowledge/maintenance.md`](knowledge/maintenance.md) for the
   definition of done and knowledge-maintenance rules. Validate the bundle after
-  editing it with the repository’s zero-dependency checker:
-  `python3 scripts/validate_okf.py knowledge`.
+  editing it with the canonical linter:
+  `okf-lint lint knowledge && okf-lint fmt --check knowledge`. Install it with
+  `cargo install okf-lint --version 0.1.1 --locked`.
 - `.claude/skills/` holds workflows requestable by name: `/ship` lands a change
   (bar in [`knowledge/shipping.md`](knowledge/shipping.md), workflow in the skill).
 
