@@ -60,6 +60,8 @@ identity-first lifecycle. See
 | File-system depth (mounts, grep, stat, edit) | More `FileSystem` tools + store impls behind the `fs` feature |
 | Host services reaching tools | `ToolContext.extensions` (typed, `TypeId`-keyed bag) |
 | A domain event core lacks | `EventData::Custom { event_type, payload }` |
+| Model capability knowledge (context window, supported efforts) | `profile::ModelCatalog` — a host-implemented seam, because a model list inside a library is stale by the next provider release |
+| Remote-service credentials that expire | An auth provider trait asked **per request**, not a config field read once — see `mcp::McpAuthProvider` |
 
 `Custom` also provides forward compatibility for **observational** events. An
 unknown kind can be retained as custom data so a listener or newer host may
@@ -101,6 +103,12 @@ than bending it:
 variant, not `Custom`, because ephemerality is a **protocol** property. The
 recorder must know not to persist it, and "must not be written to the log" is
 not something a host can express through an opaque payload.
+
+`ToolOutput.parts` is the other side of the same coin: it is typed because it
+is what the *model* receives, so it must round-trip through the event log and
+reach a driver — the same test `Message.thinking` passed. Its host-facing
+sibling `ToolOutput.metadata` is a hatch. One tool result, two audiences, and
+the rule sorts them without a judgement call.
 
 ## What needed a core change (0.1.1)
 

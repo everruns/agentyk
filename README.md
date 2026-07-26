@@ -37,12 +37,21 @@ println!("{}", turn.response);
 - **Cancellation that lands** — a `CancellationToken` stops the turn *and*
   drops the tool call in flight, so cancelling during a long build or test run
   takes effect immediately instead of when the command happens to finish.
+- **Model profiles** — attach a `ModelCatalog` and an unsupported reasoning
+  effort fails at `build()` instead of as a provider error mid-turn. The
+  catalog is a seam; agentyk ships no model list to go stale.
 - **Live tool progress** — a running tool calls
   `ToolContext::report_progress`, and the host sees ephemeral `tool.progress`
   events while it works. Results can carry structured `metadata` for the host
-  alongside the text the model reads.
+  and image `parts` for the model, alongside the text both read.
 - **MCP** — `McpCapability` connects to Model Context Protocol servers over
-  stdio and exposes their tools to the model.
+  stdio or HTTP and exposes their tools to the model. `McpAuthProvider`
+  supplies a remote server's credentials per request, so an expiring token is
+  a matter of returning a fresh value.
+- **Steering** — `Session::input()` hands out a queue a UI can push to while a
+  turn is running; messages join the conversation at its next reasoning step.
+- **Concurrent tools** — a batch the model asked for in parallel runs in
+  parallel, with results still recorded in the order it asked.
 - **Multi-provider drivers** — `ChatDriver` implementations routed by
   `DriverId`: OpenAI-compatible and Anthropic (feature `http`), plus a
   scripted `SimDriver` for deterministic offline tests and examples. The
@@ -77,7 +86,7 @@ nothing that can open a socket or spawn a process. Opt in to what you need.
 | --- | --- | --- |
 | *(none)* | turn loop, `InMemoryEventLog`, `JsonlEventLog`, `SimDriver` | — |
 | `http` | `OpenAiDriver`, `AnthropicDriver` (SSE streaming) | `reqwest`, `futures-util` |
-| `mcp` | `McpCapability` / `McpClient` over stdio | `tokio` (rt, process, io-util, sync, time) |
+| `mcp` | `McpCapability` / `McpClient` over stdio (HTTP transport also needs `http`) | `tokio` (rt, process, io-util, sync, time) |
 | `fs` | `FileSystemCapability`, real-disk and in-memory stores | `tokio` (fs, sync), `regex` |
 | `full` | all of the above | all of the above |
 
