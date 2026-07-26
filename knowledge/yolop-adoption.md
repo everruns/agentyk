@@ -213,6 +213,37 @@ unchanged. The lesson is worth keeping: a capability added at one end of a
 pipeline is not usable until every entry point admits it, and only an adopter
 notices.
 
+## Found by running it for real
+
+Everything above was proven offline. The first **live provider runs** — real
+Anthropic calls, a hosted MCP server, a real image — turned up two things no
+amount of `SimDriver` coverage would have:
+
+- **The drivers could not talk to anything through an inspecting proxy.**
+  `reqwest` was built with the bundled public roots only, so a connection
+  terminated by a private CA failed verification and surfaced as "error
+  sending request" — while `curl` on the same machine succeeded, because it
+  reads the system trust store. Fixed by trusting both root sets. This is the
+  kind of defect that is invisible to a test suite and total to an adopter:
+  every provider, every call, no useful diagnostic.
+- **Prompt caching works, and now there is proof.** The exact breakpoint shape
+  the driver emits produced a 4207-token cache *write* on the first request and
+  a 4207-token cache *read* on the second, against the real API. Worth noting
+  what that also confirms: `input_tokens` alone reported **3** for a request
+  that really sent 4210, which is why `Usage` sums the cache fields.
+
+The live runs also confirmed, end to end against real providers: the filesystem
+tools, the sandboxed shell with progress narration, concurrent batch dispatch
+(two shell calls whose output interleaved), an image opening a turn, MCP over
+HTTP against GitHub's hosted server with a bearer token, and a model catalog
+rejecting an unsupported reasoning effort before any request left the process.
+
+One adopter-side bug surfaced too, and it belongs in yolop rather than here: a
+capability whose `tools()` fails aborts the turn, so a single MCP server
+missing its token took down the whole run. Worth a note for the library
+regardless — a host has no way to distinguish "one capability is unavailable"
+from "the turn failed" other than the error string, and no event marks it.
+
 ## What is left
 
 Gaps 1–9 are closed. What remains is one open question and a short list of

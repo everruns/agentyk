@@ -9,6 +9,16 @@ release — every release bumps the patch component (`0.1.z`). See
 
 ## [Unreleased]
 
+### Fixed
+
+- **The HTTP drivers now trust the machine's CA store**, not only the bundled
+  public roots. Any environment that terminates TLS with a private CA — a
+  corporate network, a CI sandbox, an inspecting egress proxy — was previously
+  unreachable, reporting only "error sending request". Found by the first live
+  provider run of the yolop backend: `curl` on the same box reached Anthropic
+  and the driver did not. Both root sets are trusted, and a machine with no
+  readable trust store still works on the bundled ones.
+
 ### Added
 
 - **A turn can be opened with an image.** `Session::run` (and its variants,
