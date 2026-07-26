@@ -187,7 +187,7 @@ impl Session {
         )
         .model(&effective_model)
         .cancellation(options.cancellation);
-        InProcessExecutor
+        InProcessExecutor::new()
             .run_turn(&mut host, Message::user(input))
             .await
     }
