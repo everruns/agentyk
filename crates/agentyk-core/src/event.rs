@@ -16,6 +16,10 @@
 //! `input.message`, `tool.completed`, …) so the protocol stays recognizable
 //! when everruns-core is rebuilt on top of this crate.
 
+use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::sync::Arc;
+use std::task::Poll;
+
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -468,15 +472,141 @@ pub trait EventListener: Send + Sync {
     /// change the event or stop the turn — that is what middleware is for.
     async fn on_event(&self, event: &Event);
 
+    /// Event types this listener wants to receive.
+    ///
+    /// `None` receives every event. A non-empty list receives only events
+    /// whose dot-notation [`Event::event_type`] appears in the list.
+    fn event_types(&self) -> Option<Vec<&'static str>> {
+        None
+    }
+
     /// Human-readable name for diagnostics.
     fn name(&self) -> &'static str {
-        "listener"
+        "EventListener"
+    }
+}
+
+/// Listener that intentionally ignores every event.
+///
+/// Useful as a default in hosts where event observation is optional and in
+/// tests that need to satisfy an [`EventListener`] dependency.
+#[derive(Debug, Clone, Default)]
+pub struct NoopEventListener;
+
+#[async_trait]
+impl EventListener for NoopEventListener {
+    async fn on_event(&self, _event: &Event) {}
+
+    fn name(&self) -> &'static str {
+        "NoopEventListener"
+    }
+}
+
+/// Listener that forwards each event to an ordered collection of listeners.
+///
+/// Filtering and panic isolation are applied per inner listener: one listener
+/// that rejects an event or panics does not prevent later listeners from
+/// receiving it.
+#[derive(Default)]
+pub struct CompositeEventListener {
+    listeners: Vec<Arc<dyn EventListener>>,
+}
+
+impl CompositeEventListener {
+    /// Create a composite from listeners called in vector order.
+    pub fn new(listeners: Vec<Arc<dyn EventListener>>) -> Self {
+        Self { listeners }
+    }
+
+    /// Append a listener to the dispatch order.
+    pub fn add(&mut self, listener: Arc<dyn EventListener>) {
+        self.listeners.push(listener);
+    }
+
+    /// Number of registered listeners.
+    pub fn len(&self) -> usize {
+        self.listeners.len()
+    }
+
+    /// Whether no listeners are registered.
+    pub fn is_empty(&self) -> bool {
+        self.listeners.is_empty()
+    }
+}
+
+#[async_trait]
+impl EventListener for CompositeEventListener {
+    async fn on_event(&self, event: &Event) {
+        notify_event_listeners(&self.listeners, event).await;
+    }
+
+    fn name(&self) -> &'static str {
+        "CompositeEventListener"
+    }
+}
+
+/// Notify listeners in order, honoring their event filters and isolating
+/// panics.
+///
+/// Hosts with their own listener collection can use this to get the same
+/// dispatch semantics as [`CompositeEventListener`] without wrapping the
+/// collection first. Dispatch stays inline: a slow listener still delays the
+/// caller, while a panicking listener is abandoned and the next one runs.
+pub async fn notify_event_listeners(listeners: &[Arc<dyn EventListener>], event: &Event) {
+    for listener in listeners {
+        if let Some(event_types) = listener.event_types()
+            && !event_types.contains(&event.event_type.as_str())
+        {
+            continue;
+        }
+
+        let Ok(mut future) = catch_unwind(AssertUnwindSafe(|| listener.on_event(event))) else {
+            continue;
+        };
+        std::future::poll_fn(|context| {
+            match catch_unwind(AssertUnwindSafe(|| future.as_mut().poll(context))) {
+                Ok(Poll::Ready(())) | Err(_) => Poll::Ready(()),
+                Ok(Poll::Pending) => Poll::Pending,
+            }
+        })
+        .await;
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::pin::pin;
+    use std::sync::atomic::{AtomicU32, Ordering};
+    use std::task::{Context, Waker};
+
     use super::*;
+
+    fn block_on<F: std::future::Future>(future: F) -> F::Output {
+        let mut future = pin!(future);
+        let waker = Waker::noop();
+        let mut context = Context::from_waker(waker);
+        loop {
+            if let Poll::Ready(output) = future.as_mut().poll(&mut context) {
+                return output;
+            }
+        }
+    }
+
+    struct CountingListener {
+        count: Arc<AtomicU32>,
+        event_types: Option<Vec<&'static str>>,
+    }
+
+    #[async_trait]
+    impl EventListener for CountingListener {
+        async fn on_event(&self, _event: &Event) {
+            self.count.fetch_add(1, Ordering::SeqCst);
+        }
+
+        fn event_types(&self) -> Option<Vec<&'static str>> {
+            self.event_types.clone()
+        }
+    }
 
     #[test]
     fn event_serde_roundtrip() {
@@ -619,5 +749,80 @@ mod tests {
         let back: Event = serde_json::from_str(&json).unwrap();
         assert_eq!(event, back);
         assert_eq!(back.event_type, "budget.warning");
+    }
+
+    #[test]
+    fn composite_filters_and_forwards() {
+        let matching_count = Arc::new(AtomicU32::new(0));
+        let skipped_count = Arc::new(AtomicU32::new(0));
+        let all_count = Arc::new(AtomicU32::new(0));
+        let composite = CompositeEventListener::new(vec![
+            Arc::new(CountingListener {
+                count: matching_count.clone(),
+                event_types: Some(vec![event_types::INPUT_MESSAGE]),
+            }),
+            Arc::new(CountingListener {
+                count: skipped_count.clone(),
+                event_types: Some(vec![event_types::TOOL_COMPLETED]),
+            }),
+            Arc::new(CountingListener {
+                count: all_count.clone(),
+                event_types: None,
+            }),
+        ]);
+        let event = EventRequest::new(
+            SessionId::new(),
+            EventData::InputMessage {
+                message: Message::user("hi"),
+            },
+        )
+        .into_event(EventId::new(), Utc::now(), 1);
+
+        block_on(composite.on_event(&event));
+
+        assert_eq!(matching_count.load(Ordering::SeqCst), 1);
+        assert_eq!(skipped_count.load(Ordering::SeqCst), 0);
+        assert_eq!(all_count.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn composite_continues_after_listener_panics() {
+        struct PanickingListener;
+
+        #[async_trait]
+        impl EventListener for PanickingListener {
+            async fn on_event(&self, _event: &Event) {
+                panic!("listener failed");
+            }
+        }
+
+        let count = Arc::new(AtomicU32::new(0));
+        let composite = CompositeEventListener::new(vec![
+            Arc::new(PanickingListener),
+            Arc::new(CountingListener {
+                count: count.clone(),
+                event_types: None,
+            }),
+        ]);
+        let event = EventRequest::new(
+            SessionId::new(),
+            EventData::InputMessage {
+                message: Message::user("hi"),
+            },
+        )
+        .into_event(EventId::new(), Utc::now(), 1);
+
+        block_on(composite.on_event(&event));
+
+        assert_eq!(count.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn built_in_listeners_report_everruns_names() {
+        assert_eq!(NoopEventListener.name(), "NoopEventListener");
+        let composite = CompositeEventListener::default();
+        assert_eq!(composite.name(), "CompositeEventListener");
+        assert!(composite.is_empty());
+        assert_eq!(composite.len(), 0);
     }
 }

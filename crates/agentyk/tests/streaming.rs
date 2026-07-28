@@ -3,7 +3,9 @@
 use std::sync::Arc;
 use std::sync::Mutex;
 
-use agentyk::{Agent, Event, EventData, EventListener, ModelSpec, Result, SimDriver, SimTurn};
+use agentyk::{
+    Agent, Event, EventData, EventListener, ModelSpec, Result, SimDriver, SimTurn, event_types,
+};
 use async_trait::async_trait;
 use serde_json::json;
 
@@ -17,6 +19,37 @@ impl EventListener for CollectingListener {
     async fn on_event(&self, event: &Event) {
         self.events.lock().unwrap().push(event.clone());
     }
+}
+
+struct DeltaListener(CollectingListener);
+
+#[async_trait]
+impl EventListener for DeltaListener {
+    async fn on_event(&self, event: &Event) {
+        self.0.on_event(event).await;
+    }
+
+    fn event_types(&self) -> Option<Vec<&'static str>> {
+        Some(vec![event_types::OUTPUT_MESSAGE_DELTA])
+    }
+}
+
+#[tokio::test]
+async fn listener_filters_apply_to_a_real_turn() -> Result<()> {
+    let listener = Arc::new(DeltaListener(CollectingListener::default()));
+    let agent = Agent::builder()
+        .model(ModelSpec::llmsim())
+        .driver(SimDriver::new([SimTurn::text("hello there")]))
+        .listener_arc(listener.clone())
+        .build()?;
+
+    agent.run("hi").await?;
+
+    let seen = listener.0.events.lock().unwrap();
+    assert_eq!(seen.len(), 1);
+    assert_eq!(seen[0].event_type, event_types::OUTPUT_MESSAGE_DELTA);
+    assert_eq!(seen[0].sequence, None);
+    Ok(())
 }
 
 #[tokio::test]

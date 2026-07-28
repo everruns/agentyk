@@ -76,7 +76,10 @@ pub use driver::{
     ReasoningConfig, Usage,
 };
 pub use error::{Error, LlmErrorKind, Result};
-pub use event::{Event, EventData, EventListener, EventRequest, event_types};
+pub use event::{
+    CompositeEventListener, Event, EventData, EventListener, EventRequest, NoopEventListener,
+    event_types, notify_event_listeners,
+};
 pub use event_log::{
     EventLog, EventPage, EventRange, EventStore, ExpectedVersion, InMemoryEventLog,
     InMemorySnapshotStore, ProjectionSnapshot, SessionPoint, SnapshotStore,

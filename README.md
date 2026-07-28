@@ -30,6 +30,9 @@ println!("{}", turn.response);
   (`InMemoryEventLog`, `JsonlEventLog`, or your own `EventLog` impl) and
   sessions resume by replaying them. Bounded pages, immutable historical
   points, forks, and disposable snapshots support long-lived timelines.
+- **Event listeners** — `EventListener` observes durable and ephemeral events,
+  optionally filtered by event type. `CompositeEventListener` combines
+  observers with ordered, panic-isolated delivery.
 - **Capabilities** — composable extensions contributing system-prompt text and
   tools, attached by object:
   `.capability(FileSystemCapability::new(store))`. The bundled filesystem one

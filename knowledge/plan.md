@@ -76,7 +76,7 @@ everruns concept must be expressible on top of the agentyk primitive.
 | ~40 `EventData` variants (`Reason*`/`Act*`/`Budget*`/…) | `EventData::Custom { event_type, payload }` | escape hatch; each variant graduates to first-class as its feature lands |
 | `LlmErrorKind` + user-facing error mapping | `error::LlmErrorKind` + `Error::Driver { kind, message }` | same retryable/terminal split; no user-facing i18n mapping (no UI layer yet) |
 | `EventEmitter` + runtime `EventBus` | `EventLog` (append + read) | unified; replay is first-class |
-| `EventListener` / `CompositeEventListener` | `EventListener` (fan-out built into the session) | same trait shape |
+| `EventListener` / `CompositeEventListener` | `EventListener` / `CompositeEventListener` | same filtering, ordered fan-out, and panic-isolation semantics; agent sessions use the same dispatcher |
 | `Capability` (id, system_prompt_contribution, tools) | `Capability` | same trait shape; **attached by object, not registered + referenced by string id**; `tools()` is async so MCP fits |
 | `CapabilityRegistry` + `AgentCapabilityConfig { ref, config }` | — (builder holds objects) | the registry/config indirection becomes a Phase-2 host concern for config-driven wiring |
 | `Tool` / `ToolDefinition` / `ToolCall` | `tool::{Tool, ToolDefinition}`, `message::ToolCall` | same; plus `FnTool` closure helper |

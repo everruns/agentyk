@@ -68,6 +68,12 @@ identity-first lifecycle. See
 | Model capability knowledge (context window, supported efforts) | `profile::ModelCatalog` — a host-implemented seam, because a model list inside a library is stale by the next provider release |
 | Remote-service credentials that expire | An auth provider trait asked **per request**, not a config field read once — see `mcp::McpAuthProvider` |
 
+Event observation follows the Everruns contract. `EventListener::event_types`
+can restrict delivery by dot-notation type; `CompositeEventListener` provides
+ordered fan-out; and `NoopEventListener` fills optional listener slots. The
+engine and composites share one dispatcher, so filtering and panic isolation
+do not depend on how listeners were attached.
+
 `Custom` also provides forward compatibility for **observational** events. An
 unknown kind can be retained as custom data so a listener or newer host may
 inspect it. This tolerance must not make an older engine claim it can safely
