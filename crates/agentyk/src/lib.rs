@@ -60,6 +60,9 @@ pub mod drivers;
 #[cfg(feature = "fs")]
 #[cfg_attr(docsrs, doc(cfg(feature = "fs")))]
 pub mod filesystem;
+#[cfg(feature = "hooks")]
+#[cfg_attr(docsrs, doc(cfg(feature = "hooks")))]
+pub mod hooks;
 pub mod jsonl_log;
 #[cfg(feature = "mcp")]
 #[cfg_attr(docsrs, doc(cfg(feature = "mcp")))]
@@ -74,7 +77,7 @@ pub mod mcp;
 // surface a decision.
 pub use agentyk_core::{
     atoms, budget, cancellation, capability, concurrency, context, controls, driver, error, event,
-    event_log, extensions, id, input, message, middleware, profile, replay, tool, turn,
+    event_log, extensions, hook, id, input, message, middleware, profile, replay, tool, turn,
 };
 
 pub use agentyk_core::{
@@ -83,7 +86,8 @@ pub use agentyk_core::{
     ContextAssembler, ContextAssembly, ContextEvent, ContextRequest, ContextSource,
     DeferrablePolicy, DeltaSink, DriverId, DriverRegistry, Error, Event, EventData, EventId,
     EventListener, EventLog, EventPage, EventRange, EventRequest, EventStore, ExpectedVersion,
-    Extensions, FnTool, History, ImageContentPart, InMemoryEventLog, InMemoryModelCatalog,
+    Extensions, FnTool, History, Hook, HookContext, HookErrorPolicy, HookEvent, HookMatcher,
+    HookOutcome, HookPayload, ImageContentPart, InMemoryEventLog, InMemoryModelCatalog,
     InMemorySnapshotStore, InputQueue, LlmErrorKind, Message, MessageId, ModelCatalog,
     ModelProfile, ModelSpec, NoopEventListener, PassthroughContextAssembler, ProjectionSnapshot,
     ReasoningConfig, Result, Role, SealReason, SessionId, SessionPoint, SnapshotStore,
@@ -115,9 +119,9 @@ pub mod prelude {
 }
 
 pub use agentyk_engine::{
-    Agent, AgentBuilder, AgentDefinition, AgentEnvironment, InProcessExecutor, PreparedStep,
-    PreparedToolCall, RunOptions, Session, SessionView, TurnEngine, TurnHost, TurnOperation,
-    TurnResult, agent, engine, host, in_process, session,
+    Agent, AgentBuilder, AgentDefinition, AgentEnvironment, HookRejection, InProcessExecutor,
+    PreparedStep, PreparedToolCall, PreparedTurnStart, RunOptions, Session, SessionView,
+    TurnEngine, TurnHost, TurnOperation, TurnResult, agent, engine, host, in_process, session,
 };
 pub use drivers::sim::{SimDriver, SimToolCall, SimTurn};
 #[cfg(feature = "fs")]
@@ -126,6 +130,9 @@ pub use filesystem::{
     FileEntry, FileStat, FileSystem, FileSystemCapability, InMemoryFileSystem, RealDiskFileSystem,
     WriteBlocklistFileSystem,
 };
+#[cfg(feature = "hooks")]
+#[cfg_attr(docsrs, doc(cfg(feature = "hooks")))]
+pub use hooks::ShellHook;
 pub use jsonl_log::JsonlEventLog;
 #[cfg(feature = "mcp")]
 #[cfg_attr(docsrs, doc(cfg(feature = "mcp")))]

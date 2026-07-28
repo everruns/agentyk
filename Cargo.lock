@@ -26,6 +26,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "chrono",
+ "regex",
  "serde",
  "serde_json",
  "thiserror",
@@ -39,6 +40,7 @@ dependencies = [
  "agentyk-core",
  "async-trait",
  "chrono",
+ "serde_json",
 ]
 
 [[package]]

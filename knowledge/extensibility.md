@@ -57,6 +57,7 @@ identity-first lifecycle. See
 | everruns capability | Build it with |
 | --- | --- |
 | Guardrails that **mutate/redact** a call, **approval** pauses, capability-contributed hooks | `middleware::TurnMiddleware` — `before_tool` returns `Proceed`/`Rewrite`/`Deny`, `after_tool` transforms the result; attached with `AgentBuilder::middleware` |
+| Operator-authored lifecycle hooks | `hook::Hook` — six stable Everruns events with JSON payloads/outcomes; optional trusted local `ShellHook`, or a host-owned sandbox executor |
 | **Parallel** tool dispatch | A host tool dispatcher over the batch prepared by the canonical step engine; it never owns the whole turn loop |
 | MCP server merging (`mcp_servers()`) | A `Capability` whose `tools()` connects and returns the servers' tools (see the bundled `McpCapability`) |
 | Tool risk taxonomy / `ToolHints` | A tool wrapper + engine middleware; hints are host-side, never sent to the model — carry them in `ToolDefinition.metadata` |

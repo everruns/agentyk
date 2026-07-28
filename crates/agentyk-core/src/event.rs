@@ -64,6 +64,10 @@ pub mod event_types {
     pub const TOOL_REWRITTEN: &str = "tool.rewritten";
     /// A running tool reported progress. Ephemeral — never persisted.
     pub const TOOL_PROGRESS: &str = "tool.progress";
+    /// A user hook executor failed under warn-on-error policy.
+    pub const HOOK_WARNING: &str = "hook.warning";
+    /// A pre-tool hook supplied a message intended for a user-facing surface.
+    pub const HOOK_USER_MESSAGE: &str = "hook.user_message";
 }
 
 /// The payload of an [`Event`] — what actually happened.
@@ -208,7 +212,8 @@ pub enum EventData {
         /// What it reported.
         progress: crate::tool::ToolProgress,
     },
-    /// A [`crate::middleware::TurnMiddleware`] denied this call before it ran.
+    /// A [`crate::middleware::TurnMiddleware`] or
+    /// [`crate::hook::Hook`] denied this call before it ran.
     /// Recorded alongside (not instead of) the usual
     /// `tool.started`/`tool.completed` pair — the denial reason also
     /// becomes the (error) `tool.completed` output the model sees.
@@ -220,8 +225,9 @@ pub enum EventData {
         /// Why it was blocked. Also becomes the error result the model sees.
         reason: String,
     },
-    /// A [`crate::middleware::TurnMiddleware`] rewrote this call before it
-    /// ran — argument redaction, path rewriting. Recorded so a mutation is
+    /// A [`crate::middleware::TurnMiddleware`] or [`crate::hook::Hook`]
+    /// rewrote this call before it ran — argument redaction, path rewriting.
+    /// Recorded so a mutation is
     /// never invisible: `name` is the call as executed, and `tool.started`
     /// carries the executed call. The everruns analogue of
     /// `output.message.replaced` for the act phase.

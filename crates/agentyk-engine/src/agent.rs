@@ -18,6 +18,7 @@ use agentyk_core::driver::{ChatDriver, ModelSpec};
 use agentyk_core::error::{Error, Result};
 use agentyk_core::event::EventListener;
 use agentyk_core::event_log::{EventLog, InMemoryEventLog};
+use agentyk_core::hook::Hook;
 use agentyk_core::id::SessionId;
 use agentyk_core::message::Message;
 use agentyk_core::middleware::TurnMiddleware;
@@ -47,6 +48,8 @@ pub struct AgentDefinition {
     pub max_iterations: usize,
     /// Ordered turn policy.
     pub middleware: Vec<Arc<dyn TurnMiddleware>>,
+    /// Ordered user hooks at session, turn, and tool lifecycle points.
+    pub hooks: Vec<Arc<dyn Hook>>,
     /// Optional budget policy.
     pub budget_checker: Option<Arc<dyn BudgetChecker>>,
     /// Shapes durable history into model context.
@@ -294,6 +297,22 @@ impl AgentBuilder {
         self
     }
 
+    /// Attach a user hook by value.
+    ///
+    /// Hooks cover the same six lifecycle events as Everruns: session
+    /// start/end, prompt submission, pre/post tool use, and turn end. They
+    /// compose in attachment order within each event.
+    pub fn hook(mut self, hook: impl Hook + 'static) -> Self {
+        self.config.hooks.push(Arc::new(hook));
+        self
+    }
+
+    /// Attach a user hook already held behind an [`Arc`].
+    pub fn hook_arc(mut self, hook: Arc<dyn Hook>) -> Self {
+        self.config.hooks.push(hook);
+        self
+    }
+
     /// Stop a turn deliberately rather than letting it run to
     /// `MaxIterations` — checked once per action, like cancellation. See
     /// [`agentyk_core::budget::BudgetChecker`]. No default policy: unset
@@ -399,6 +418,21 @@ impl AgentBuilder {
             return Err(Error::UnknownDriver(config.model().driver.to_string()));
         }
 
+        for hook in &config.hooks {
+            if let Some(matcher) = hook.matcher() {
+                if !hook.event().supports_matcher() {
+                    return Err(Error::InvalidAgent(format!(
+                        "hook `{}` has a matcher on non-tool event `{}`",
+                        hook.id(),
+                        hook.event().as_str()
+                    )));
+                }
+                matcher.validate().map_err(|error| {
+                    Error::InvalidAgent(format!("hook `{}`: {error}", hook.id()))
+                })?;
+            }
+        }
+
         // Validated here rather than at the driver, so an unsupported
         // reasoning effort is a composition error with a message naming the
         // alternatives — not a provider 400 halfway through someone's turn.
@@ -428,6 +462,7 @@ impl AgentBuilder {
             capabilities: config.capabilities.clone(),
             max_iterations: config.max_iterations,
             middleware: config.middleware.clone(),
+            hooks: config.hooks.clone(),
             budget_checker: config.budget_checker.clone(),
             context_assembler: config.context_assembler.clone(),
             model_profile,

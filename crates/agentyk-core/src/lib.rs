@@ -54,6 +54,7 @@ pub mod error;
 pub mod event;
 pub mod event_log;
 pub mod extensions;
+pub mod hook;
 pub mod id;
 pub mod input;
 pub mod message;
@@ -85,6 +86,9 @@ pub use event_log::{
     InMemorySnapshotStore, ProjectionSnapshot, SessionPoint, SnapshotStore,
 };
 pub use extensions::Extensions;
+pub use hook::{
+    Hook, HookContext, HookErrorPolicy, HookEvent, HookMatcher, HookOutcome, HookPayload,
+};
 pub use id::{EventId, MessageId, SessionId, TurnId};
 pub use input::InputQueue;
 pub use message::{ContentPart, ImageContentPart, Message, Role, TextContentPart, ToolCall};

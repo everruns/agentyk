@@ -22,6 +22,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 uuid = { workspace = true }
+regex = { workspace = true }
 
 [package.metadata.docs.rs]
 all-features = true

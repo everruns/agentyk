@@ -12,9 +12,9 @@ use agentyk_core::cancellation::CancellationToken;
 use agentyk_core::capability::{CommandContext, CommandDescriptor};
 use agentyk_core::controls::TurnControls;
 use agentyk_core::error::Result;
-use agentyk_core::event::{Event, EventData};
-use agentyk_core::event_log::EventLog;
-use agentyk_core::event_log::SessionPoint;
+use agentyk_core::event::{Event, EventData, EventRequest, notify_event_listeners};
+use agentyk_core::event_log::{EventLog, ExpectedVersion, SessionPoint};
+use agentyk_core::hook::{HookContext, HookEvent};
 use agentyk_core::id::SessionId;
 use agentyk_core::input::InputQueue;
 use agentyk_core::message::Message;
@@ -23,6 +23,7 @@ use agentyk_core::tool::ToolOutput;
 use agentyk_core::turn::TurnState;
 
 use crate::agent::Agent;
+use crate::hooks;
 use crate::host::{TurnHost, TurnResult};
 use crate::in_process::InProcessExecutor;
 
@@ -69,6 +70,8 @@ pub struct Session {
     log: Arc<dyn EventLog>,
     history: History,
     input: InputQueue,
+    started: bool,
+    closed: bool,
 }
 
 /// Read-only projection of a session at an immutable historical point.
@@ -104,6 +107,8 @@ impl Session {
             log,
             history: History::new(),
             input: InputQueue::new(),
+            started: false,
+            closed: false,
         }
     }
 
@@ -113,12 +118,18 @@ impl Session {
         session_id: SessionId,
     ) -> Result<Self> {
         let events = log.read(session_id).await?;
+        let started = !events.is_empty();
         Ok(Self {
             agent,
             id: session_id,
             log,
             history: History::from_events(&events),
             input: InputQueue::new(),
+            // A non-empty log proves the first turn boundary was crossed.
+            // An empty recovered session has no durable evidence that its
+            // start hook ran, so it follows the ordinary first-turn path.
+            started,
+            closed: false,
         })
     }
 
@@ -152,6 +163,32 @@ impl Session {
     /// ```
     pub fn input(&self) -> InputQueue {
         self.input.clone()
+    }
+
+    /// Whether [`Session::close`] has fired this session's end hooks.
+    pub fn is_closed(&self) -> bool {
+        self.closed
+    }
+
+    /// Close this in-memory session and fire advisory `session_end` hooks.
+    ///
+    /// Dropping a Rust value cannot await async hooks, so session end is
+    /// explicit. Closing is idempotent. A closed session retains its history
+    /// for inspection but refuses new turns.
+    pub async fn close(&mut self) -> Result<()> {
+        if self.closed {
+            return Ok(());
+        }
+        let warnings = hooks::run_advisory_hooks(
+            &self.agent.definition().hooks,
+            HookEvent::SessionEnd,
+            HookContext::session(self.id),
+            serde_json::json!({ "reason": "closed" }),
+        )
+        .await;
+        self.record_session_events(warnings).await?;
+        self.closed = true;
+        Ok(())
     }
 
     /// Current immutable point at the session's durable head.
@@ -195,7 +232,9 @@ impl Session {
             ));
         }
         let child_id = self.log.fork(point).await?;
-        Self::resume(self.agent.clone(), self.log.clone(), child_id).await
+        let mut child = Self::resume(self.agent.clone(), self.log.clone(), child_id).await?;
+        child.started = false;
+        Ok(child)
     }
 
     /// Continue the newest incomplete turn at this session's current head.
@@ -327,6 +366,22 @@ impl Session {
         input: impl Into<Message>,
         options: RunOptions,
     ) -> Result<TurnResult> {
+        if self.closed {
+            return Err(agentyk_core::error::Error::Other(
+                "session is closed".into(),
+            ));
+        }
+        if !self.started {
+            let warnings = hooks::run_advisory_hooks(
+                &self.agent.definition().hooks,
+                HookEvent::SessionStart,
+                HookContext::session(self.id),
+                serde_json::json!({ "agent": self.agent.name() }),
+            )
+            .await;
+            self.record_session_events(warnings).await?;
+            self.started = true;
+        }
         let definition = self.agent.definition();
         let effective_model = options.controls.resolve(&definition.model);
         let mut host = TurnHost::new(
@@ -342,6 +397,26 @@ impl Session {
         InProcessExecutor::new()
             .run_turn(&mut host, input.into())
             .await
+    }
+
+    async fn record_session_events(&mut self, events: Vec<EventData>) -> Result<()> {
+        if events.is_empty() {
+            return Ok(());
+        }
+        let requests = events
+            .into_iter()
+            .map(|data| EventRequest::new(self.id, data))
+            .collect();
+        let version = self.log.head(self.id).await?.sequence;
+        let recorded = self
+            .log
+            .append_batch(self.id, ExpectedVersion::Exact(version), requests)
+            .await?;
+        for event in recorded {
+            self.history.apply(&event.data);
+            notify_event_listeners(&self.agent.environment().listeners, &event).await;
+        }
+        Ok(())
     }
 }
 

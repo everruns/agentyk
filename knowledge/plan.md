@@ -97,7 +97,8 @@ everruns concept must be expressible on top of the agentyk primitive.
 | stream reconnect, provider streaming | `atoms::reason_streaming` + `ChatDriver::complete_streaming` + `DeltaSink` | default streams as one full-text delta; OpenAI/Anthropic drivers stream real SSE increments; deltas never touch `TurnState` — `on_reason_started` is the only state transition, purely informational |
 | `Controls` (per-input model override, `ReasoningConfig`) | `controls::TurnControls` + `ModelSpec.reasoning` | `Session::run_controlled`/`run_with_options`; reasoning wired for OpenAI, not yet for Anthropic (needs a token budget, not an effort string) |
 | `RuntimeHostAdapter` + `plan_next_host_turn` (turn strategy) | canonical step engine + execution host | the engine prepares/applies one operation; an in-process host executes immediately and a durable host persists and schedules it |
-| `PreToolUseHook`/`PostToolExecHook`/`PostActHook`/`ClientSideToolHook` | `middleware::TurnMiddleware` on `AgentBuilder` | one trait with defaulted methods instead of one trait per point; `before_tool` covers deny **and rewrite** and is orchestrated by the canonical engine; `PostActHook`/`ClientSideToolHook` not yet ported (see `everruns-adoption.md`) |
+| user hooks (`session_start`, `user_prompt_submit`, `pre_tool_use`, `post_tool_use`, `turn_end`, `session_end`) | `hook::Hook` on `AgentBuilder` | same event and decision surface; one host-neutral trait, with opt-in trusted `ShellHook`; session lifecycle follows value-session boundaries |
+| `PreToolUseHook`/`PostToolExecHook` internal policy | `middleware::TurnMiddleware` on `AgentBuilder` | typed Rust guardrails remain distinct from user hooks; `before_tool` covers deny **and rewrite** and is orchestrated by the canonical engine |
 | `TurnOutcome::Sealed(SealReason)` (no-progress/budget), `HardLimitStopRule`/`BudgetChecker` | `turn::{TurnOutcome::Sealed, SealReason}` + `budget::BudgetChecker` | checked once per action, like cancellation; `NoProgress` exists but nothing sets it (needs a durable crash-reclaim host) |
 | `tool.denied` (implicit in approval/guardrail flows) | `event_types::TOOL_DENIED` | durable; recorded alongside `tool.started`/`tool.completed` when a pre-hook denies |
 | MCP merge/discovery (runtime `mcp.rs`) | `McpCapability` / `McpClient` / `McpServer` | MCP is just a capability; stdio transport built in |
@@ -207,6 +208,9 @@ server):
   (`ToolHints`, status/category, phase). Behavior stays outside core:
   middleware in the canonical engine and parallel dispatch in its host
   dispatcher.
+- User hooks — six Everruns lifecycle events through one `Hook` trait,
+  block/mutation/error-policy semantics, tool matchers, and feature-gated
+  trusted local shell execution. See [`hooks.md`](hooks.md).
   The strategy — first-class typed fields only for universal correctness data,
   generic hatches for the rest, behavior in engine/host extension points — is
   [`extensibility.md`](extensibility.md).

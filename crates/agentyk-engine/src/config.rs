@@ -10,6 +10,7 @@ use agentyk_core::context::{ContextAssembler, PassthroughContextAssembler};
 use agentyk_core::driver::{DriverRegistry, ModelSpec};
 use agentyk_core::event::EventListener;
 use agentyk_core::extensions::Extensions;
+use agentyk_core::hook::Hook;
 use agentyk_core::middleware::TurnMiddleware;
 use agentyk_core::profile::ModelCatalog;
 
@@ -41,6 +42,8 @@ pub(crate) struct AgentConfig {
     /// [`TurnMiddleware`]. One list, because one middleware often wants
     /// several of the points.
     pub(crate) middleware: Vec<Arc<dyn TurnMiddleware>>,
+    /// User hooks at stable session, turn, and tool lifecycle points.
+    pub(crate) hooks: Vec<Arc<dyn Hook>>,
     /// Checked once per turn action, like cancellation. `None` means no
     /// budget policy.
     pub(crate) budget_checker: Option<Arc<dyn BudgetChecker>>,
@@ -66,6 +69,7 @@ impl Default for AgentConfig {
             listeners: Vec::new(),
             max_iterations: DEFAULT_MAX_ITERATIONS,
             middleware: Vec::new(),
+            hooks: Vec::new(),
             budget_checker: None,
             context_assembler: Arc::new(PassthroughContextAssembler),
             context_token_limit: None,

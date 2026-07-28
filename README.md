@@ -54,6 +54,11 @@ println!("{}", turn.response);
   a matter of returning a fresh value.
 - **Steering** — `Session::input()` hands out a queue a UI can push to while a
   turn is running; messages join the conversation at its next reasoning step.
+- **User hooks** — the six Everruns lifecycle points (`session_start`,
+  `user_prompt_submit`, `pre_tool_use`, `post_tool_use`, `turn_end`,
+  `session_end`) compose as ordinary `Hook` values. Prompt/tool hooks can
+  mutate or block; end hooks are advisory. The optional `hooks` feature adds
+  trusted local `ShellHook`s using the same structured decision contract.
 - **Concurrent tools** — a batch the model asked for in parallel runs in
   parallel, with results still recorded in the order it asked.
 - **Multi-provider drivers** — `ChatDriver` implementations routed by
@@ -92,13 +97,87 @@ nothing that can open a socket or spawn a process. Opt in to what you need.
 | `http` | `OpenAiDriver`, `AnthropicDriver` (SSE streaming) | `reqwest`, `futures-util` |
 | `mcp` | `McpCapability` / `McpClient` over stdio (HTTP transport also needs `http`) | `tokio` (rt, process, io-util, sync, time) |
 | `fs` | `FileSystemCapability`, real-disk and in-memory stores | `tokio` (fs, sync), `regex` |
+| `hooks` | trusted local `ShellHook` executor | `tokio` (process, io-util, time) |
 | `full` | all of the above | all of the above |
 
 ```toml
 agentyk = { version = "0.1", features = ["http", "fs"] }
 ```
 
-For scale: the default build resolves 28 crates, `full` resolves 100.
+## Hooks
+
+Implement `Hook` for an in-process callback and attach it by value:
+
+```rust
+use agentyk::{
+    Hook, HookEvent, HookOutcome, HookPayload,
+};
+use async_trait::async_trait;
+
+struct ProtectDeploy;
+
+#[async_trait]
+impl Hook for ProtectDeploy {
+    fn id(&self) -> &str { "protect-deploy" }
+    fn event(&self) -> HookEvent { HookEvent::PreToolUse }
+
+    async fn run(&self, payload: &HookPayload) -> HookOutcome {
+        if payload.data["tool_name"] == "deploy" {
+            HookOutcome::Block {
+                reason: "deploy requires approval".into(),
+                user_message: Some("Approve the deployment first.".into()),
+            }
+        } else {
+            HookOutcome::Allow
+        }
+    }
+}
+
+let agent = Agent::builder()
+    // model + driver + tools...
+    .hook(ProtectDeploy)
+    .build()?;
+```
+
+Hooks with the same event run in attachment order. A prompt mutation replaces
+`patch.message`; a pre-tool mutation shallow-merges `patch.arguments`; a
+post-tool mutation may replace `patch.result` / `patch.error` or append
+`patch.additional_context`. The first prompt/pre-tool block stops that action.
+`post_tool_use`, `turn_end`, and session lifecycle events are advisory because
+the observed side effect has already happened (or has no blockable action).
+
+With feature `hooks`, `ShellHook` runs a trusted local command:
+
+```rust
+use agentyk::{HookErrorPolicy, HookEvent, ShellHook};
+
+let lint = ShellHook::new(
+    "lint-after-edit",
+    HookEvent::PostToolUse,
+    "scripts/lint-hook.sh",
+)
+.on_error(HookErrorPolicy::Warn);
+```
+
+The command receives a JSON `HookPayload` on stdin and in
+`AGENTYK_HOOK_PAYLOAD_JSON`, plus convenience `AGENTYK_HOOK_*` variables. It
+returns JSON such as `{"decision":"allow"}` or
+`{"decision":"mutate","patch":{...}}`; empty stdout uses the exit code as a
+Git-hook-style allow/block decision. Execution is capped at 30 seconds and
+64 KiB of output. `ShellHook` uses `/bin/sh` with the application's OS
+permissions—it is deliberately not presented as a sandbox. A server or
+durable host should implement `Hook` over its own sandboxed executor.
+
+Because `Agent::session()` is synchronous, `session_start` fires immediately
+before the new session's first turn. Async `session_end` hooks fire from the
+explicit, idempotent `Session::close().await?`; dropping a session cannot await.
+A resumed non-empty session does not replay `session_start`; `session_end`
+only runs when that handle is explicitly closed.
+
+A durable host can retry a hook if it crashes after the external command ran
+but before the resulting events were committed—the same at-least-once boundary
+as a tool call. Side-effecting hooks should use `hook_id` plus session/turn/tool
+ids as an idempotency key when duplicate execution matters.
 
 ## Try it (offline, no API key)
 
