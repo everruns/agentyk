@@ -179,10 +179,13 @@ impl Hook for ShellHook {
             let write_input = async {
                 if let Some(mut stdin) = stdin {
                     use tokio::io::AsyncWriteExt;
-                    stdin
-                        .write_all(encoded.as_bytes())
-                        .await
-                        .map_err(|error| format!("could not write hook payload: {error}"))?;
+                    if let Err(error) = stdin.write_all(encoded.as_bytes()).await {
+                        // Hooks may intentionally decide without reading stdin. On fast
+                        // platforms the child can exit before this write completes.
+                        if error.kind() != std::io::ErrorKind::BrokenPipe {
+                            return Err(format!("could not write hook payload: {error}"));
+                        }
+                    }
                 }
                 Ok::<_, String>(())
             };
