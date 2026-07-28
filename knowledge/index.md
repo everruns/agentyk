@@ -32,6 +32,8 @@ okf_version: "0.2"
   maintaining persistent OKF knowledge.
 - [Shipping process](shipping.md) — Defines the evidence and quality bar required before a
   repository change ships.
+- [Evaluation studies](evals.md) — Defines what agentyk measures with model-driven evals and how a
+  finding becomes a fix.
 - [Release process](release.md) — Defines lockstep versioning, crates.io publication, and release
   verification.
 - [Diagram specification](diagrams.md) — Defines how technical diagrams are authored, reviewed, and

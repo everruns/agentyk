@@ -1,0 +1,35 @@
+{
+  "format": 1,
+  "run_id": "20260728T231856Z-a572",
+  "study": "mira-eval",
+  "study_version": "0.5.0",
+  "started_unix": 1785280736,
+  "finished_unix": 1785280769,
+  "environment": {
+    "git": {
+      "commit": "dfa9a031ce4f023758a9bdef7ce514b3d3d6c707",
+      "branch": "claude/evals-implementation-mira-tc1x7i",
+      "dirty": true
+    },
+    "os": "linux",
+    "arch": "x86_64",
+    "hostname": "vm",
+    "cpus": 4,
+    "mem_total_mib": 16075,
+    "mira_version": "0.5.0",
+    "labels": {
+      "benchmark": "agentyk_basic"
+    }
+  },
+  "summary": {
+    "scored": 54,
+    "passed": 54,
+    "failed": 0,
+    "na": 0,
+    "skipped": 0,
+    "total_tokens": 352391,
+    "total_cost_usd": 0.39022590000000007,
+    "total_tool_calls": 140,
+    "total_duration_ms": 234845
+  }
+}

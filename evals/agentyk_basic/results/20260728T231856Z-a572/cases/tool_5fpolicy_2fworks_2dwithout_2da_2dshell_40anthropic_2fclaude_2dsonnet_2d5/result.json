@@ -1,0 +1,64 @@
+{
+  "eval": "tool_policy",
+  "sample": "works-without-a-shell",
+  "target": "anthropic/claude-sonnet-5",
+  "input": [
+    "Add a `## Usage` section to README.md with one line of example text. Reply with DONE when finished."
+  ],
+  "passed": true,
+  "aggregate": 1.0,
+  "scores": [
+    {
+      "scorer": "succeeded",
+      "value": 1.0,
+      "pass": true,
+      "reason": "no error"
+    },
+    {
+      "scorer": "checks",
+      "value": 1.0,
+      "pass": true,
+      "reason": "every declared check held"
+    },
+    {
+      "scorer": "tool_discipline",
+      "value": 1.0,
+      "pass": true,
+      "reason": "used the intended tool surface"
+    }
+  ],
+  "transcript": {
+    "final_response": "DONE",
+    "iterations": 4,
+    "tool_calls_count": 3,
+    "tool_calls": [
+      "stat_file",
+      "read_file",
+      "edit_file"
+    ],
+    "usage": {
+      "input_tokens": 6866,
+      "output_tokens": 257,
+      "cache_read_tokens": 4976,
+      "cost_usd": 0.0124293
+    },
+    "timing": {
+      "duration_ms": 5246,
+      "time_to_first_token_ms": 5196
+    },
+    "metrics": {
+      "cache_hit_ratio": 0.7247305563646956,
+      "cache_read_tokens": 4976.0,
+      "cache_write_tokens": 1882.0,
+      "denied_tool_calls": 0.0,
+      "duration_ms": 5246.0,
+      "events": 17.0,
+      "input_tokens": 6866.0,
+      "output_tokens": 257.0,
+      "reasoning_tokens": 0.0,
+      "tool_errors": 0.0,
+      "turns": 1.0
+    }
+  },
+  "skipped": false
+}

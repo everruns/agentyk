@@ -265,25 +265,66 @@ impl ChatRequest {
     }
 }
 
-/// Token counts for one completion. Providers report more than this (cache
-/// reads, reasoning tokens); the fields here are the two every provider has.
+/// Token counts for one completion.
+///
+/// `input_tokens`/`output_tokens` are the totals every provider reports. The
+/// remaining fields are *breakdowns* of those totals — subsets, never addends:
+/// cached and cache-writing tokens are part of `input_tokens`, reasoning
+/// tokens part of `output_tokens`. They are zero when the provider does not
+/// report them.
+///
+/// The breakdown is here rather than left to each host because it is the only
+/// evidence a caller has that prompt caching worked: the driver places
+/// `cache_control` breakpoints, and without `cache_read_input_tokens` a host
+/// cannot tell a cache hit from a cache miss — the tokens are billed at very
+/// different rates but look identical in the total. Evals grade it; the same
+/// numbers drive cost accounting.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct Usage {
-    /// Tokens consumed by the prompt.
+    /// Tokens consumed by the prompt, cached ones included.
     pub input_tokens: u64,
     /// Tokens produced by the model, reasoning tokens included where the
     /// provider counts them.
     pub output_tokens: u64,
+    /// Prompt tokens served from the provider's cache — a subset of
+    /// [`input_tokens`](Self::input_tokens). Zero when unreported.
+    #[serde(default)]
+    pub cache_read_input_tokens: u64,
+    /// Prompt tokens written to the provider's cache this request — a subset
+    /// of [`input_tokens`](Self::input_tokens), billed at a premium. Zero when
+    /// unreported.
+    #[serde(default)]
+    pub cache_creation_input_tokens: u64,
+    /// Reasoning/thinking tokens — a subset of
+    /// [`output_tokens`](Self::output_tokens). Zero when unreported.
+    #[serde(default)]
+    pub reasoning_tokens: u64,
 }
 
 impl Usage {
-    /// Record one completion's token counts.
+    /// Record one completion's token totals, with no breakdown.
     pub fn new(input_tokens: u64, output_tokens: u64) -> Self {
         Self {
             input_tokens,
             output_tokens,
+            ..Self::default()
         }
+    }
+
+    /// Attach the prompt-cache breakdown: tokens served from the cache and
+    /// tokens written to it. Both are already counted in `input_tokens`.
+    pub fn with_cache(mut self, read: u64, creation: u64) -> Self {
+        self.cache_read_input_tokens = read;
+        self.cache_creation_input_tokens = creation;
+        self
+    }
+
+    /// Attach the reasoning-token breakdown, already counted in
+    /// `output_tokens`.
+    pub fn with_reasoning(mut self, reasoning_tokens: u64) -> Self {
+        self.reasoning_tokens = reasoning_tokens;
+        self
     }
 
     /// Accumulate another completion's usage — how a turn totals its cost
@@ -291,6 +332,9 @@ impl Usage {
     pub fn add(&mut self, other: Usage) {
         self.input_tokens += other.input_tokens;
         self.output_tokens += other.output_tokens;
+        self.cache_read_input_tokens += other.cache_read_input_tokens;
+        self.cache_creation_input_tokens += other.cache_creation_input_tokens;
+        self.reasoning_tokens += other.reasoning_tokens;
     }
 }
 

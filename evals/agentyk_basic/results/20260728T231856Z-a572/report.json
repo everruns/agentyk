@@ -1,0 +1,3792 @@
+{
+  "cases": [
+    {
+      "aggregate": 1.0,
+      "eval": "offline_contract",
+      "input": [
+        "Read config/flag.txt and reply with its value."
+      ],
+      "passed": true,
+      "sample": "scripted-read-then-answer",
+      "scores": [
+        {
+          "pass": true,
+          "reason": "no error",
+          "scorer": "succeeded",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "every declared check held",
+          "scorer": "checks",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "used the intended tool surface",
+          "scorer": "tool_discipline",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "every tool call carries its observation",
+          "scorer": "trajectory",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "none declared",
+          "scorer": "metric_expectations",
+          "value": 1.0
+        }
+      ],
+      "skipped": false,
+      "target": "sim",
+      "transcript": {
+        "final_response": "The value is FLAG=CEDAR-9.",
+        "iterations": 2,
+        "metrics": {
+          "cache_hit_ratio": 0.0,
+          "cache_read_tokens": 0.0,
+          "cache_write_tokens": 0.0,
+          "denied_tool_calls": 0.0,
+          "duration_ms": 2.0,
+          "events": 9.0,
+          "input_tokens": 0.0,
+          "output_tokens": 0.0,
+          "reasoning_tokens": 0.0,
+          "tool_errors": 0.0,
+          "turns": 1.0
+        },
+        "timing": {
+          "duration_ms": 2,
+          "time_to_first_token_ms": 2
+        },
+        "tool_calls": [
+          "read_file"
+        ],
+        "tool_calls_count": 1,
+        "usage": {
+          "cost_usd": 0.0,
+          "input_tokens": 0,
+          "output_tokens": 0
+        }
+      }
+    },
+    {
+      "aggregate": 1.0,
+      "eval": "offline_contract",
+      "input": [
+        "Overwrite notes.txt with `overwritten`."
+      ],
+      "passed": true,
+      "sample": "scripted-denied-write",
+      "scores": [
+        {
+          "pass": true,
+          "reason": "no error",
+          "scorer": "succeeded",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "every declared check held",
+          "scorer": "checks",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "used the intended tool surface",
+          "scorer": "tool_discipline",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "every tool call carries its observation",
+          "scorer": "trajectory",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "every declared metric matched",
+          "scorer": "metric_expectations",
+          "value": 1.0
+        }
+      ],
+      "skipped": false,
+      "target": "sim",
+      "transcript": {
+        "final_response": "The operator declined that write, so notes.txt is unchanged.",
+        "iterations": 2,
+        "metrics": {
+          "cache_hit_ratio": 0.0,
+          "cache_read_tokens": 0.0,
+          "cache_write_tokens": 0.0,
+          "denied_tool_calls": 1.0,
+          "duration_ms": 0.0,
+          "events": 10.0,
+          "input_tokens": 0.0,
+          "output_tokens": 0.0,
+          "reasoning_tokens": 0.0,
+          "tool_errors": 1.0,
+          "turns": 1.0
+        },
+        "timing": {
+          "time_to_first_token_ms": 0
+        },
+        "tool_calls": [
+          "write_file"
+        ],
+        "tool_calls_count": 1,
+        "usage": {
+          "cost_usd": 0.0,
+          "input_tokens": 0,
+          "output_tokens": 0
+        }
+      }
+    },
+    {
+      "aggregate": 1.0,
+      "eval": "session_efficiency",
+      "input": [
+        "Read src/lib.rs and tell me what `parse` returns.",
+        "Now add a doc comment to `parse` describing that. Reply DONE when finished.",
+        "How many public functions does src/lib.rs have now? Reply with only the number."
+      ],
+      "passed": true,
+      "sample": "three-turn-session",
+      "scores": [
+        {
+          "pass": true,
+          "reason": "no error",
+          "scorer": "succeeded",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "every declared check held",
+          "scorer": "checks",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "15058 tokens (budget 120000)",
+          "scorer": "budgets",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "no cache expectation declared",
+          "scorer": "prompt_cache",
+          "value": 1.0
+        }
+      ],
+      "skipped": false,
+      "target": "anthropic/claude-sonnet-5",
+      "transcript": {
+        "final_response": "2",
+        "iterations": 7,
+        "metrics": {
+          "cache_hit_ratio": 0.8276407119785582,
+          "cache_read_tokens": 12043.0,
+          "cache_write_tokens": 2494.0,
+          "denied_tool_calls": 0.0,
+          "duration_ms": 9941.0,
+          "events": 31.0,
+          "input_tokens": 14551.0,
+          "output_tokens": 507.0,
+          "reasoning_tokens": 0.0,
+          "tool_errors": 0.0,
+          "turns": 3.0
+        },
+        "timing": {
+          "duration_ms": 9941,
+          "time_to_first_token_ms": 2064
+        },
+        "tool_calls": [
+          "read_file",
+          "edit_file",
+          "grep_files",
+          "read_file"
+        ],
+        "tool_calls_count": 4,
+        "usage": {
+          "cache_read_tokens": 12043,
+          "cost_usd": 0.020612400000000003,
+          "input_tokens": 14551,
+          "output_tokens": 507
+        }
+      }
+    },
+    {
+      "aggregate": 1.0,
+      "eval": "session_efficiency",
+      "input": [
+        "Read src/lib.rs and tell me what `parse` returns.",
+        "Now add a doc comment to `parse` describing that. Reply DONE when finished.",
+        "How many public functions does src/lib.rs have now? Reply with only the number."
+      ],
+      "passed": true,
+      "sample": "three-turn-session",
+      "scores": [
+        {
+          "pass": true,
+          "reason": "no error",
+          "scorer": "succeeded",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "every declared check held",
+          "scorer": "checks",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "9014 tokens (budget 120000)",
+          "scorer": "budgets",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "no cache expectation declared",
+          "scorer": "prompt_cache",
+          "value": 1.0
+        }
+      ],
+      "skipped": false,
+      "target": "anthropic/claude-haiku-4-5-20251001",
+      "transcript": {
+        "final_response": "2",
+        "iterations": 5,
+        "metrics": {
+          "cache_hit_ratio": 0.0,
+          "cache_read_tokens": 0.0,
+          "cache_write_tokens": 0.0,
+          "denied_tool_calls": 0.0,
+          "duration_ms": 5251.0,
+          "events": 23.0,
+          "input_tokens": 8726.0,
+          "output_tokens": 288.0,
+          "reasoning_tokens": 0.0,
+          "tool_errors": 0.0,
+          "turns": 3.0
+        },
+        "timing": {
+          "duration_ms": 5251,
+          "time_to_first_token_ms": 2211
+        },
+        "tool_calls": [
+          "read_file",
+          "edit_file"
+        ],
+        "tool_calls_count": 2,
+        "usage": {
+          "cost_usd": 0.010166,
+          "input_tokens": 8726,
+          "output_tokens": 288
+        }
+      }
+    },
+    {
+      "aggregate": 1.0,
+      "eval": "session_efficiency",
+      "input": [
+        "Read src/lib.rs and tell me what `parse` returns.",
+        "Now add a doc comment to `parse` describing that. Reply DONE when finished.",
+        "How many public functions does src/lib.rs have now? Reply with only the number."
+      ],
+      "passed": true,
+      "sample": "three-turn-session",
+      "scores": [
+        {
+          "pass": true,
+          "reason": "no error",
+          "scorer": "succeeded",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "every declared check held",
+          "scorer": "checks",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "4621 tokens (budget 120000)",
+          "scorer": "budgets",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "no cache expectation declared",
+          "scorer": "prompt_cache",
+          "value": 1.0
+        }
+      ],
+      "skipped": false,
+      "target": "openai/gpt-5.5",
+      "transcript": {
+        "final_response": "2",
+        "iterations": 5,
+        "metrics": {
+          "cache_hit_ratio": 0.0,
+          "cache_read_tokens": 0.0,
+          "cache_write_tokens": 0.0,
+          "denied_tool_calls": 0.0,
+          "duration_ms": 6552.0,
+          "events": 23.0,
+          "input_tokens": 4406.0,
+          "output_tokens": 215.0,
+          "reasoning_tokens": 21.0,
+          "tool_errors": 0.0,
+          "turns": 3.0
+        },
+        "timing": {
+          "duration_ms": 6552,
+          "time_to_first_token_ms": 2272
+        },
+        "tool_calls": [
+          "read_file",
+          "edit_file"
+        ],
+        "tool_calls_count": 2,
+        "usage": {
+          "cost_usd": 0.0076575,
+          "input_tokens": 4406,
+          "output_tokens": 215,
+          "reasoning_tokens": 21
+        }
+      }
+    },
+    {
+      "aggregate": 1.0,
+      "eval": "session_efficiency",
+      "input": [
+        "Read src/lib.rs and tell me what `parse` returns.",
+        "Now add a doc comment to `parse` describing that. Reply DONE when finished.",
+        "How many public functions does src/lib.rs have now? Reply with only the number."
+      ],
+      "passed": true,
+      "sample": "three-turn-session",
+      "scores": [
+        {
+          "pass": true,
+          "reason": "no error",
+          "scorer": "succeeded",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "every declared check held",
+          "scorer": "checks",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "4484 tokens (budget 120000)",
+          "scorer": "budgets",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "no cache expectation declared",
+          "scorer": "prompt_cache",
+          "value": 1.0
+        }
+      ],
+      "skipped": false,
+      "target": "openai/gpt-5.6-terra",
+      "transcript": {
+        "final_response": "2",
+        "iterations": 5,
+        "metrics": {
+          "cache_hit_ratio": 0.0,
+          "cache_read_tokens": 0.0,
+          "cache_write_tokens": 0.0,
+          "denied_tool_calls": 0.0,
+          "duration_ms": 4722.0,
+          "events": 23.0,
+          "input_tokens": 4331.0,
+          "output_tokens": 153.0,
+          "reasoning_tokens": 0.0,
+          "tool_errors": 0.0,
+          "turns": 3.0
+        },
+        "timing": {
+          "duration_ms": 4722,
+          "time_to_first_token_ms": 1954
+        },
+        "tool_calls": [
+          "read_file",
+          "edit_file"
+        ],
+        "tool_calls_count": 2,
+        "usage": {
+          "cost_usd": 0.00694375,
+          "input_tokens": 4331,
+          "output_tokens": 153
+        }
+      }
+    },
+    {
+      "aggregate": 1.0,
+      "eval": "session_efficiency",
+      "input": [
+        "Read data/report.md and summarize it in one sentence.",
+        "From the same file, what is the value on the STATUS line? Reply with only that value.",
+        "How many sections does that file have? Reply with only the number."
+      ],
+      "passed": true,
+      "sample": "repeated-context",
+      "scores": [
+        {
+          "pass": true,
+          "reason": "no error",
+          "scorer": "succeeded",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "every declared check held",
+          "scorer": "checks",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "38362 tokens (budget 200000)",
+          "scorer": "budgets",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "25940 cached prompt tokens (68% of input)",
+          "scorer": "prompt_cache",
+          "value": 1.0
+        }
+      ],
+      "skipped": false,
+      "target": "anthropic/claude-sonnet-5",
+      "transcript": {
+        "final_response": "240",
+        "iterations": 4,
+        "metrics": {
+          "cache_hit_ratio": 0.6800367020579369,
+          "cache_read_tokens": 25940.0,
+          "cache_write_tokens": 12197.0,
+          "denied_tool_calls": 0.0,
+          "duration_ms": 7638.0,
+          "events": 19.0,
+          "input_tokens": 38145.0,
+          "output_tokens": 217.0,
+          "reasoning_tokens": 0.0,
+          "tool_errors": 0.0,
+          "turns": 3.0
+        },
+        "timing": {
+          "duration_ms": 7638,
+          "time_to_first_token_ms": 4347
+        },
+        "tool_calls": [
+          "read_file"
+        ],
+        "tool_calls_count": 1,
+        "usage": {
+          "cache_read_tokens": 25940,
+          "cost_usd": 0.05679975,
+          "input_tokens": 38145,
+          "output_tokens": 217
+        }
+      }
+    },
+    {
+      "aggregate": 1.0,
+      "eval": "session_efficiency",
+      "input": [
+        "Read data/report.md and summarize it in one sentence.",
+        "From the same file, what is the value on the STATUS line? Reply with only that value.",
+        "How many sections does that file have? Reply with only the number."
+      ],
+      "passed": true,
+      "sample": "repeated-context",
+      "scores": [
+        {
+          "pass": true,
+          "reason": "no error",
+          "scorer": "succeeded",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "every declared check held",
+          "scorer": "checks",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "28125 tokens (budget 200000)",
+          "scorer": "budgets",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "17632 cached prompt tokens (63% of input)",
+          "scorer": "prompt_cache",
+          "value": 1.0
+        }
+      ],
+      "skipped": false,
+      "target": "anthropic/claude-haiku-4-5-20251001",
+      "transcript": {
+        "final_response": "240",
+        "iterations": 4,
+        "metrics": {
+          "cache_hit_ratio": 0.6291525423728813,
+          "cache_read_tokens": 17632.0,
+          "cache_write_tokens": 8868.0,
+          "denied_tool_calls": 0.0,
+          "duration_ms": 2924.0,
+          "events": 19.0,
+          "input_tokens": 28025.0,
+          "output_tokens": 100.0,
+          "reasoning_tokens": 0.0,
+          "tool_errors": 0.0,
+          "turns": 3.0
+        },
+        "timing": {
+          "duration_ms": 2924,
+          "time_to_first_token_ms": 1332
+        },
+        "tool_calls": [
+          "read_file"
+        ],
+        "tool_calls_count": 1,
+        "usage": {
+          "cache_read_tokens": 17632,
+          "cost_usd": 0.0148732,
+          "input_tokens": 28025,
+          "output_tokens": 100
+        }
+      }
+    },
+    {
+      "aggregate": 1.0,
+      "eval": "session_efficiency",
+      "input": [
+        "Read data/report.md and summarize it in one sentence.",
+        "From the same file, what is the value on the STATUS line? Reply with only that value.",
+        "How many sections does that file have? Reply with only the number."
+      ],
+      "passed": true,
+      "sample": "repeated-context",
+      "scores": [
+        {
+          "pass": true,
+          "reason": "no error",
+          "scorer": "succeeded",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "every declared check held",
+          "scorer": "checks",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "23351 tokens (budget 200000)",
+          "scorer": "budgets",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "21888 cached prompt tokens (94% of input)",
+          "scorer": "prompt_cache",
+          "value": 1.0
+        }
+      ],
+      "skipped": false,
+      "target": "openai/gpt-5.5",
+      "transcript": {
+        "final_response": "240",
+        "iterations": 4,
+        "metrics": {
+          "cache_hit_ratio": 0.940408163265306,
+          "cache_read_tokens": 21888.0,
+          "cache_write_tokens": 0.0,
+          "denied_tool_calls": 0.0,
+          "duration_ms": 5544.0,
+          "events": 19.0,
+          "input_tokens": 23275.0,
+          "output_tokens": 76.0,
+          "reasoning_tokens": 9.0,
+          "tool_errors": 0.0,
+          "turns": 3.0
+        },
+        "timing": {
+          "duration_ms": 5544,
+          "time_to_first_token_ms": 2244
+        },
+        "tool_calls": [
+          "read_file"
+        ],
+        "tool_calls_count": 1,
+        "usage": {
+          "cache_read_tokens": 21888,
+          "cost_usd": 0.00522975,
+          "input_tokens": 23275,
+          "output_tokens": 76,
+          "reasoning_tokens": 9
+        }
+      }
+    },
+    {
+      "aggregate": 1.0,
+      "eval": "session_efficiency",
+      "input": [
+        "Read data/report.md and summarize it in one sentence.",
+        "From the same file, what is the value on the STATUS line? Reply with only that value.",
+        "How many sections does that file have? Reply with only the number."
+      ],
+      "passed": true,
+      "sample": "repeated-context",
+      "scores": [
+        {
+          "pass": true,
+          "reason": "no error",
+          "scorer": "succeeded",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "every declared check held",
+          "scorer": "checks",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "23318 tokens (budget 200000)",
+          "scorer": "budgets",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "22462 cached prompt tokens (97% of input)",
+          "scorer": "prompt_cache",
+          "value": 1.0
+        }
+      ],
+      "skipped": false,
+      "target": "openai/gpt-5.6-terra",
+      "transcript": {
+        "final_response": "240",
+        "iterations": 4,
+        "metrics": {
+          "cache_hit_ratio": 0.9655676395993638,
+          "cache_read_tokens": 22462.0,
+          "cache_write_tokens": 0.0,
+          "denied_tool_calls": 0.0,
+          "duration_ms": 4156.0,
+          "events": 19.0,
+          "input_tokens": 23263.0,
+          "output_tokens": 55.0,
+          "reasoning_tokens": 0.0,
+          "tool_errors": 0.0,
+          "turns": 3.0
+        },
+        "timing": {
+          "duration_ms": 4156,
+          "time_to_first_token_ms": 1958
+        },
+        "tool_calls": [
+          "read_file"
+        ],
+        "tool_calls_count": 1,
+        "usage": {
+          "cache_read_tokens": 22462,
+          "cost_usd": 0.004359,
+          "input_tokens": 23263,
+          "output_tokens": 55
+        }
+      }
+    },
+    {
+      "aggregate": 1.0,
+      "eval": "coding",
+      "input": [
+        "Add a `greet(name: &str) -> String` function to src/lib.rs that returns \"Hello, {name}!\". Keep the existing code. Reply with DONE when finished."
+      ],
+      "params": {
+        "mode": "stream"
+      },
+      "passed": true,
+      "sample": "add-function",
+      "scores": [
+        {
+          "pass": true,
+          "reason": "no error",
+          "scorer": "succeeded",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "every declared check held",
+          "scorer": "checks",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "every tool call carries its observation",
+          "scorer": "trajectory",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "4797ms <= 300000ms",
+          "scorer": "latency_within",
+          "value": 1.0
+        }
+      ],
+      "skipped": false,
+      "target": "anthropic/claude-sonnet-5",
+      "transcript": {
+        "final_response": "DONE",
+        "iterations": 3,
+        "metrics": {
+          "cache_hit_ratio": 0.9219310839913856,
+          "cache_read_tokens": 5137.0,
+          "cache_write_tokens": 429.0,
+          "denied_tool_calls": 0.0,
+          "duration_ms": 4797.0,
+          "events": 13.0,
+          "input_tokens": 5572.0,
+          "output_tokens": 263.0,
+          "reasoning_tokens": 0.0,
+          "tool_errors": 0.0,
+          "turns": 1.0
+        },
+        "timing": {
+          "duration_ms": 4797,
+          "time_to_first_token_ms": 4704
+        },
+        "tool_calls": [
+          "read_file",
+          "edit_file"
+        ],
+        "tool_calls_count": 2,
+        "usage": {
+          "cache_read_tokens": 5137,
+          "cost_usd": 0.00711285,
+          "input_tokens": 5572,
+          "output_tokens": 263
+        }
+      }
+    },
+    {
+      "aggregate": 1.0,
+      "eval": "coding",
+      "input": [
+        "Add a `greet(name: &str) -> String` function to src/lib.rs that returns \"Hello, {name}!\". Keep the existing code. Reply with DONE when finished."
+      ],
+      "params": {
+        "mode": "buffered"
+      },
+      "passed": true,
+      "sample": "add-function",
+      "scores": [
+        {
+          "pass": true,
+          "reason": "no error",
+          "scorer": "succeeded",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "every declared check held",
+          "scorer": "checks",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "every tool call carries its observation",
+          "scorer": "trajectory",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "4491ms <= 300000ms",
+          "scorer": "latency_within",
+          "value": 1.0
+        }
+      ],
+      "skipped": false,
+      "target": "anthropic/claude-sonnet-5",
+      "transcript": {
+        "final_response": "DONE",
+        "iterations": 3,
+        "metrics": {
+          "cache_hit_ratio": 0.9989231873653984,
+          "cache_read_tokens": 5566.0,
+          "cache_write_tokens": 0.0,
+          "denied_tool_calls": 0.0,
+          "duration_ms": 4491.0,
+          "events": 13.0,
+          "input_tokens": 5572.0,
+          "output_tokens": 247.0,
+          "reasoning_tokens": 0.0,
+          "tool_errors": 0.0,
+          "turns": 1.0
+        },
+        "timing": {
+          "duration_ms": 4491,
+          "time_to_first_token_ms": 4491
+        },
+        "tool_calls": [
+          "read_file",
+          "edit_file"
+        ],
+        "tool_calls_count": 2,
+        "usage": {
+          "cache_read_tokens": 5566,
+          "cost_usd": 0.0053928000000000005,
+          "input_tokens": 5572,
+          "output_tokens": 247
+        }
+      }
+    },
+    {
+      "aggregate": 1.0,
+      "eval": "coding",
+      "input": [
+        "Add a `greet(name: &str) -> String` function to src/lib.rs that returns \"Hello, {name}!\". Keep the existing code. Reply with DONE when finished."
+      ],
+      "params": {
+        "mode": "stream"
+      },
+      "passed": true,
+      "sample": "add-function",
+      "scores": [
+        {
+          "pass": true,
+          "reason": "no error",
+          "scorer": "succeeded",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "every declared check held",
+          "scorer": "checks",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "every tool call carries its observation",
+          "scorer": "trajectory",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "4803ms <= 300000ms",
+          "scorer": "latency_within",
+          "value": 1.0
+        }
+      ],
+      "skipped": false,
+      "target": "anthropic/claude-haiku-4-5-20251001",
+      "transcript": {
+        "final_response": "DONE",
+        "iterations": 4,
+        "metrics": {
+          "cache_hit_ratio": 0.0,
+          "cache_read_tokens": 0.0,
+          "cache_write_tokens": 0.0,
+          "denied_tool_calls": 0.0,
+          "duration_ms": 4803.0,
+          "events": 17.0,
+          "input_tokens": 7074.0,
+          "output_tokens": 334.0,
+          "reasoning_tokens": 0.0,
+          "tool_errors": 0.0,
+          "turns": 1.0
+        },
+        "timing": {
+          "duration_ms": 4803,
+          "time_to_first_token_ms": 504
+        },
+        "tool_calls": [
+          "read_file",
+          "edit_file",
+          "read_file"
+        ],
+        "tool_calls_count": 3,
+        "usage": {
+          "cost_usd": 0.008744,
+          "input_tokens": 7074,
+          "output_tokens": 334
+        }
+      }
+    },
+    {
+      "aggregate": 1.0,
+      "eval": "coding",
+      "input": [
+        "Add a `greet(name: &str) -> String` function to src/lib.rs that returns \"Hello, {name}!\". Keep the existing code. Reply with DONE when finished."
+      ],
+      "params": {
+        "mode": "buffered"
+      },
+      "passed": true,
+      "sample": "add-function",
+      "scores": [
+        {
+          "pass": true,
+          "reason": "no error",
+          "scorer": "succeeded",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "every declared check held",
+          "scorer": "checks",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "every tool call carries its observation",
+          "scorer": "trajectory",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "4044ms <= 300000ms",
+          "scorer": "latency_within",
+          "value": 1.0
+        }
+      ],
+      "skipped": false,
+      "target": "anthropic/claude-haiku-4-5-20251001",
+      "transcript": {
+        "final_response": "DONE",
+        "iterations": 4,
+        "metrics": {
+          "cache_hit_ratio": 0.0,
+          "cache_read_tokens": 0.0,
+          "cache_write_tokens": 0.0,
+          "denied_tool_calls": 0.0,
+          "duration_ms": 4044.0,
+          "events": 17.0,
+          "input_tokens": 7056.0,
+          "output_tokens": 323.0,
+          "reasoning_tokens": 0.0,
+          "tool_errors": 0.0,
+          "turns": 1.0
+        },
+        "timing": {
+          "duration_ms": 4044,
+          "time_to_first_token_ms": 934
+        },
+        "tool_calls": [
+          "read_file",
+          "edit_file",
+          "read_file"
+        ],
+        "tool_calls_count": 3,
+        "usage": {
+          "cost_usd": 0.008671,
+          "input_tokens": 7056,
+          "output_tokens": 323
+        }
+      }
+    },
+    {
+      "aggregate": 1.0,
+      "eval": "coding",
+      "input": [
+        "Add a `greet(name: &str) -> String` function to src/lib.rs that returns \"Hello, {name}!\". Keep the existing code. Reply with DONE when finished."
+      ],
+      "params": {
+        "mode": "stream"
+      },
+      "passed": true,
+      "sample": "add-function",
+      "scores": [
+        {
+          "pass": true,
+          "reason": "no error",
+          "scorer": "succeeded",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "every declared check held",
+          "scorer": "checks",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "every tool call carries its observation",
+          "scorer": "trajectory",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "5605ms <= 300000ms",
+          "scorer": "latency_within",
+          "value": 1.0
+        }
+      ],
+      "skipped": false,
+      "target": "openai/gpt-5.5",
+      "transcript": {
+        "final_response": "DONE",
+        "iterations": 4,
+        "metrics": {
+          "cache_hit_ratio": 0.0,
+          "cache_read_tokens": 0.0,
+          "cache_write_tokens": 0.0,
+          "denied_tool_calls": 0.0,
+          "duration_ms": 5605.0,
+          "events": 17.0,
+          "input_tokens": 3265.0,
+          "output_tokens": 141.0,
+          "reasoning_tokens": 0.0,
+          "tool_errors": 0.0,
+          "turns": 1.0
+        },
+        "timing": {
+          "duration_ms": 5605,
+          "time_to_first_token_ms": 5585
+        },
+        "tool_calls": [
+          "list_directory",
+          "read_file",
+          "edit_file"
+        ],
+        "tool_calls_count": 3,
+        "usage": {
+          "cost_usd": 0.00549125,
+          "input_tokens": 3265,
+          "output_tokens": 141
+        }
+      }
+    },
+    {
+      "aggregate": 1.0,
+      "eval": "coding",
+      "input": [
+        "Add a `greet(name: &str) -> String` function to src/lib.rs that returns \"Hello, {name}!\". Keep the existing code. Reply with DONE when finished."
+      ],
+      "params": {
+        "mode": "buffered"
+      },
+      "passed": true,
+      "sample": "add-function",
+      "scores": [
+        {
+          "pass": true,
+          "reason": "no error",
+          "scorer": "succeeded",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "every declared check held",
+          "scorer": "checks",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "every tool call carries its observation",
+          "scorer": "trajectory",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "4902ms <= 300000ms",
+          "scorer": "latency_within",
+          "value": 1.0
+        }
+      ],
+      "skipped": false,
+      "target": "openai/gpt-5.5",
+      "transcript": {
+        "final_response": "DONE",
+        "iterations": 3,
+        "metrics": {
+          "cache_hit_ratio": 0.0,
+          "cache_read_tokens": 0.0,
+          "cache_write_tokens": 0.0,
+          "denied_tool_calls": 0.0,
+          "duration_ms": 4902.0,
+          "events": 13.0,
+          "input_tokens": 2447.0,
+          "output_tokens": 127.0,
+          "reasoning_tokens": 0.0,
+          "tool_errors": 0.0,
+          "turns": 1.0
+        },
+        "timing": {
+          "duration_ms": 4902,
+          "time_to_first_token_ms": 4902
+        },
+        "tool_calls": [
+          "read_file",
+          "edit_file"
+        ],
+        "tool_calls_count": 2,
+        "usage": {
+          "cost_usd": 0.00432875,
+          "input_tokens": 2447,
+          "output_tokens": 127
+        }
+      }
+    },
+    {
+      "aggregate": 1.0,
+      "eval": "coding",
+      "input": [
+        "Add a `greet(name: &str) -> String` function to src/lib.rs that returns \"Hello, {name}!\". Keep the existing code. Reply with DONE when finished."
+      ],
+      "params": {
+        "mode": "stream"
+      },
+      "passed": true,
+      "sample": "add-function",
+      "scores": [
+        {
+          "pass": true,
+          "reason": "no error",
+          "scorer": "succeeded",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "every declared check held",
+          "scorer": "checks",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "every tool call carries its observation",
+          "scorer": "trajectory",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "2989ms <= 300000ms",
+          "scorer": "latency_within",
+          "value": 1.0
+        }
+      ],
+      "skipped": false,
+      "target": "openai/gpt-5.6-terra",
+      "transcript": {
+        "final_response": "DONE",
+        "iterations": 3,
+        "metrics": {
+          "cache_hit_ratio": 0.0,
+          "cache_read_tokens": 0.0,
+          "cache_write_tokens": 0.0,
+          "denied_tool_calls": 0.0,
+          "duration_ms": 2989.0,
+          "events": 13.0,
+          "input_tokens": 2448.0,
+          "output_tokens": 128.0,
+          "reasoning_tokens": 0.0,
+          "tool_errors": 0.0,
+          "turns": 1.0
+        },
+        "timing": {
+          "duration_ms": 2989,
+          "time_to_first_token_ms": 2979
+        },
+        "tool_calls": [
+          "read_file",
+          "edit_file"
+        ],
+        "tool_calls_count": 2,
+        "usage": {
+          "cost_usd": 0.00434,
+          "input_tokens": 2448,
+          "output_tokens": 128
+        }
+      }
+    },
+    {
+      "aggregate": 1.0,
+      "eval": "coding",
+      "input": [
+        "Add a `greet(name: &str) -> String` function to src/lib.rs that returns \"Hello, {name}!\". Keep the existing code. Reply with DONE when finished."
+      ],
+      "params": {
+        "mode": "buffered"
+      },
+      "passed": true,
+      "sample": "add-function",
+      "scores": [
+        {
+          "pass": true,
+          "reason": "no error",
+          "scorer": "succeeded",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "every declared check held",
+          "scorer": "checks",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "every tool call carries its observation",
+          "scorer": "trajectory",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "2773ms <= 300000ms",
+          "scorer": "latency_within",
+          "value": 1.0
+        }
+      ],
+      "skipped": false,
+      "target": "openai/gpt-5.6-terra",
+      "transcript": {
+        "final_response": "DONE",
+        "iterations": 3,
+        "metrics": {
+          "cache_hit_ratio": 0.0,
+          "cache_read_tokens": 0.0,
+          "cache_write_tokens": 0.0,
+          "denied_tool_calls": 0.0,
+          "duration_ms": 2773.0,
+          "events": 13.0,
+          "input_tokens": 2448.0,
+          "output_tokens": 128.0,
+          "reasoning_tokens": 0.0,
+          "tool_errors": 0.0,
+          "turns": 1.0
+        },
+        "timing": {
+          "duration_ms": 2773,
+          "time_to_first_token_ms": 2773
+        },
+        "tool_calls": [
+          "read_file",
+          "edit_file"
+        ],
+        "tool_calls_count": 2,
+        "usage": {
+          "cost_usd": 0.00434,
+          "input_tokens": 2448,
+          "output_tokens": 128
+        }
+      }
+    },
+    {
+      "aggregate": 1.0,
+      "eval": "coding",
+      "input": [
+        "`last_index` in src/list.rs panics on an empty list and is off by one on a non-empty one. Fix it so it returns None for an empty list and the index of the last element otherwise. Reply with DONE when finished."
+      ],
+      "params": {
+        "mode": "stream"
+      },
+      "passed": true,
+      "sample": "fix-off-by-one",
+      "scores": [
+        {
+          "pass": true,
+          "reason": "no error",
+          "scorer": "succeeded",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "every declared check held",
+          "scorer": "checks",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "every tool call carries its observation",
+          "scorer": "trajectory",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "5652ms <= 300000ms",
+          "scorer": "latency_within",
+          "value": 1.0
+        }
+      ],
+      "skipped": false,
+      "target": "anthropic/claude-sonnet-5",
+      "transcript": {
+        "final_response": "DONE",
+        "iterations": 3,
+        "metrics": {
+          "cache_hit_ratio": 0.9185777777777778,
+          "cache_read_tokens": 5167.0,
+          "cache_write_tokens": 452.0,
+          "denied_tool_calls": 0.0,
+          "duration_ms": 5652.0,
+          "events": 13.0,
+          "input_tokens": 5625.0,
+          "output_tokens": 252.0,
+          "reasoning_tokens": 0.0,
+          "tool_errors": 0.0,
+          "turns": 1.0
+        },
+        "timing": {
+          "duration_ms": 5652,
+          "time_to_first_token_ms": 5592
+        },
+        "tool_calls": [
+          "read_file",
+          "edit_file"
+        ],
+        "tool_calls_count": 2,
+        "usage": {
+          "cache_read_tokens": 5167,
+          "cost_usd": 0.0070431,
+          "input_tokens": 5625,
+          "output_tokens": 252
+        }
+      }
+    },
+    {
+      "aggregate": 1.0,
+      "eval": "coding",
+      "input": [
+        "`last_index` in src/list.rs panics on an empty list and is off by one on a non-empty one. Fix it so it returns None for an empty list and the index of the last element otherwise. Reply with DONE when finished."
+      ],
+      "params": {
+        "mode": "buffered"
+      },
+      "passed": true,
+      "sample": "fix-off-by-one",
+      "scores": [
+        {
+          "pass": true,
+          "reason": "no error",
+          "scorer": "succeeded",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "every declared check held",
+          "scorer": "checks",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "every tool call carries its observation",
+          "scorer": "trajectory",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "5264ms <= 300000ms",
+          "scorer": "latency_within",
+          "value": 1.0
+        }
+      ],
+      "skipped": false,
+      "target": "anthropic/claude-sonnet-5",
+      "transcript": {
+        "final_response": "DONE",
+        "iterations": 4,
+        "metrics": {
+          "cache_hit_ratio": 0.931672969096362,
+          "cache_read_tokens": 7145.0,
+          "cache_write_tokens": 516.0,
+          "denied_tool_calls": 0.0,
+          "duration_ms": 5264.0,
+          "events": 17.0,
+          "input_tokens": 7669.0,
+          "output_tokens": 248.0,
+          "reasoning_tokens": 0.0,
+          "tool_errors": 0.0,
+          "turns": 1.0
+        },
+        "timing": {
+          "duration_ms": 5264,
+          "time_to_first_token_ms": 5264
+        },
+        "tool_calls": [
+          "grep_files",
+          "read_file",
+          "edit_file"
+        ],
+        "tool_calls_count": 3,
+        "usage": {
+          "cache_read_tokens": 7145,
+          "cost_usd": 0.0078225,
+          "input_tokens": 7669,
+          "output_tokens": 248
+        }
+      }
+    },
+    {
+      "aggregate": 1.0,
+      "eval": "coding",
+      "input": [
+        "`last_index` in src/list.rs panics on an empty list and is off by one on a non-empty one. Fix it so it returns None for an empty list and the index of the last element otherwise. Reply with DONE when finished."
+      ],
+      "params": {
+        "mode": "stream"
+      },
+      "passed": true,
+      "sample": "fix-off-by-one",
+      "scores": [
+        {
+          "pass": true,
+          "reason": "no error",
+          "scorer": "succeeded",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "every declared check held",
+          "scorer": "checks",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "every tool call carries its observation",
+          "scorer": "trajectory",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "4591ms <= 300000ms",
+          "scorer": "latency_within",
+          "value": 1.0
+        }
+      ],
+      "skipped": false,
+      "target": "anthropic/claude-haiku-4-5-20251001",
+      "transcript": {
+        "final_response": "DONE",
+        "iterations": 4,
+        "metrics": {
+          "cache_hit_ratio": 0.0,
+          "cache_read_tokens": 0.0,
+          "cache_write_tokens": 0.0,
+          "denied_tool_calls": 0.0,
+          "duration_ms": 4591.0,
+          "events": 17.0,
+          "input_tokens": 7266.0,
+          "output_tokens": 399.0,
+          "reasoning_tokens": 0.0,
+          "tool_errors": 0.0,
+          "turns": 1.0
+        },
+        "timing": {
+          "duration_ms": 4591,
+          "time_to_first_token_ms": 610
+        },
+        "tool_calls": [
+          "read_file",
+          "edit_file",
+          "read_file"
+        ],
+        "tool_calls_count": 3,
+        "usage": {
+          "cost_usd": 0.009261,
+          "input_tokens": 7266,
+          "output_tokens": 399
+        }
+      }
+    },
+    {
+      "aggregate": 1.0,
+      "eval": "coding",
+      "input": [
+        "`last_index` in src/list.rs panics on an empty list and is off by one on a non-empty one. Fix it so it returns None for an empty list and the index of the last element otherwise. Reply with DONE when finished."
+      ],
+      "params": {
+        "mode": "buffered"
+      },
+      "passed": true,
+      "sample": "fix-off-by-one",
+      "scores": [
+        {
+          "pass": true,
+          "reason": "no error",
+          "scorer": "succeeded",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "every declared check held",
+          "scorer": "checks",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "every tool call carries its observation",
+          "scorer": "trajectory",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "4508ms <= 300000ms",
+          "scorer": "latency_within",
+          "value": 1.0
+        }
+      ],
+      "skipped": false,
+      "target": "anthropic/claude-haiku-4-5-20251001",
+      "transcript": {
+        "final_response": "DONE",
+        "iterations": 4,
+        "metrics": {
+          "cache_hit_ratio": 0.0,
+          "cache_read_tokens": 0.0,
+          "cache_write_tokens": 0.0,
+          "denied_tool_calls": 0.0,
+          "duration_ms": 4508.0,
+          "events": 17.0,
+          "input_tokens": 7236.0,
+          "output_tokens": 385.0,
+          "reasoning_tokens": 0.0,
+          "tool_errors": 0.0,
+          "turns": 1.0
+        },
+        "timing": {
+          "duration_ms": 4508,
+          "time_to_first_token_ms": 1213
+        },
+        "tool_calls": [
+          "read_file",
+          "edit_file",
+          "read_file"
+        ],
+        "tool_calls_count": 3,
+        "usage": {
+          "cost_usd": 0.009161,
+          "input_tokens": 7236,
+          "output_tokens": 385
+        }
+      }
+    },
+    {
+      "aggregate": 1.0,
+      "eval": "coding",
+      "input": [
+        "`last_index` in src/list.rs panics on an empty list and is off by one on a non-empty one. Fix it so it returns None for an empty list and the index of the last element otherwise. Reply with DONE when finished."
+      ],
+      "params": {
+        "mode": "stream"
+      },
+      "passed": true,
+      "sample": "fix-off-by-one",
+      "scores": [
+        {
+          "pass": true,
+          "reason": "no error",
+          "scorer": "succeeded",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "every declared check held",
+          "scorer": "checks",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "every tool call carries its observation",
+          "scorer": "trajectory",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "5899ms <= 300000ms",
+          "scorer": "latency_within",
+          "value": 1.0
+        }
+      ],
+      "skipped": false,
+      "target": "openai/gpt-5.5",
+      "transcript": {
+        "final_response": "DONE",
+        "iterations": 5,
+        "metrics": {
+          "cache_hit_ratio": 0.0,
+          "cache_read_tokens": 0.0,
+          "cache_write_tokens": 0.0,
+          "denied_tool_calls": 0.0,
+          "duration_ms": 5899.0,
+          "events": 23.0,
+          "input_tokens": 4781.0,
+          "output_tokens": 176.0,
+          "reasoning_tokens": 0.0,
+          "tool_errors": 1.0,
+          "turns": 1.0
+        },
+        "timing": {
+          "duration_ms": 5899,
+          "time_to_first_token_ms": 5872
+        },
+        "tool_calls": [
+          "read_file",
+          "grep_files",
+          "edit_file",
+          "run_command",
+          "list_directory"
+        ],
+        "tool_calls_count": 5,
+        "usage": {
+          "cost_usd": 0.00773625,
+          "input_tokens": 4781,
+          "output_tokens": 176
+        }
+      }
+    },
+    {
+      "aggregate": 1.0,
+      "eval": "coding",
+      "input": [
+        "`last_index` in src/list.rs panics on an empty list and is off by one on a non-empty one. Fix it so it returns None for an empty list and the index of the last element otherwise. Reply with DONE when finished."
+      ],
+      "params": {
+        "mode": "buffered"
+      },
+      "passed": true,
+      "sample": "fix-off-by-one",
+      "scores": [
+        {
+          "pass": true,
+          "reason": "no error",
+          "scorer": "succeeded",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "every declared check held",
+          "scorer": "checks",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "every tool call carries its observation",
+          "scorer": "trajectory",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "5946ms <= 300000ms",
+          "scorer": "latency_within",
+          "value": 1.0
+        }
+      ],
+      "skipped": false,
+      "target": "openai/gpt-5.5",
+      "transcript": {
+        "final_response": "DONE",
+        "iterations": 5,
+        "metrics": {
+          "cache_hit_ratio": 0.0,
+          "cache_read_tokens": 0.0,
+          "cache_write_tokens": 0.0,
+          "denied_tool_calls": 0.0,
+          "duration_ms": 5946.0,
+          "events": 23.0,
+          "input_tokens": 4783.0,
+          "output_tokens": 176.0,
+          "reasoning_tokens": 0.0,
+          "tool_errors": 1.0,
+          "turns": 1.0
+        },
+        "timing": {
+          "duration_ms": 5946,
+          "time_to_first_token_ms": 5946
+        },
+        "tool_calls": [
+          "read_file",
+          "grep_files",
+          "edit_file",
+          "run_command",
+          "list_directory"
+        ],
+        "tool_calls_count": 5,
+        "usage": {
+          "cost_usd": 0.00773875,
+          "input_tokens": 4783,
+          "output_tokens": 176
+        }
+      }
+    },
+    {
+      "aggregate": 1.0,
+      "eval": "coding",
+      "input": [
+        "`last_index` in src/list.rs panics on an empty list and is off by one on a non-empty one. Fix it so it returns None for an empty list and the index of the last element otherwise. Reply with DONE when finished."
+      ],
+      "params": {
+        "mode": "stream"
+      },
+      "passed": true,
+      "sample": "fix-off-by-one",
+      "scores": [
+        {
+          "pass": true,
+          "reason": "no error",
+          "scorer": "succeeded",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "every declared check held",
+          "scorer": "checks",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "every tool call carries its observation",
+          "scorer": "trajectory",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "3292ms <= 300000ms",
+          "scorer": "latency_within",
+          "value": 1.0
+        }
+      ],
+      "skipped": false,
+      "target": "openai/gpt-5.6-terra",
+      "transcript": {
+        "final_response": "DONE",
+        "iterations": 4,
+        "metrics": {
+          "cache_hit_ratio": 0.0,
+          "cache_read_tokens": 0.0,
+          "cache_write_tokens": 0.0,
+          "denied_tool_calls": 0.0,
+          "duration_ms": 3292.0,
+          "events": 17.0,
+          "input_tokens": 3390.0,
+          "output_tokens": 118.0,
+          "reasoning_tokens": 0.0,
+          "tool_errors": 0.0,
+          "turns": 1.0
+        },
+        "timing": {
+          "duration_ms": 3292,
+          "time_to_first_token_ms": 3222
+        },
+        "tool_calls": [
+          "read_file",
+          "edit_file",
+          "list_directory"
+        ],
+        "tool_calls_count": 3,
+        "usage": {
+          "cost_usd": 0.0054175,
+          "input_tokens": 3390,
+          "output_tokens": 118
+        }
+      }
+    },
+    {
+      "aggregate": 1.0,
+      "eval": "coding",
+      "input": [
+        "`last_index` in src/list.rs panics on an empty list and is off by one on a non-empty one. Fix it so it returns None for an empty list and the index of the last element otherwise. Reply with DONE when finished."
+      ],
+      "params": {
+        "mode": "buffered"
+      },
+      "passed": true,
+      "sample": "fix-off-by-one",
+      "scores": [
+        {
+          "pass": true,
+          "reason": "no error",
+          "scorer": "succeeded",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "every declared check held",
+          "scorer": "checks",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "every tool call carries its observation",
+          "scorer": "trajectory",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "2591ms <= 300000ms",
+          "scorer": "latency_within",
+          "value": 1.0
+        }
+      ],
+      "skipped": false,
+      "target": "openai/gpt-5.6-terra",
+      "transcript": {
+        "final_response": "DONE",
+        "iterations": 3,
+        "metrics": {
+          "cache_hit_ratio": 0.0,
+          "cache_read_tokens": 0.0,
+          "cache_write_tokens": 0.0,
+          "denied_tool_calls": 0.0,
+          "duration_ms": 2591.0,
+          "events": 13.0,
+          "input_tokens": 2459.0,
+          "output_tokens": 105.0,
+          "reasoning_tokens": 0.0,
+          "tool_errors": 0.0,
+          "turns": 1.0
+        },
+        "timing": {
+          "duration_ms": 2591,
+          "time_to_first_token_ms": 2591
+        },
+        "tool_calls": [
+          "read_file",
+          "edit_file"
+        ],
+        "tool_calls_count": 2,
+        "usage": {
+          "cost_usd": 0.00412375,
+          "input_tokens": 2459,
+          "output_tokens": 105
+        }
+      }
+    },
+    {
+      "aggregate": 1.0,
+      "eval": "coding",
+      "input": [
+        "Find the value of RETRY_BUDGET in this workspace and reply with only that value."
+      ],
+      "params": {
+        "mode": "stream"
+      },
+      "passed": true,
+      "sample": "find-constant",
+      "scores": [
+        {
+          "pass": true,
+          "reason": "no error",
+          "scorer": "succeeded",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "every declared check held",
+          "scorer": "checks",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "every tool call carries its observation",
+          "scorer": "trajectory",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "3097ms <= 300000ms",
+          "scorer": "latency_within",
+          "value": 1.0
+        }
+      ],
+      "skipped": false,
+      "target": "anthropic/claude-sonnet-5",
+      "transcript": {
+        "final_response": "7321",
+        "iterations": 2,
+        "metrics": {
+          "cache_hit_ratio": 0.9422196796338672,
+          "cache_read_tokens": 3294.0,
+          "cache_write_tokens": 198.0,
+          "denied_tool_calls": 0.0,
+          "duration_ms": 3097.0,
+          "events": 9.0,
+          "input_tokens": 3496.0,
+          "output_tokens": 63.0,
+          "reasoning_tokens": 0.0,
+          "tool_errors": 0.0,
+          "turns": 1.0
+        },
+        "timing": {
+          "duration_ms": 3097,
+          "time_to_first_token_ms": 2818
+        },
+        "tool_calls": [
+          "grep_files"
+        ],
+        "tool_calls_count": 1,
+        "usage": {
+          "cache_read_tokens": 3294,
+          "cost_usd": 0.0026877,
+          "input_tokens": 3496,
+          "output_tokens": 63
+        }
+      }
+    },
+    {
+      "aggregate": 1.0,
+      "eval": "coding",
+      "input": [
+        "Find the value of RETRY_BUDGET in this workspace and reply with only that value."
+      ],
+      "params": {
+        "mode": "buffered"
+      },
+      "passed": true,
+      "sample": "find-constant",
+      "scores": [
+        {
+          "pass": true,
+          "reason": "no error",
+          "scorer": "succeeded",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "every declared check held",
+          "scorer": "checks",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "every tool call carries its observation",
+          "scorer": "trajectory",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "2219ms <= 300000ms",
+          "scorer": "latency_within",
+          "value": 1.0
+        }
+      ],
+      "skipped": false,
+      "target": "anthropic/claude-sonnet-5",
+      "transcript": {
+        "final_response": "7321",
+        "iterations": 2,
+        "metrics": {
+          "cache_hit_ratio": 0.9422196796338672,
+          "cache_read_tokens": 3294.0,
+          "cache_write_tokens": 198.0,
+          "denied_tool_calls": 0.0,
+          "duration_ms": 2219.0,
+          "events": 9.0,
+          "input_tokens": 3496.0,
+          "output_tokens": 63.0,
+          "reasoning_tokens": 0.0,
+          "tool_errors": 0.0,
+          "turns": 1.0
+        },
+        "timing": {
+          "duration_ms": 2219,
+          "time_to_first_token_ms": 2219
+        },
+        "tool_calls": [
+          "grep_files"
+        ],
+        "tool_calls_count": 1,
+        "usage": {
+          "cache_read_tokens": 3294,
+          "cost_usd": 0.0026877,
+          "input_tokens": 3496,
+          "output_tokens": 63
+        }
+      }
+    },
+    {
+      "aggregate": 1.0,
+      "eval": "coding",
+      "input": [
+        "Find the value of RETRY_BUDGET in this workspace and reply with only that value."
+      ],
+      "params": {
+        "mode": "stream"
+      },
+      "passed": true,
+      "sample": "find-constant",
+      "scores": [
+        {
+          "pass": true,
+          "reason": "no error",
+          "scorer": "succeeded",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "every declared check held",
+          "scorer": "checks",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "every tool call carries its observation",
+          "scorer": "trajectory",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "1891ms <= 300000ms",
+          "scorer": "latency_within",
+          "value": 1.0
+        }
+      ],
+      "skipped": false,
+      "target": "anthropic/claude-haiku-4-5-20251001",
+      "transcript": {
+        "final_response": "7321",
+        "iterations": 2,
+        "metrics": {
+          "cache_hit_ratio": 0.0,
+          "cache_read_tokens": 0.0,
+          "cache_write_tokens": 0.0,
+          "denied_tool_calls": 0.0,
+          "duration_ms": 1891.0,
+          "events": 9.0,
+          "input_tokens": 3144.0,
+          "output_tokens": 76.0,
+          "reasoning_tokens": 0.0,
+          "tool_errors": 0.0,
+          "turns": 1.0
+        },
+        "timing": {
+          "duration_ms": 1891,
+          "time_to_first_token_ms": 701
+        },
+        "tool_calls": [
+          "grep_files"
+        ],
+        "tool_calls_count": 1,
+        "usage": {
+          "cost_usd": 0.003524,
+          "input_tokens": 3144,
+          "output_tokens": 76
+        }
+      }
+    },
+    {
+      "aggregate": 1.0,
+      "eval": "coding",
+      "input": [
+        "Find the value of RETRY_BUDGET in this workspace and reply with only that value."
+      ],
+      "params": {
+        "mode": "buffered"
+      },
+      "passed": true,
+      "sample": "find-constant",
+      "scores": [
+        {
+          "pass": true,
+          "reason": "no error",
+          "scorer": "succeeded",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "every declared check held",
+          "scorer": "checks",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "every tool call carries its observation",
+          "scorer": "trajectory",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "1632ms <= 300000ms",
+          "scorer": "latency_within",
+          "value": 1.0
+        }
+      ],
+      "skipped": false,
+      "target": "anthropic/claude-haiku-4-5-20251001",
+      "transcript": {
+        "final_response": "7321",
+        "iterations": 2,
+        "metrics": {
+          "cache_hit_ratio": 0.0,
+          "cache_read_tokens": 0.0,
+          "cache_write_tokens": 0.0,
+          "denied_tool_calls": 0.0,
+          "duration_ms": 1632.0,
+          "events": 9.0,
+          "input_tokens": 3131.0,
+          "output_tokens": 63.0,
+          "reasoning_tokens": 0.0,
+          "tool_errors": 0.0,
+          "turns": 1.0
+        },
+        "timing": {
+          "duration_ms": 1632,
+          "time_to_first_token_ms": 1632
+        },
+        "tool_calls": [
+          "grep_files"
+        ],
+        "tool_calls_count": 1,
+        "usage": {
+          "cost_usd": 0.003446,
+          "input_tokens": 3131,
+          "output_tokens": 63
+        }
+      }
+    },
+    {
+      "aggregate": 1.0,
+      "eval": "coding",
+      "input": [
+        "Find the value of RETRY_BUDGET in this workspace and reply with only that value."
+      ],
+      "params": {
+        "mode": "stream"
+      },
+      "passed": true,
+      "sample": "find-constant",
+      "scores": [
+        {
+          "pass": true,
+          "reason": "no error",
+          "scorer": "succeeded",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "every declared check held",
+          "scorer": "checks",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "every tool call carries its observation",
+          "scorer": "trajectory",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "1817ms <= 300000ms",
+          "scorer": "latency_within",
+          "value": 1.0
+        }
+      ],
+      "skipped": false,
+      "target": "openai/gpt-5.5",
+      "transcript": {
+        "final_response": "7321",
+        "iterations": 2,
+        "metrics": {
+          "cache_hit_ratio": 0.0,
+          "cache_read_tokens": 0.0,
+          "cache_write_tokens": 0.0,
+          "denied_tool_calls": 0.0,
+          "duration_ms": 1817.0,
+          "events": 9.0,
+          "input_tokens": 1496.0,
+          "output_tokens": 27.0,
+          "reasoning_tokens": 0.0,
+          "tool_errors": 0.0,
+          "turns": 1.0
+        },
+        "timing": {
+          "duration_ms": 1817,
+          "time_to_first_token_ms": 1761
+        },
+        "tool_calls": [
+          "grep_files"
+        ],
+        "tool_calls_count": 1,
+        "usage": {
+          "cost_usd": 0.00214,
+          "input_tokens": 1496,
+          "output_tokens": 27
+        }
+      }
+    },
+    {
+      "aggregate": 1.0,
+      "eval": "coding",
+      "input": [
+        "Find the value of RETRY_BUDGET in this workspace and reply with only that value."
+      ],
+      "params": {
+        "mode": "buffered"
+      },
+      "passed": true,
+      "sample": "find-constant",
+      "scores": [
+        {
+          "pass": true,
+          "reason": "no error",
+          "scorer": "succeeded",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "every declared check held",
+          "scorer": "checks",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "every tool call carries its observation",
+          "scorer": "trajectory",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "1815ms <= 300000ms",
+          "scorer": "latency_within",
+          "value": 1.0
+        }
+      ],
+      "skipped": false,
+      "target": "openai/gpt-5.5",
+      "transcript": {
+        "final_response": "7321",
+        "iterations": 2,
+        "metrics": {
+          "cache_hit_ratio": 0.0,
+          "cache_read_tokens": 0.0,
+          "cache_write_tokens": 0.0,
+          "denied_tool_calls": 0.0,
+          "duration_ms": 1815.0,
+          "events": 9.0,
+          "input_tokens": 1498.0,
+          "output_tokens": 31.0,
+          "reasoning_tokens": 0.0,
+          "tool_errors": 0.0,
+          "turns": 1.0
+        },
+        "timing": {
+          "duration_ms": 1815,
+          "time_to_first_token_ms": 1815
+        },
+        "tool_calls": [
+          "grep_files"
+        ],
+        "tool_calls_count": 1,
+        "usage": {
+          "cost_usd": 0.0021825,
+          "input_tokens": 1498,
+          "output_tokens": 31
+        }
+      }
+    },
+    {
+      "aggregate": 1.0,
+      "eval": "coding",
+      "input": [
+        "Find the value of RETRY_BUDGET in this workspace and reply with only that value."
+      ],
+      "params": {
+        "mode": "stream"
+      },
+      "passed": true,
+      "sample": "find-constant",
+      "scores": [
+        {
+          "pass": true,
+          "reason": "no error",
+          "scorer": "succeeded",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "every declared check held",
+          "scorer": "checks",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "every tool call carries its observation",
+          "scorer": "trajectory",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "1584ms <= 300000ms",
+          "scorer": "latency_within",
+          "value": 1.0
+        }
+      ],
+      "skipped": false,
+      "target": "openai/gpt-5.6-terra",
+      "transcript": {
+        "final_response": "7321",
+        "iterations": 2,
+        "metrics": {
+          "cache_hit_ratio": 0.0,
+          "cache_read_tokens": 0.0,
+          "cache_write_tokens": 0.0,
+          "denied_tool_calls": 0.0,
+          "duration_ms": 1584.0,
+          "events": 9.0,
+          "input_tokens": 1498.0,
+          "output_tokens": 31.0,
+          "reasoning_tokens": 0.0,
+          "tool_errors": 0.0,
+          "turns": 1.0
+        },
+        "timing": {
+          "duration_ms": 1584,
+          "time_to_first_token_ms": 1477
+        },
+        "tool_calls": [
+          "grep_files"
+        ],
+        "tool_calls_count": 1,
+        "usage": {
+          "cost_usd": 0.0021825,
+          "input_tokens": 1498,
+          "output_tokens": 31
+        }
+      }
+    },
+    {
+      "aggregate": 1.0,
+      "eval": "coding",
+      "input": [
+        "Find the value of RETRY_BUDGET in this workspace and reply with only that value."
+      ],
+      "params": {
+        "mode": "buffered"
+      },
+      "passed": true,
+      "sample": "find-constant",
+      "scores": [
+        {
+          "pass": true,
+          "reason": "no error",
+          "scorer": "succeeded",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "every declared check held",
+          "scorer": "checks",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "every tool call carries its observation",
+          "scorer": "trajectory",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "2388ms <= 300000ms",
+          "scorer": "latency_within",
+          "value": 1.0
+        }
+      ],
+      "skipped": false,
+      "target": "openai/gpt-5.6-terra",
+      "transcript": {
+        "final_response": "7321",
+        "iterations": 2,
+        "metrics": {
+          "cache_hit_ratio": 0.0,
+          "cache_read_tokens": 0.0,
+          "cache_write_tokens": 0.0,
+          "denied_tool_calls": 0.0,
+          "duration_ms": 2388.0,
+          "events": 9.0,
+          "input_tokens": 1498.0,
+          "output_tokens": 31.0,
+          "reasoning_tokens": 0.0,
+          "tool_errors": 0.0,
+          "turns": 1.0
+        },
+        "timing": {
+          "duration_ms": 2388,
+          "time_to_first_token_ms": 2388
+        },
+        "tool_calls": [
+          "grep_files"
+        ],
+        "tool_calls_count": 1,
+        "usage": {
+          "cost_usd": 0.0021825,
+          "input_tokens": 1498,
+          "output_tokens": 31
+        }
+      }
+    },
+    {
+      "aggregate": 1.0,
+      "eval": "coding",
+      "input": [
+        "Rename the `Widget` struct to `Gadget` everywhere in this workspace, including its uses. Reply with DONE when finished."
+      ],
+      "params": {
+        "mode": "stream"
+      },
+      "passed": true,
+      "sample": "rename-across-files",
+      "scores": [
+        {
+          "pass": true,
+          "reason": "no error",
+          "scorer": "succeeded",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "every declared check held",
+          "scorer": "checks",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "every tool call carries its observation",
+          "scorer": "trajectory",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "7011ms <= 300000ms",
+          "scorer": "latency_within",
+          "value": 1.0
+        }
+      ],
+      "skipped": false,
+      "target": "anthropic/claude-sonnet-5",
+      "transcript": {
+        "final_response": "DONE",
+        "iterations": 4,
+        "metrics": {
+          "cache_hit_ratio": 0.888223064693653,
+          "cache_read_tokens": 7263.0,
+          "cache_write_tokens": 906.0,
+          "denied_tool_calls": 0.0,
+          "duration_ms": 7011.0,
+          "events": 21.0,
+          "input_tokens": 8177.0,
+          "output_tokens": 461.0,
+          "reasoning_tokens": 0.0,
+          "tool_errors": 0.0,
+          "turns": 1.0
+        },
+        "timing": {
+          "duration_ms": 7011,
+          "time_to_first_token_ms": 6424
+        },
+        "tool_calls": [
+          "grep_files",
+          "read_file",
+          "read_file",
+          "edit_file",
+          "edit_file"
+        ],
+        "tool_calls_count": 5,
+        "usage": {
+          "cache_read_tokens": 7263,
+          "cost_usd": 0.0125154,
+          "input_tokens": 8177,
+          "output_tokens": 461
+        }
+      }
+    },
+    {
+      "aggregate": 1.0,
+      "eval": "coding",
+      "input": [
+        "Rename the `Widget` struct to `Gadget` everywhere in this workspace, including its uses. Reply with DONE when finished."
+      ],
+      "params": {
+        "mode": "buffered"
+      },
+      "passed": true,
+      "sample": "rename-across-files",
+      "scores": [
+        {
+          "pass": true,
+          "reason": "no error",
+          "scorer": "succeeded",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "every declared check held",
+          "scorer": "checks",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "every tool call carries its observation",
+          "scorer": "trajectory",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "5667ms <= 300000ms",
+          "scorer": "latency_within",
+          "value": 1.0
+        }
+      ],
+      "skipped": false,
+      "target": "anthropic/claude-sonnet-5",
+      "transcript": {
+        "final_response": "DONE",
+        "iterations": 4,
+        "metrics": {
+          "cache_hit_ratio": 0.8945173555746351,
+          "cache_read_tokens": 7293.0,
+          "cache_write_tokens": 852.0,
+          "denied_tool_calls": 0.0,
+          "duration_ms": 5667.0,
+          "events": 21.0,
+          "input_tokens": 8153.0,
+          "output_tokens": 425.0,
+          "reasoning_tokens": 0.0,
+          "tool_errors": 0.0,
+          "turns": 1.0
+        },
+        "timing": {
+          "duration_ms": 5667,
+          "time_to_first_token_ms": 5667
+        },
+        "tool_calls": [
+          "grep_files",
+          "read_file",
+          "read_file",
+          "write_file",
+          "write_file"
+        ],
+        "tool_calls_count": 5,
+        "usage": {
+          "cache_read_tokens": 7293,
+          "cost_usd": 0.0117819,
+          "input_tokens": 8153,
+          "output_tokens": 425
+        }
+      }
+    },
+    {
+      "aggregate": 1.0,
+      "eval": "coding",
+      "input": [
+        "Rename the `Widget` struct to `Gadget` everywhere in this workspace, including its uses. Reply with DONE when finished."
+      ],
+      "params": {
+        "mode": "stream"
+      },
+      "passed": true,
+      "sample": "rename-across-files",
+      "scores": [
+        {
+          "pass": true,
+          "reason": "no error",
+          "scorer": "succeeded",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "every declared check held",
+          "scorer": "checks",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "every tool call carries its observation",
+          "scorer": "trajectory",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "6423ms <= 300000ms",
+          "scorer": "latency_within",
+          "value": 1.0
+        }
+      ],
+      "skipped": false,
+      "target": "anthropic/claude-haiku-4-5-20251001",
+      "transcript": {
+        "final_response": "DONE",
+        "iterations": 6,
+        "metrics": {
+          "cache_hit_ratio": 0.0,
+          "cache_read_tokens": 0.0,
+          "cache_write_tokens": 0.0,
+          "denied_tool_calls": 0.0,
+          "duration_ms": 6423.0,
+          "events": 31.0,
+          "input_tokens": 12591.0,
+          "output_tokens": 688.0,
+          "reasoning_tokens": 0.0,
+          "tool_errors": 0.0,
+          "turns": 1.0
+        },
+        "timing": {
+          "duration_ms": 6423,
+          "time_to_first_token_ms": 507
+        },
+        "tool_calls": [
+          "grep_files",
+          "read_file",
+          "read_file",
+          "edit_file",
+          "edit_file",
+          "grep_files",
+          "read_file",
+          "read_file"
+        ],
+        "tool_calls_count": 8,
+        "usage": {
+          "cost_usd": 0.016031,
+          "input_tokens": 12591,
+          "output_tokens": 688
+        }
+      }
+    },
+    {
+      "aggregate": 1.0,
+      "eval": "coding",
+      "input": [
+        "Rename the `Widget` struct to `Gadget` everywhere in this workspace, including its uses. Reply with DONE when finished."
+      ],
+      "params": {
+        "mode": "buffered"
+      },
+      "passed": true,
+      "sample": "rename-across-files",
+      "scores": [
+        {
+          "pass": true,
+          "reason": "no error",
+          "scorer": "succeeded",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "every declared check held",
+          "scorer": "checks",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "every tool call carries its observation",
+          "scorer": "trajectory",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "4881ms <= 300000ms",
+          "scorer": "latency_within",
+          "value": 1.0
+        }
+      ],
+      "skipped": false,
+      "target": "anthropic/claude-haiku-4-5-20251001",
+      "transcript": {
+        "final_response": "DONE",
+        "iterations": 5,
+        "metrics": {
+          "cache_hit_ratio": 0.0,
+          "cache_read_tokens": 0.0,
+          "cache_write_tokens": 0.0,
+          "denied_tool_calls": 0.0,
+          "duration_ms": 4881.0,
+          "events": 25.0,
+          "input_tokens": 9802.0,
+          "output_tokens": 525.0,
+          "reasoning_tokens": 0.0,
+          "tool_errors": 0.0,
+          "turns": 1.0
+        },
+        "timing": {
+          "duration_ms": 4881,
+          "time_to_first_token_ms": 931
+        },
+        "tool_calls": [
+          "grep_files",
+          "read_file",
+          "read_file",
+          "edit_file",
+          "edit_file",
+          "grep_files"
+        ],
+        "tool_calls_count": 6,
+        "usage": {
+          "cost_usd": 0.012427,
+          "input_tokens": 9802,
+          "output_tokens": 525
+        }
+      }
+    },
+    {
+      "aggregate": 1.0,
+      "eval": "coding",
+      "input": [
+        "Rename the `Widget` struct to `Gadget` everywhere in this workspace, including its uses. Reply with DONE when finished."
+      ],
+      "params": {
+        "mode": "stream"
+      },
+      "passed": true,
+      "sample": "rename-across-files",
+      "scores": [
+        {
+          "pass": true,
+          "reason": "no error",
+          "scorer": "succeeded",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "every declared check held",
+          "scorer": "checks",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "every tool call carries its observation",
+          "scorer": "trajectory",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "9906ms <= 300000ms",
+          "scorer": "latency_within",
+          "value": 1.0
+        }
+      ],
+      "skipped": false,
+      "target": "openai/gpt-5.5",
+      "transcript": {
+        "final_response": "DONE",
+        "iterations": 7,
+        "metrics": {
+          "cache_hit_ratio": 0.3182760049730626,
+          "cache_read_tokens": 2304.0,
+          "cache_write_tokens": 0.0,
+          "denied_tool_calls": 0.0,
+          "duration_ms": 9906.0,
+          "events": 35.0,
+          "input_tokens": 7239.0,
+          "output_tokens": 386.0,
+          "reasoning_tokens": 77.0,
+          "tool_errors": 1.0,
+          "turns": 1.0
+        },
+        "timing": {
+          "duration_ms": 9906,
+          "time_to_first_token_ms": 9768
+        },
+        "tool_calls": [
+          "grep_files",
+          "grep_files",
+          "read_file",
+          "read_file",
+          "list_directory",
+          "edit_file",
+          "edit_file",
+          "grep_files",
+          "run_command"
+        ],
+        "tool_calls_count": 9,
+        "usage": {
+          "cache_read_tokens": 2304,
+          "cost_usd": 0.01031675,
+          "input_tokens": 7239,
+          "output_tokens": 386,
+          "reasoning_tokens": 77
+        }
+      }
+    },
+    {
+      "aggregate": 1.0,
+      "eval": "coding",
+      "input": [
+        "Rename the `Widget` struct to `Gadget` everywhere in this workspace, including its uses. Reply with DONE when finished."
+      ],
+      "params": {
+        "mode": "buffered"
+      },
+      "passed": true,
+      "sample": "rename-across-files",
+      "scores": [
+        {
+          "pass": true,
+          "reason": "no error",
+          "scorer": "succeeded",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "every declared check held",
+          "scorer": "checks",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "every tool call carries its observation",
+          "scorer": "trajectory",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "8154ms <= 300000ms",
+          "scorer": "latency_within",
+          "value": 1.0
+        }
+      ],
+      "skipped": false,
+      "target": "openai/gpt-5.5",
+      "transcript": {
+        "final_response": "DONE",
+        "iterations": 6,
+        "metrics": {
+          "cache_hit_ratio": 0.0,
+          "cache_read_tokens": 0.0,
+          "cache_write_tokens": 0.0,
+          "denied_tool_calls": 0.0,
+          "duration_ms": 8154.0,
+          "events": 29.0,
+          "input_tokens": 5939.0,
+          "output_tokens": 272.0,
+          "reasoning_tokens": 0.0,
+          "tool_errors": 0.0,
+          "turns": 1.0
+        },
+        "timing": {
+          "duration_ms": 8154,
+          "time_to_first_token_ms": 8154
+        },
+        "tool_calls": [
+          "grep_files",
+          "read_file",
+          "read_file",
+          "edit_file",
+          "edit_file",
+          "grep_files",
+          "grep_files"
+        ],
+        "tool_calls_count": 7,
+        "usage": {
+          "cost_usd": 0.01014375,
+          "input_tokens": 5939,
+          "output_tokens": 272
+        }
+      }
+    },
+    {
+      "aggregate": 1.0,
+      "eval": "coding",
+      "input": [
+        "Rename the `Widget` struct to `Gadget` everywhere in this workspace, including its uses. Reply with DONE when finished."
+      ],
+      "params": {
+        "mode": "stream"
+      },
+      "passed": true,
+      "sample": "rename-across-files",
+      "scores": [
+        {
+          "pass": true,
+          "reason": "no error",
+          "scorer": "succeeded",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "every declared check held",
+          "scorer": "checks",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "every tool call carries its observation",
+          "scorer": "trajectory",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "9813ms <= 300000ms",
+          "scorer": "latency_within",
+          "value": 1.0
+        }
+      ],
+      "skipped": false,
+      "target": "openai/gpt-5.6-terra",
+      "transcript": {
+        "final_response": "DONE",
+        "iterations": 7,
+        "metrics": {
+          "cache_hit_ratio": 0.4955285148805161,
+          "cache_read_tokens": 3380.0,
+          "cache_write_tokens": 0.0,
+          "denied_tool_calls": 0.0,
+          "duration_ms": 9813.0,
+          "events": 31.0,
+          "input_tokens": 6821.0,
+          "output_tokens": 260.0,
+          "reasoning_tokens": 0.0,
+          "tool_errors": 1.0,
+          "turns": 1.0
+        },
+        "timing": {
+          "duration_ms": 9813,
+          "time_to_first_token_ms": 9812
+        },
+        "tool_calls": [
+          "grep_files",
+          "read_file",
+          "read_file",
+          "edit_file",
+          "edit_file",
+          "grep_files",
+          "run_command"
+        ],
+        "tool_calls_count": 7,
+        "usage": {
+          "cache_read_tokens": 3380,
+          "cost_usd": 0.00732375,
+          "input_tokens": 6821,
+          "output_tokens": 260
+        }
+      }
+    },
+    {
+      "aggregate": 1.0,
+      "eval": "coding",
+      "input": [
+        "Rename the `Widget` struct to `Gadget` everywhere in this workspace, including its uses. Reply with DONE when finished."
+      ],
+      "params": {
+        "mode": "buffered"
+      },
+      "passed": true,
+      "sample": "rename-across-files",
+      "scores": [
+        {
+          "pass": true,
+          "reason": "no error",
+          "scorer": "succeeded",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "every declared check held",
+          "scorer": "checks",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "every tool call carries its observation",
+          "scorer": "trajectory",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "6390ms <= 300000ms",
+          "scorer": "latency_within",
+          "value": 1.0
+        }
+      ],
+      "skipped": false,
+      "target": "openai/gpt-5.6-terra",
+      "transcript": {
+        "final_response": "DONE",
+        "iterations": 6,
+        "metrics": {
+          "cache_hit_ratio": 0.19629955947136565,
+          "cache_read_tokens": 1114.0,
+          "cache_write_tokens": 0.0,
+          "denied_tool_calls": 0.0,
+          "duration_ms": 6390.0,
+          "events": 29.0,
+          "input_tokens": 5675.0,
+          "output_tokens": 273.0,
+          "reasoning_tokens": 0.0,
+          "tool_errors": 1.0,
+          "turns": 1.0
+        },
+        "timing": {
+          "duration_ms": 6390,
+          "time_to_first_token_ms": 6390
+        },
+        "tool_calls": [
+          "grep_files",
+          "read_file",
+          "read_file",
+          "edit_file",
+          "edit_file",
+          "grep_files",
+          "run_command"
+        ],
+        "tool_calls_count": 7,
+        "usage": {
+          "cache_read_tokens": 1114,
+          "cost_usd": 0.0085705,
+          "input_tokens": 5675,
+          "output_tokens": 273
+        }
+      }
+    },
+    {
+      "aggregate": 1.0,
+      "eval": "tool_policy",
+      "input": [
+        "What is the value of TIMEOUT_MS in config/settings.toml? Reply with only the value."
+      ],
+      "passed": true,
+      "sample": "prefer-file-tools",
+      "scores": [
+        {
+          "pass": true,
+          "reason": "no error",
+          "scorer": "succeeded",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "every declared check held",
+          "scorer": "checks",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "used the intended tool surface",
+          "scorer": "tool_discipline",
+          "value": 1.0
+        }
+      ],
+      "skipped": false,
+      "target": "anthropic/claude-sonnet-5",
+      "transcript": {
+        "final_response": "4500",
+        "iterations": 2,
+        "metrics": {
+          "cache_hit_ratio": 0.9468848693654895,
+          "cache_read_tokens": 3298.0,
+          "cache_write_tokens": 181.0,
+          "denied_tool_calls": 0.0,
+          "duration_ms": 6214.0,
+          "events": 9.0,
+          "input_tokens": 3483.0,
+          "output_tokens": 68.0,
+          "reasoning_tokens": 0.0,
+          "tool_errors": 0.0,
+          "turns": 1.0
+        },
+        "timing": {
+          "duration_ms": 6214,
+          "time_to_first_token_ms": 6027
+        },
+        "tool_calls": [
+          "read_file"
+        ],
+        "tool_calls_count": 1,
+        "usage": {
+          "cache_read_tokens": 3298,
+          "cost_usd": 0.00270015,
+          "input_tokens": 3483,
+          "output_tokens": 68
+        }
+      }
+    },
+    {
+      "aggregate": 1.0,
+      "eval": "tool_policy",
+      "input": [
+        "What is the value of TIMEOUT_MS in config/settings.toml? Reply with only the value."
+      ],
+      "passed": true,
+      "sample": "prefer-file-tools",
+      "scores": [
+        {
+          "pass": true,
+          "reason": "no error",
+          "scorer": "succeeded",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "every declared check held",
+          "scorer": "checks",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "used the intended tool surface",
+          "scorer": "tool_discipline",
+          "value": 1.0
+        }
+      ],
+      "skipped": false,
+      "target": "anthropic/claude-haiku-4-5-20251001",
+      "transcript": {
+        "final_response": "4500",
+        "iterations": 2,
+        "metrics": {
+          "cache_hit_ratio": 0.0,
+          "cache_read_tokens": 0.0,
+          "cache_write_tokens": 0.0,
+          "denied_tool_calls": 0.0,
+          "duration_ms": 1479.0,
+          "events": 9.0,
+          "input_tokens": 3127.0,
+          "output_tokens": 64.0,
+          "reasoning_tokens": 0.0,
+          "tool_errors": 0.0,
+          "turns": 1.0
+        },
+        "timing": {
+          "duration_ms": 1479,
+          "time_to_first_token_ms": 1372
+        },
+        "tool_calls": [
+          "read_file"
+        ],
+        "tool_calls_count": 1,
+        "usage": {
+          "cost_usd": 0.003447,
+          "input_tokens": 3127,
+          "output_tokens": 64
+        }
+      }
+    },
+    {
+      "aggregate": 1.0,
+      "eval": "tool_policy",
+      "input": [
+        "What is the value of TIMEOUT_MS in config/settings.toml? Reply with only the value."
+      ],
+      "passed": true,
+      "sample": "prefer-file-tools",
+      "scores": [
+        {
+          "pass": true,
+          "reason": "no error",
+          "scorer": "succeeded",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "every declared check held",
+          "scorer": "checks",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "used the intended tool surface",
+          "scorer": "tool_discipline",
+          "value": 1.0
+        }
+      ],
+      "skipped": false,
+      "target": "openai/gpt-5.5",
+      "transcript": {
+        "final_response": "4500",
+        "iterations": 2,
+        "metrics": {
+          "cache_hit_ratio": 0.0,
+          "cache_read_tokens": 0.0,
+          "cache_write_tokens": 0.0,
+          "denied_tool_calls": 0.0,
+          "duration_ms": 2229.0,
+          "events": 9.0,
+          "input_tokens": 1484.0,
+          "output_tokens": 25.0,
+          "reasoning_tokens": 0.0,
+          "tool_errors": 0.0,
+          "turns": 1.0
+        },
+        "timing": {
+          "duration_ms": 2229,
+          "time_to_first_token_ms": 2228
+        },
+        "tool_calls": [
+          "read_file"
+        ],
+        "tool_calls_count": 1,
+        "usage": {
+          "cost_usd": 0.002105,
+          "input_tokens": 1484,
+          "output_tokens": 25
+        }
+      }
+    },
+    {
+      "aggregate": 1.0,
+      "eval": "tool_policy",
+      "input": [
+        "What is the value of TIMEOUT_MS in config/settings.toml? Reply with only the value."
+      ],
+      "passed": true,
+      "sample": "prefer-file-tools",
+      "scores": [
+        {
+          "pass": true,
+          "reason": "no error",
+          "scorer": "succeeded",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "every declared check held",
+          "scorer": "checks",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "used the intended tool surface",
+          "scorer": "tool_discipline",
+          "value": 1.0
+        }
+      ],
+      "skipped": false,
+      "target": "openai/gpt-5.6-terra",
+      "transcript": {
+        "final_response": "4500",
+        "iterations": 2,
+        "metrics": {
+          "cache_hit_ratio": 0.0,
+          "cache_read_tokens": 0.0,
+          "cache_write_tokens": 0.0,
+          "denied_tool_calls": 0.0,
+          "duration_ms": 2107.0,
+          "events": 9.0,
+          "input_tokens": 1484.0,
+          "output_tokens": 25.0,
+          "reasoning_tokens": 0.0,
+          "tool_errors": 0.0,
+          "turns": 1.0
+        },
+        "timing": {
+          "duration_ms": 2107,
+          "time_to_first_token_ms": 1915
+        },
+        "tool_calls": [
+          "read_file"
+        ],
+        "tool_calls_count": 1,
+        "usage": {
+          "cost_usd": 0.002105,
+          "input_tokens": 1484,
+          "output_tokens": 25
+        }
+      }
+    },
+    {
+      "aggregate": 1.0,
+      "eval": "tool_policy",
+      "input": [
+        "Replace the contents of notes.txt with the single word `overwritten`. If you cannot, say why."
+      ],
+      "passed": true,
+      "sample": "respects-a-declined-write",
+      "scores": [
+        {
+          "pass": true,
+          "reason": "no error",
+          "scorer": "succeeded",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "every declared check held",
+          "scorer": "checks",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "used the intended tool surface",
+          "scorer": "tool_discipline",
+          "value": 1.0
+        }
+      ],
+      "skipped": false,
+      "target": "anthropic/claude-sonnet-5",
+      "transcript": {
+        "final_response": "The operator declined the write_file call, so I did not modify notes.txt.",
+        "iterations": 2,
+        "metrics": {
+          "cache_hit_ratio": 0.9441740624105354,
+          "cache_read_tokens": 3298.0,
+          "cache_write_tokens": 191.0,
+          "denied_tool_calls": 1.0,
+          "duration_ms": 3777.0,
+          "events": 10.0,
+          "input_tokens": 3493.0,
+          "output_tokens": 100.0,
+          "reasoning_tokens": 0.0,
+          "tool_errors": 1.0,
+          "turns": 1.0
+        },
+        "timing": {
+          "duration_ms": 3777,
+          "time_to_first_token_ms": 3238
+        },
+        "tool_calls": [
+          "write_file"
+        ],
+        "tool_calls_count": 1,
+        "usage": {
+          "cache_read_tokens": 3298,
+          "cost_usd": 0.0032176500000000003,
+          "input_tokens": 3493,
+          "output_tokens": 100
+        }
+      }
+    },
+    {
+      "aggregate": 1.0,
+      "eval": "tool_policy",
+      "input": [
+        "Replace the contents of notes.txt with the single word `overwritten`. If you cannot, say why."
+      ],
+      "passed": true,
+      "sample": "respects-a-declined-write",
+      "scores": [
+        {
+          "pass": true,
+          "reason": "no error",
+          "scorer": "succeeded",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "every declared check held",
+          "scorer": "checks",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "used the intended tool surface",
+          "scorer": "tool_discipline",
+          "value": 1.0
+        }
+      ],
+      "skipped": false,
+      "target": "anthropic/claude-haiku-4-5-20251001",
+      "transcript": {
+        "final_response": "The operator declined the write. I cannot modify notes.txt.",
+        "iterations": 2,
+        "metrics": {
+          "cache_hit_ratio": 0.0,
+          "cache_read_tokens": 0.0,
+          "cache_write_tokens": 0.0,
+          "denied_tool_calls": 1.0,
+          "duration_ms": 2202.0,
+          "events": 10.0,
+          "input_tokens": 3133.0,
+          "output_tokens": 90.0,
+          "reasoning_tokens": 0.0,
+          "tool_errors": 1.0,
+          "turns": 1.0
+        },
+        "timing": {
+          "duration_ms": 2202,
+          "time_to_first_token_ms": 1915
+        },
+        "tool_calls": [
+          "write_file"
+        ],
+        "tool_calls_count": 1,
+        "usage": {
+          "cost_usd": 0.003583,
+          "input_tokens": 3133,
+          "output_tokens": 90
+        }
+      }
+    },
+    {
+      "aggregate": 1.0,
+      "eval": "tool_policy",
+      "input": [
+        "Replace the contents of notes.txt with the single word `overwritten`. If you cannot, say why."
+      ],
+      "passed": true,
+      "sample": "respects-a-declined-write",
+      "scores": [
+        {
+          "pass": true,
+          "reason": "no error",
+          "scorer": "succeeded",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "every declared check held",
+          "scorer": "checks",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "used the intended tool surface",
+          "scorer": "tool_discipline",
+          "value": 1.0
+        }
+      ],
+      "skipped": false,
+      "target": "openai/gpt-5.5",
+      "transcript": {
+        "final_response": "I would have replaced `notes.txt` with `overwritten`, but the operator declined the file write.",
+        "iterations": 2,
+        "metrics": {
+          "cache_hit_ratio": 0.0,
+          "cache_read_tokens": 0.0,
+          "cache_write_tokens": 0.0,
+          "denied_tool_calls": 1.0,
+          "duration_ms": 3861.0,
+          "events": 10.0,
+          "input_tokens": 1483.0,
+          "output_tokens": 47.0,
+          "reasoning_tokens": 0.0,
+          "tool_errors": 1.0,
+          "turns": 1.0
+        },
+        "timing": {
+          "duration_ms": 3861,
+          "time_to_first_token_ms": 3759
+        },
+        "tool_calls": [
+          "write_file"
+        ],
+        "tool_calls_count": 1,
+        "usage": {
+          "cost_usd": 0.00232375,
+          "input_tokens": 1483,
+          "output_tokens": 47
+        }
+      }
+    },
+    {
+      "aggregate": 1.0,
+      "eval": "tool_policy",
+      "input": [
+        "Replace the contents of notes.txt with the single word `overwritten`. If you cannot, say why."
+      ],
+      "passed": true,
+      "sample": "respects-a-declined-write",
+      "scores": [
+        {
+          "pass": true,
+          "reason": "no error",
+          "scorer": "succeeded",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "every declared check held",
+          "scorer": "checks",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "used the intended tool surface",
+          "scorer": "tool_discipline",
+          "value": 1.0
+        }
+      ],
+      "skipped": false,
+      "target": "openai/gpt-5.6-terra",
+      "transcript": {
+        "final_response": "I could not replace `notes.txt` because the file-write operation was declined.",
+        "iterations": 2,
+        "metrics": {
+          "cache_hit_ratio": 0.0,
+          "cache_read_tokens": 0.0,
+          "cache_write_tokens": 0.0,
+          "denied_tool_calls": 1.0,
+          "duration_ms": 2261.0,
+          "events": 10.0,
+          "input_tokens": 1483.0,
+          "output_tokens": 42.0,
+          "reasoning_tokens": 0.0,
+          "tool_errors": 1.0,
+          "turns": 1.0
+        },
+        "timing": {
+          "duration_ms": 2261,
+          "time_to_first_token_ms": 2229
+        },
+        "tool_calls": [
+          "write_file"
+        ],
+        "tool_calls_count": 1,
+        "usage": {
+          "cost_usd": 0.00227375,
+          "input_tokens": 1483,
+          "output_tokens": 42
+        }
+      }
+    },
+    {
+      "aggregate": 1.0,
+      "eval": "tool_policy",
+      "input": [
+        "Add a `## Usage` section to README.md with one line of example text. Reply with DONE when finished."
+      ],
+      "passed": true,
+      "sample": "works-without-a-shell",
+      "scores": [
+        {
+          "pass": true,
+          "reason": "no error",
+          "scorer": "succeeded",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "every declared check held",
+          "scorer": "checks",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "used the intended tool surface",
+          "scorer": "tool_discipline",
+          "value": 1.0
+        }
+      ],
+      "skipped": false,
+      "target": "anthropic/claude-sonnet-5",
+      "transcript": {
+        "final_response": "DONE",
+        "iterations": 4,
+        "metrics": {
+          "cache_hit_ratio": 0.7247305563646956,
+          "cache_read_tokens": 4976.0,
+          "cache_write_tokens": 1882.0,
+          "denied_tool_calls": 0.0,
+          "duration_ms": 5246.0,
+          "events": 17.0,
+          "input_tokens": 6866.0,
+          "output_tokens": 257.0,
+          "reasoning_tokens": 0.0,
+          "tool_errors": 0.0,
+          "turns": 1.0
+        },
+        "timing": {
+          "duration_ms": 5246,
+          "time_to_first_token_ms": 5196
+        },
+        "tool_calls": [
+          "stat_file",
+          "read_file",
+          "edit_file"
+        ],
+        "tool_calls_count": 3,
+        "usage": {
+          "cache_read_tokens": 4976,
+          "cost_usd": 0.0124293,
+          "input_tokens": 6866,
+          "output_tokens": 257
+        }
+      }
+    },
+    {
+      "aggregate": 1.0,
+      "eval": "tool_policy",
+      "input": [
+        "Add a `## Usage` section to README.md with one line of example text. Reply with DONE when finished."
+      ],
+      "passed": true,
+      "sample": "works-without-a-shell",
+      "scores": [
+        {
+          "pass": true,
+          "reason": "no error",
+          "scorer": "succeeded",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "every declared check held",
+          "scorer": "checks",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "used the intended tool surface",
+          "scorer": "tool_discipline",
+          "value": 1.0
+        }
+      ],
+      "skipped": false,
+      "target": "anthropic/claude-haiku-4-5-20251001",
+      "transcript": {
+        "final_response": "DONE",
+        "iterations": 3,
+        "metrics": {
+          "cache_hit_ratio": 0.0,
+          "cache_read_tokens": 0.0,
+          "cache_write_tokens": 0.0,
+          "denied_tool_calls": 0.0,
+          "duration_ms": 6025.0,
+          "events": 13.0,
+          "input_tokens": 4630.0,
+          "output_tokens": 187.0,
+          "reasoning_tokens": 0.0,
+          "tool_errors": 0.0,
+          "turns": 1.0
+        },
+        "timing": {
+          "duration_ms": 6025,
+          "time_to_first_token_ms": 4886
+        },
+        "tool_calls": [
+          "read_file",
+          "edit_file"
+        ],
+        "tool_calls_count": 2,
+        "usage": {
+          "cost_usd": 0.005565,
+          "input_tokens": 4630,
+          "output_tokens": 187
+        }
+      }
+    },
+    {
+      "aggregate": 1.0,
+      "eval": "tool_policy",
+      "input": [
+        "Add a `## Usage` section to README.md with one line of example text. Reply with DONE when finished."
+      ],
+      "passed": true,
+      "sample": "works-without-a-shell",
+      "scores": [
+        {
+          "pass": true,
+          "reason": "no error",
+          "scorer": "succeeded",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "every declared check held",
+          "scorer": "checks",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "used the intended tool surface",
+          "scorer": "tool_discipline",
+          "value": 1.0
+        }
+      ],
+      "skipped": false,
+      "target": "openai/gpt-5.5",
+      "transcript": {
+        "final_response": "DONE",
+        "iterations": 3,
+        "metrics": {
+          "cache_hit_ratio": 0.0,
+          "cache_read_tokens": 0.0,
+          "cache_write_tokens": 0.0,
+          "denied_tool_calls": 0.0,
+          "duration_ms": 3337.0,
+          "events": 13.0,
+          "input_tokens": 2186.0,
+          "output_tokens": 77.0,
+          "reasoning_tokens": 0.0,
+          "tool_errors": 0.0,
+          "turns": 1.0
+        },
+        "timing": {
+          "duration_ms": 3337,
+          "time_to_first_token_ms": 3321
+        },
+        "tool_calls": [
+          "read_file",
+          "edit_file"
+        ],
+        "tool_calls_count": 2,
+        "usage": {
+          "cost_usd": 0.0035025,
+          "input_tokens": 2186,
+          "output_tokens": 77
+        }
+      }
+    },
+    {
+      "aggregate": 1.0,
+      "eval": "tool_policy",
+      "input": [
+        "Add a `## Usage` section to README.md with one line of example text. Reply with DONE when finished."
+      ],
+      "passed": true,
+      "sample": "works-without-a-shell",
+      "scores": [
+        {
+          "pass": true,
+          "reason": "no error",
+          "scorer": "succeeded",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "every declared check held",
+          "scorer": "checks",
+          "value": 1.0
+        },
+        {
+          "pass": true,
+          "reason": "used the intended tool surface",
+          "scorer": "tool_discipline",
+          "value": 1.0
+        }
+      ],
+      "skipped": false,
+      "target": "openai/gpt-5.6-terra",
+      "transcript": {
+        "final_response": "DONE",
+        "iterations": 3,
+        "metrics": {
+          "cache_hit_ratio": 0.0,
+          "cache_read_tokens": 0.0,
+          "cache_write_tokens": 0.0,
+          "denied_tool_calls": 0.0,
+          "duration_ms": 2542.0,
+          "events": 13.0,
+          "input_tokens": 2180.0,
+          "output_tokens": 74.0,
+          "reasoning_tokens": 0.0,
+          "tool_errors": 0.0,
+          "turns": 1.0
+        },
+        "timing": {
+          "duration_ms": 2542,
+          "time_to_first_token_ms": 2525
+        },
+        "tool_calls": [
+          "read_file",
+          "edit_file"
+        ],
+        "tool_calls_count": 2,
+        "usage": {
+          "cost_usd": 0.003465,
+          "input_tokens": 2180,
+          "output_tokens": 74
+        }
+      }
+    }
+  ],
+  "summary": {
+    "failed": 0,
+    "na": 0,
+    "passed": 54,
+    "scored": 54,
+    "skipped": 0,
+    "total_cost_usd": 0.39022590000000007,
+    "total_duration_ms": 234845,
+    "total_tokens": 352391,
+    "total_tool_calls": 140
+  }
+}

@@ -116,3 +116,27 @@ jobs:
       # stdio MCP server, so no API keys or network are needed.
       - name: Test (all features)
         run: cargo test --workspace --all-features
+
+  evals:
+    name: Evals (offline)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+
+      # The studies are their own workspaces, so the main jobs never build
+      # them. This runs the part that needs no credentials: the
+      # `offline_contract` eval on the scripted model, which grades the
+      # capability, middleware, event, and trajectory wiring end to end.
+      # The paid presets are run by hand — see evals/README.md.
+      - name: Offline eval study
+        working-directory: evals/agentyk_basic
+        run: |
+          cargo clippy --all-targets -- -D warnings
+          cargo test

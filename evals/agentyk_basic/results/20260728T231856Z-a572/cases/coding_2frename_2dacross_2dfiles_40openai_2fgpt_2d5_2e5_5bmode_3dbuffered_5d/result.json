@@ -1,0 +1,76 @@
+{
+  "eval": "coding",
+  "sample": "rename-across-files",
+  "target": "openai/gpt-5.5",
+  "params": {
+    "mode": "buffered"
+  },
+  "input": [
+    "Rename the `Widget` struct to `Gadget` everywhere in this workspace, including its uses. Reply with DONE when finished."
+  ],
+  "passed": true,
+  "aggregate": 1.0,
+  "scores": [
+    {
+      "scorer": "succeeded",
+      "value": 1.0,
+      "pass": true,
+      "reason": "no error"
+    },
+    {
+      "scorer": "checks",
+      "value": 1.0,
+      "pass": true,
+      "reason": "every declared check held"
+    },
+    {
+      "scorer": "trajectory",
+      "value": 1.0,
+      "pass": true,
+      "reason": "every tool call carries its observation"
+    },
+    {
+      "scorer": "latency_within",
+      "value": 1.0,
+      "pass": true,
+      "reason": "8154ms <= 300000ms"
+    }
+  ],
+  "transcript": {
+    "final_response": "DONE",
+    "iterations": 6,
+    "tool_calls_count": 7,
+    "tool_calls": [
+      "grep_files",
+      "read_file",
+      "read_file",
+      "edit_file",
+      "edit_file",
+      "grep_files",
+      "grep_files"
+    ],
+    "usage": {
+      "input_tokens": 5939,
+      "output_tokens": 272,
+      "cost_usd": 0.01014375
+    },
+    "timing": {
+      "duration_ms": 8154,
+      "time_to_first_token_ms": 8154
+    },
+    "metrics": {
+      "cache_hit_ratio": 0.0,
+      "cache_read_tokens": 0.0,
+      "cache_write_tokens": 0.0,
+      "denied_tool_calls": 0.0,
+      "duration_ms": 8154.0,
+      "events": 29.0,
+      "input_tokens": 5939.0,
+      "output_tokens": 272.0,
+      "reasoning_tokens": 0.0,
+      "tool_errors": 0.0,
+      "turns": 1.0
+    }
+  },
+  "skipped": false
+}

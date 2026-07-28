@@ -1,0 +1,75 @@
+{
+  "eval": "coding",
+  "sample": "rename-across-files",
+  "target": "anthropic/claude-sonnet-5",
+  "params": {
+    "mode": "buffered"
+  },
+  "input": [
+    "Rename the `Widget` struct to `Gadget` everywhere in this workspace, including its uses. Reply with DONE when finished."
+  ],
+  "passed": true,
+  "aggregate": 1.0,
+  "scores": [
+    {
+      "scorer": "succeeded",
+      "value": 1.0,
+      "pass": true,
+      "reason": "no error"
+    },
+    {
+      "scorer": "checks",
+      "value": 1.0,
+      "pass": true,
+      "reason": "every declared check held"
+    },
+    {
+      "scorer": "trajectory",
+      "value": 1.0,
+      "pass": true,
+      "reason": "every tool call carries its observation"
+    },
+    {
+      "scorer": "latency_within",
+      "value": 1.0,
+      "pass": true,
+      "reason": "5667ms <= 300000ms"
+    }
+  ],
+  "transcript": {
+    "final_response": "DONE",
+    "iterations": 4,
+    "tool_calls_count": 5,
+    "tool_calls": [
+      "grep_files",
+      "read_file",
+      "read_file",
+      "write_file",
+      "write_file"
+    ],
+    "usage": {
+      "input_tokens": 8153,
+      "output_tokens": 425,
+      "cache_read_tokens": 7293,
+      "cost_usd": 0.0117819
+    },
+    "timing": {
+      "duration_ms": 5667,
+      "time_to_first_token_ms": 5667
+    },
+    "metrics": {
+      "cache_hit_ratio": 0.8945173555746351,
+      "cache_read_tokens": 7293.0,
+      "cache_write_tokens": 852.0,
+      "denied_tool_calls": 0.0,
+      "duration_ms": 5667.0,
+      "events": 21.0,
+      "input_tokens": 8153.0,
+      "output_tokens": 425.0,
+      "reasoning_tokens": 0.0,
+      "tool_errors": 0.0,
+      "turns": 1.0
+    }
+  },
+  "skipped": false
+}

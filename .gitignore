@@ -3,3 +3,8 @@
 # Python
 __pycache__/
 *.pyc
+
+# Eval studies build into their own target dir. Saved runs under
+# `evals/*/results` are committed on purpose — a study's numbers are only
+# comparable against the run they replaced.
+/evals/*/target

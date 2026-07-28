@@ -175,11 +175,37 @@ struct WireUsage {
     prompt_tokens: u64,
     #[serde(default)]
     completion_tokens: u64,
+    /// Breakdown of `prompt_tokens`; absent on OpenAI-compatible servers that
+    /// don't report caching.
+    #[serde(default)]
+    prompt_tokens_details: WirePromptDetails,
+    /// Breakdown of `completion_tokens`; absent on non-reasoning models.
+    #[serde(default)]
+    completion_tokens_details: WireCompletionDetails,
+}
+
+/// The parts of `prompt_tokens` OpenAI itemizes. Cached tokens are already
+/// inside `prompt_tokens` — this is a split, not an addend.
+#[derive(Debug, Default, Deserialize)]
+struct WirePromptDetails {
+    #[serde(default)]
+    cached_tokens: u64,
+}
+
+/// The parts of `completion_tokens` OpenAI itemizes.
+#[derive(Debug, Default, Deserialize)]
+struct WireCompletionDetails {
+    #[serde(default)]
+    reasoning_tokens: u64,
 }
 
 impl From<WireUsage> for Usage {
     fn from(usage: WireUsage) -> Self {
         Usage::new(usage.prompt_tokens, usage.completion_tokens)
+            // OpenAI caches automatically, so a host that never asked for
+            // caching still needs these to price a request correctly.
+            .with_cache(usage.prompt_tokens_details.cached_tokens, 0)
+            .with_reasoning(usage.completion_tokens_details.reasoning_tokens)
     }
 }
 
@@ -554,6 +580,28 @@ mod tests {
         assert_eq!(response.message.text(), "done");
         assert_eq!(response.message.tool_calls[0].arguments, json!({"a": 1}));
         assert_eq!(response.usage, Usage::new(5, 9));
+    }
+
+    /// OpenAI itemizes cached prompt tokens and reasoning tokens inside the
+    /// totals; both are kept as breakdowns so a host can price the request and
+    /// see whether the automatic prompt cache hit.
+    #[test]
+    fn parse_response_keeps_the_cache_and_reasoning_breakdown() {
+        let payload = json!({
+            "choices": [{"message": {"content": "done"}}],
+            "usage": {
+                "prompt_tokens": 1200,
+                "completion_tokens": 40,
+                "prompt_tokens_details": {"cached_tokens": 1024},
+                "completion_tokens_details": {"reasoning_tokens": 32},
+            },
+        });
+        let response = OpenAiDriver::new()
+            .parse_response(&payload.to_string())
+            .unwrap();
+        assert_eq!(response.usage.input_tokens, 1200, "totals stay totals");
+        assert_eq!(response.usage.cache_read_input_tokens, 1024);
+        assert_eq!(response.usage.reasoning_tokens, 32);
     }
 
     /// A completion with nowhere to read the reply from is a failure the

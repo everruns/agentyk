@@ -1,0 +1,72 @@
+{
+  "eval": "coding",
+  "sample": "fix-off-by-one",
+  "target": "anthropic/claude-haiku-4-5-20251001",
+  "params": {
+    "mode": "stream"
+  },
+  "input": [
+    "`last_index` in src/list.rs panics on an empty list and is off by one on a non-empty one. Fix it so it returns None for an empty list and the index of the last element otherwise. Reply with DONE when finished."
+  ],
+  "passed": true,
+  "aggregate": 1.0,
+  "scores": [
+    {
+      "scorer": "succeeded",
+      "value": 1.0,
+      "pass": true,
+      "reason": "no error"
+    },
+    {
+      "scorer": "checks",
+      "value": 1.0,
+      "pass": true,
+      "reason": "every declared check held"
+    },
+    {
+      "scorer": "trajectory",
+      "value": 1.0,
+      "pass": true,
+      "reason": "every tool call carries its observation"
+    },
+    {
+      "scorer": "latency_within",
+      "value": 1.0,
+      "pass": true,
+      "reason": "4591ms <= 300000ms"
+    }
+  ],
+  "transcript": {
+    "final_response": "DONE",
+    "iterations": 4,
+    "tool_calls_count": 3,
+    "tool_calls": [
+      "read_file",
+      "edit_file",
+      "read_file"
+    ],
+    "usage": {
+      "input_tokens": 7266,
+      "output_tokens": 399,
+      "cost_usd": 0.009261
+    },
+    "timing": {
+      "duration_ms": 4591,
+      "time_to_first_token_ms": 610
+    },
+    "metrics": {
+      "cache_hit_ratio": 0.0,
+      "cache_read_tokens": 0.0,
+      "cache_write_tokens": 0.0,
+      "denied_tool_calls": 0.0,
+      "duration_ms": 4591.0,
+      "events": 17.0,
+      "input_tokens": 7266.0,
+      "output_tokens": 399.0,
+      "reasoning_tokens": 0.0,
+      "tool_errors": 0.0,
+      "turns": 1.0
+    }
+  },
+  "skipped": false
+}

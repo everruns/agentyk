@@ -1,0 +1,21 @@
+# Standalone Mira study crate — deliberately its own workspace, outside the
+# agentyk one: evals are not part of the shipped library, take dependencies the
+# library would refuse (a whole eval framework), and must be free to move ahead
+# of the crates' MSRV and lint policy.
+[package]
+name = "agentyk_basic"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+# The library under test, by path: an eval that scored a published version
+# would grade last release, not this working tree.
+agentyk = { path = "../../crates/agentyk", features = ["http", "fs"] }
+mira-eval = "0.5"
+async-trait = "0.1"
+serde_json = "1.0"
+tempfile = "3"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "process", "time", "fs"] }
