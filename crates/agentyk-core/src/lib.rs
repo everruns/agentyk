@@ -72,8 +72,8 @@ pub use context::{
 };
 pub use controls::TurnControls;
 pub use driver::{
-    ChatDriver, ChatRequest, ChatResponse, DeltaSink, DriverId, DriverRegistry, ModelSpec,
-    ReasoningConfig, Usage,
+    AuthHeader, AuthHeaderProvider, ChatDriver, ChatRequest, ChatResponse, DeltaSink, DriverId,
+    DriverRegistry, ModelSpec, ReasoningConfig, Usage,
 };
 pub use error::{Error, LlmErrorKind, Result};
 pub use event::{Event, EventData, EventListener, EventRequest, event_types};

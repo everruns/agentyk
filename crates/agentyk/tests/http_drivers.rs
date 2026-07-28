@@ -14,9 +14,11 @@
 #![cfg(feature = "http")]
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use agentyk::{
-    AnthropicDriver, ChatDriver, ChatRequest, DeltaSink, Message, ModelSpec, OpenAiDriver, Result,
+    AnthropicDriver, AuthHeader, AuthHeaderProvider, ChatDriver, ChatRequest, DeltaSink, Message,
+    ModelSpec, OpenAiDriver, OpenResponsesDriver, OpenRouterDriver, Result,
 };
 use async_trait::async_trait;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -127,6 +129,17 @@ impl DeltaSink for Collect {
 
 fn request(model: ModelSpec) -> ChatRequest {
     ChatRequest::new(model, vec![Message::user("hi")]).system_prompt("be terse")
+}
+
+#[derive(Clone)]
+struct RotatingAuth(Arc<AtomicUsize>);
+
+#[async_trait]
+impl AuthHeaderProvider for RotatingAuth {
+    async fn auth_header(&self) -> Result<AuthHeader> {
+        let generation = self.0.fetch_add(1, Ordering::SeqCst) + 1;
+        Ok(AuthHeader::bearer(format!("oauth-{generation}")))
+    }
 }
 
 #[tokio::test]
@@ -263,6 +276,109 @@ async fn openai_streams_over_a_real_socket() {
     let body = server.sent_body().await;
     assert_eq!(body["stream"], true);
     assert_eq!(body["stream_options"]["include_usage"], true);
+}
+
+#[tokio::test]
+async fn openresponses_completes_over_a_real_socket() {
+    let server = FakeProvider::serving(
+        200,
+        "application/json",
+        r#"{"output":[{"type":"message","content":[{"type":"output_text","text":"hey"}]},{"type":"function_call","call_id":"c1","name":"add","arguments":"{\"a\":1}"}],"usage":{"input_tokens":7,"output_tokens":1}}"#,
+    )
+    .await;
+
+    let response = OpenResponsesDriver::new()
+        .complete(request(
+            ModelSpec::openresponses("gpt-x").base_url(&server.base_url),
+        ))
+        .await
+        .expect("a well-formed response parses");
+
+    assert_eq!(response.message.text(), "hey");
+    assert_eq!(response.message.tool_calls[0].name, "add");
+    assert_eq!(response.usage.input_tokens, 7);
+    let headers = server.sent_headers().await;
+    assert!(headers.starts_with("POST /responses "), "{headers}");
+    let body = server.sent_body().await;
+    assert_eq!(body["instructions"], "be terse");
+    assert_eq!(body["input"][0]["type"], "message");
+    assert_eq!(body["store"], false);
+}
+
+#[tokio::test]
+async fn openrouter_is_first_class_and_requires_authentication() {
+    let server = FakeProvider::serving(
+        200,
+        "application/json",
+        r#"{"output":[{"type":"message","content":[{"type":"output_text","text":"routed"}]}],"usage":{"input_tokens":2,"output_tokens":1}}"#,
+    )
+    .await;
+
+    let response = OpenRouterDriver::new()
+        .complete(request(
+            ModelSpec::openrouter("openai/gpt-x")
+                .api_key("or-key")
+                .base_url(&server.base_url),
+        ))
+        .await
+        .expect("OpenRouter response parses");
+
+    assert_eq!(response.message.text(), "routed");
+    let headers = server.sent_headers().await;
+    assert!(headers.starts_with("POST /responses "), "{headers}");
+    assert!(
+        headers.contains("authorization: Bearer or-key"),
+        "{headers}"
+    );
+}
+
+#[tokio::test]
+async fn request_auth_is_resolved_again_for_each_completion() {
+    let first = FakeProvider::serving(
+        200,
+        "application/json",
+        r#"{"output":[{"type":"message","content":[{"type":"output_text","text":"one"}]}]}"#,
+    )
+    .await;
+    let second = FakeProvider::serving(
+        200,
+        "application/json",
+        r#"{"output":[{"type":"message","content":[{"type":"output_text","text":"two"}]}]}"#,
+    )
+    .await;
+    let generations = Arc::new(AtomicUsize::new(0));
+    let driver = OpenResponsesDriver::new().with_auth_provider(RotatingAuth(generations.clone()));
+
+    driver
+        .complete(request(
+            ModelSpec::openresponses("gpt-x")
+                .api_key("stale")
+                .base_url(&first.base_url),
+        ))
+        .await
+        .unwrap();
+    driver
+        .complete(request(
+            ModelSpec::openresponses("gpt-x")
+                .api_key("stale")
+                .base_url(&second.base_url),
+        ))
+        .await
+        .unwrap();
+
+    assert_eq!(generations.load(Ordering::SeqCst), 2);
+    assert!(
+        first
+            .sent_headers()
+            .await
+            .contains("authorization: Bearer oauth-1")
+    );
+    assert!(
+        second
+            .sent_headers()
+            .await
+            .contains("authorization: Bearer oauth-2")
+    );
 }
 
 /// An error status is classified rather than parsed — and the body, which may

@@ -54,10 +54,13 @@ println!("{}", turn.response);
 - **Concurrent tools** — a batch the model asked for in parallel runs in
   parallel, with results still recorded in the order it asked.
 - **Multi-provider drivers** — `ChatDriver` implementations routed by
-  `DriverId`: OpenAI-compatible and Anthropic (feature `http`), plus a
-  scripted `SimDriver` for deterministic offline tests and examples. The
-  Anthropic driver places prompt-cache breakpoints by default, so a long
-  session does not pay full price to re-send its own transcript.
+  `DriverId`: OpenAI Chat Completions, vendor-neutral Open Responses,
+  first-class OpenRouter, and Anthropic (feature `http`), plus a scripted
+  `SimDriver` for deterministic offline tests and examples. HTTP drivers
+  accept an `AuthHeaderProvider` that resolves credentials per request, so a
+  host can refresh OAuth tokens without rebuilding the agent. The Anthropic
+  driver places prompt-cache breakpoints by default, so a long session does
+  not pay full price to re-send its own transcript.
 
 ## Packaging
 
@@ -86,7 +89,7 @@ nothing that can open a socket or spawn a process. Opt in to what you need.
 | Feature | Adds | Pulls in |
 | --- | --- | --- |
 | *(none)* | turn loop, `InMemoryEventLog`, `JsonlEventLog`, `SimDriver` | — |
-| `http` | `OpenAiDriver`, `AnthropicDriver` (SSE streaming) | `reqwest`, `futures-util` |
+| `http` | `OpenAiDriver`, `OpenResponsesDriver`, `OpenRouterDriver`, `AnthropicDriver` (SSE streaming) | `reqwest`, `futures-util` |
 | `mcp` | `McpCapability` / `McpClient` over stdio (HTTP transport also needs `http`) | `tokio` (rt, process, io-util, sync, time) |
 | `fs` | `FileSystemCapability`, real-disk and in-memory stores | `tokio` (fs, sync), `regex` |
 | `full` | all of the above | all of the above |
@@ -96,6 +99,57 @@ agentyk = { version = "0.1", features = ["http", "fs"] }
 ```
 
 For scale: the default build resolves 28 crates, `full` resolves 100.
+
+## HTTP drivers and refreshable authentication
+
+Use the protocol-specific `ModelSpec` constructor and register its driver on
+the agent:
+
+```rust
+let agent = Agent::builder()
+    .model(
+        ModelSpec::openrouter("openai/gpt-5.6-sol")
+            .api_key(openrouter_key),
+    )
+    .driver(OpenRouterDriver::new())
+    .build()?;
+```
+
+`ModelSpec::api_key` is the simple path for a fixed provider key. For OAuth,
+workload identity, or any credential that expires, attach an
+`AuthHeaderProvider` to the driver instead:
+
+```rust
+use agentyk::{AuthHeader, AuthHeaderProvider, OpenResponsesDriver, Result};
+use async_trait::async_trait;
+
+struct OAuthTokens {
+    // Host-owned token cache and durable refresh-token store.
+}
+
+impl OAuthTokens {
+    async fn cached_or_refresh_access_token(&self) -> Result<String> {
+        // Check expiry, refresh if needed, and persist any rotated token.
+        todo!("application-specific OAuth implementation")
+    }
+}
+
+#[async_trait]
+impl AuthHeaderProvider for OAuthTokens {
+    async fn auth_header(&self) -> Result<AuthHeader> {
+        let access_token = self.cached_or_refresh_access_token().await?;
+        Ok(AuthHeader::bearer(access_token))
+    }
+}
+
+let tokens = OAuthTokens {};
+let driver = OpenResponsesDriver::new().with_auth_provider(tokens);
+```
+
+The provider is called immediately before every request and overrides a static
+API key. Interactive login, expiry checks, refresh-token rotation, persistence,
+and recovery from refresh races stay in the host; agentyk only consumes the
+resulting authentication header.
 
 ## Try it (offline, no API key)
 

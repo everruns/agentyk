@@ -4,13 +4,15 @@
 //! framing live in the crate-internal `drivers::http` layer.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
 use agentyk_core::driver::{
-    ChatDriver, ChatRequest, ChatResponse, DeltaSink, DriverId, ModelSpec, Usage,
+    AuthHeaderProvider, ChatDriver, ChatRequest, ChatResponse, DeltaSink, DriverId, ModelSpec,
+    Usage,
 };
 use agentyk_core::error::{Error, LlmErrorKind, Result};
 use agentyk_core::message::{ContentPart, Message, Role, ToolCall};
@@ -28,6 +30,7 @@ pub struct AnthropicDriver {
     client: reqwest::Client,
     max_tokens: u64,
     prompt_caching: bool,
+    auth: Option<Arc<dyn AuthHeaderProvider>>,
 }
 
 impl AnthropicDriver {
@@ -43,6 +46,7 @@ impl AnthropicDriver {
             client,
             max_tokens: DEFAULT_MAX_TOKENS,
             prompt_caching: true,
+            auth: None,
         }
     }
 
@@ -68,6 +72,22 @@ impl AnthropicDriver {
     /// cost more than they save.
     pub fn prompt_caching(mut self, enabled: bool) -> Self {
         self.prompt_caching = enabled;
+        self
+    }
+
+    /// Resolve authentication immediately before every request.
+    ///
+    /// This overrides [`ModelSpec::api_key`]. The provider must return the
+    /// complete provider-specific header, such as `x-api-key` or an OAuth
+    /// `Authorization` bearer value.
+    pub fn with_auth_provider(mut self, provider: impl AuthHeaderProvider + 'static) -> Self {
+        self.auth = Some(Arc::new(provider));
+        self
+    }
+
+    /// Attach a shared request-time authentication provider.
+    pub fn with_auth_provider_arc(mut self, provider: Arc<dyn AuthHeaderProvider>) -> Self {
+        self.auth = Some(provider);
         self
     }
 
@@ -496,6 +516,7 @@ impl StreamAccumulator for AnthropicStream {
     }
 }
 
+#[async_trait]
 impl HttpProvider for AnthropicDriver {
     type Accumulator = AnthropicStream;
 
@@ -511,20 +532,23 @@ impl HttpProvider for AnthropicDriver {
         "/v1/messages"
     }
 
-    fn authorize(
+    async fn authorize(
         &self,
         builder: reqwest::RequestBuilder,
         model: &ModelSpec,
     ) -> Result<reqwest::RequestBuilder> {
-        let api_key = model.api_key.clone().ok_or_else(|| {
-            Error::driver(
-                LlmErrorKind::Authentication,
-                "anthropic driver requires an api key",
-            )
-        })?;
-        Ok(builder
-            .header("x-api-key", api_key)
-            .header("anthropic-version", API_VERSION))
+        let builder = if let Some(provider) = &self.auth {
+            http::apply_auth_header(builder, provider.auth_header().await?)?
+        } else {
+            let api_key = model.api_key.clone().ok_or_else(|| {
+                Error::driver(
+                    LlmErrorKind::Authentication,
+                    "anthropic driver requires an api key",
+                )
+            })?;
+            builder.header("x-api-key", api_key)
+        };
+        Ok(builder.header("anthropic-version", API_VERSION))
     }
 
     fn build_body(&self, request: &ChatRequest) -> Value {
@@ -722,12 +746,13 @@ mod tests {
         );
     }
 
-    #[test]
-    fn missing_api_key_is_an_authentication_error() {
+    #[tokio::test]
+    async fn missing_api_key_is_an_authentication_error() {
         let driver = AnthropicDriver::new();
         let builder = reqwest::Client::new().post("https://example.invalid");
         let error = driver
             .authorize(builder, &ModelSpec::anthropic("claude-x"))
+            .await
             .unwrap_err();
         assert!(!error.is_retryable());
         assert!(matches!(

@@ -8,8 +8,9 @@
 //! internal correlation handles on sessions and events.
 //!
 //! This is the **facade crate**: builders, the canonical engine and its
-//! in-process host, bundled drivers (sim; OpenAI/Anthropic behind `http`), the
-//! JSONL event store, filesystem support, and MCP support. The portable
+//! in-process host, bundled drivers (sim; OpenAI, Open Responses, OpenRouter,
+//! and Anthropic behind `http`), the JSONL event store, filesystem support,
+//! and MCP support. The portable
 //! contract — traits, the event protocol, and the turn state machine — lives in
 //! [`agentyk-core`](https://crates.io/crates/agentyk-core) and is fully
 //! re-exported here; depend on core directly only when *implementing* a seam
@@ -78,19 +79,19 @@ pub use agentyk_core::{
 };
 
 pub use agentyk_core::{
-    BudgetChecker, BudgetDecision, CancellationToken, Capability, ChatDriver, ChatRequest,
-    ChatResponse, CommandContext, CommandDescriptor, ContentPart, ContextAssembler,
-    ContextAssembly, ContextEvent, ContextRequest, ContextSource, DeferrablePolicy, DeltaSink,
-    DriverId, DriverRegistry, Error, Event, EventData, EventId, EventListener, EventLog, EventPage,
-    EventRange, EventRequest, EventStore, ExpectedVersion, Extensions, FnTool, History,
-    ImageContentPart, InMemoryEventLog, InMemoryModelCatalog, InMemorySnapshotStore, InputQueue,
-    LlmErrorKind, Message, MessageId, ModelCatalog, ModelProfile, ModelSpec,
-    PassthroughContextAssembler, ProjectionSnapshot, ReasoningConfig, Result, Role, SealReason,
-    SessionId, SessionPoint, SnapshotStore, SystemPromptContext, TextContentPart, Tool, ToolCall,
-    ToolCallDecision, ToolChainOutcome, ToolContext, ToolDefinition, ToolInvocation, ToolOutput,
-    ToolPolicy, ToolProgress, ToolProgressSink, TurnAction, TurnControls, TurnId, TurnMiddleware,
-    TurnOutcome, TurnPhase, TurnState, Usage, after_tool_chain, before_tool_chain, event_types,
-    messages_from_events,
+    AuthHeader, AuthHeaderProvider, BudgetChecker, BudgetDecision, CancellationToken, Capability,
+    ChatDriver, ChatRequest, ChatResponse, CommandContext, CommandDescriptor, ContentPart,
+    ContextAssembler, ContextAssembly, ContextEvent, ContextRequest, ContextSource,
+    DeferrablePolicy, DeltaSink, DriverId, DriverRegistry, Error, Event, EventData, EventId,
+    EventListener, EventLog, EventPage, EventRange, EventRequest, EventStore, ExpectedVersion,
+    Extensions, FnTool, History, ImageContentPart, InMemoryEventLog, InMemoryModelCatalog,
+    InMemorySnapshotStore, InputQueue, LlmErrorKind, Message, MessageId, ModelCatalog,
+    ModelProfile, ModelSpec, PassthroughContextAssembler, ProjectionSnapshot, ReasoningConfig,
+    Result, Role, SealReason, SessionId, SessionPoint, SnapshotStore, SystemPromptContext,
+    TextContentPart, Tool, ToolCall, ToolCallDecision, ToolChainOutcome, ToolContext,
+    ToolDefinition, ToolInvocation, ToolOutput, ToolPolicy, ToolProgress, ToolProgressSink,
+    TurnAction, TurnControls, TurnId, TurnMiddleware, TurnOutcome, TurnPhase, TurnState, Usage,
+    after_tool_chain, before_tool_chain, event_types, messages_from_events,
 };
 /// The names most applications want in scope at once.
 ///
@@ -132,4 +133,7 @@ pub use mcp::{McpAuthProvider, McpCapability, McpClient, McpServer, McpTransport
 
 #[cfg(feature = "http")]
 #[cfg_attr(docsrs, doc(cfg(feature = "http")))]
-pub use drivers::{anthropic::AnthropicDriver, openai::OpenAiDriver};
+pub use drivers::{
+    anthropic::AnthropicDriver, openai::OpenAiDriver, openresponses::OpenResponsesDriver,
+    openrouter::OpenRouterDriver,
+};

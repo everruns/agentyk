@@ -13,7 +13,7 @@
 
 pub(crate) mod sse;
 
-use agentyk_core::driver::{ChatRequest, ChatResponse, DeltaSink, ModelSpec};
+use agentyk_core::driver::{AuthHeader, ChatRequest, ChatResponse, DeltaSink, ModelSpec};
 use agentyk_core::error::{Error, LlmErrorKind, Result};
 use futures_util::StreamExt;
 use serde_json::Value;
@@ -88,6 +88,7 @@ pub(crate) fn decode<T: serde::de::DeserializeOwned>(label: &str, body: &str) ->
 }
 
 /// One provider's wire protocol.
+#[async_trait::async_trait]
 pub(crate) trait HttpProvider: Send + Sync {
     type Accumulator: StreamAccumulator;
 
@@ -102,7 +103,7 @@ pub(crate) trait HttpProvider: Send + Sync {
 
     /// Attach credentials and provider headers. Returning an error here is
     /// how a provider that *requires* a key reports a missing one.
-    fn authorize(
+    async fn authorize(
         &self,
         builder: reqwest::RequestBuilder,
         model: &ModelSpec,
@@ -123,6 +124,27 @@ pub(crate) trait HttpProvider: Send + Sync {
     fn classify_status(&self, status: reqwest::StatusCode) -> LlmErrorKind {
         classify_status(status)
     }
+}
+
+pub(crate) fn apply_auth_header(
+    builder: reqwest::RequestBuilder,
+    auth: AuthHeader,
+) -> Result<reqwest::RequestBuilder> {
+    let name =
+        reqwest::header::HeaderName::from_bytes(auth.name().as_bytes()).map_err(|error| {
+            Error::driver(
+                LlmErrorKind::Authentication,
+                format!("authentication provider returned an invalid header name: {error}"),
+            )
+        })?;
+    let mut value = reqwest::header::HeaderValue::from_str(auth.value()).map_err(|error| {
+        Error::driver(
+            LlmErrorKind::Authentication,
+            format!("authentication provider returned an invalid header value: {error}"),
+        )
+    })?;
+    value.set_sensitive(true);
+    Ok(builder.header(name, value))
 }
 
 /// The status classification every provider starts from — see
@@ -168,7 +190,8 @@ async fn send<P: HttpProvider>(
 ) -> Result<reqwest::Response> {
     let builder = client.post(endpoint_url(provider, model)).json(body);
     let response = provider
-        .authorize(builder, model)?
+        .authorize(builder, model)
+        .await?
         .send()
         .await
         .map_err(|e| network_error(provider.label(), "request failed", &e))?;

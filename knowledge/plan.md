@@ -81,6 +81,7 @@ everruns concept must be expressible on top of the agentyk primitive.
 | `CapabilityRegistry` + `AgentCapabilityConfig { ref, config }` | — (builder holds objects) | the registry/config indirection becomes a Phase-2 host concern for config-driven wiring |
 | `Tool` / `ToolDefinition` / `ToolCall` | `tool::{Tool, ToolDefinition}`, `message::ToolCall` | same; plus `FnTool` closure helper |
 | `ChatDriver` / `DriverRegistry` / `DriverId` | same names | `DriverId` is an open string, not a closed enum |
+| request-time provider auth | `AuthHeaderProvider` | async header resolution per request; OAuth lifecycle and storage stay in the host |
 | `ResolvedModel` | `ModelSpec` | same by-value shape (model, driver, api_key, base_url) |
 | `llmsim` (`SimTurn`, scripted turns) | `SimDriver` / `SimTurn` | same idea; also records requests for test assertions |
 | `Harness` → `Agent` → `Session` hierarchy | `Agent` → `Session` | harness collapsed into the agent; reintroduced in Phase 2 as an agent-template layer if needed |
@@ -137,9 +138,10 @@ server):
 - Tools — `Tool`, `FnTool`; unknown-tool calls surface as error results the
   model can recover from.
 - Drivers — `SimDriver` (scripted, request-recording); `OpenAiDriver`
-  (Chat Completions; any OpenAI-compatible endpoint via `base_url`) and
-  `AnthropicDriver` (Messages API) behind the `http` feature. Both stream
-  real incremental SSE deltas.
+  (Chat Completions), `OpenResponsesDriver` (vendor-neutral Responses),
+  first-class `OpenRouterDriver`, and `AnthropicDriver` (Messages API) behind
+  the `http` feature. All HTTP drivers stream real incremental SSE deltas and
+  accept a per-request `AuthHeaderProvider` for refreshable credentials.
 - MCP — stdio JSON-RPC client (initialize handshake, `tools/list`,
   `tools/call`), lazy connection, tools exposed as ordinary `Tool`s.
 - Execution abstraction — `TurnEngine` prepares one provider-neutral model
