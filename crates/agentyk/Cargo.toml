@@ -30,6 +30,9 @@ reqwest = { workspace = true, optional = true, features = ["stream"] }
 # Only the HTTP drivers deserialize provider wire types.
 serde = { workspace = true, optional = true }
 futures-util = { version = "0.3", optional = true, default-features = false }
+base64 = { workspace = true, optional = true }
+rand = { workspace = true, optional = true }
+sha2 = { workspace = true, optional = true }
 # Only `grep_files` (feature `fs`) needs pattern matching.
 regex = { workspace = true, optional = true }
 
@@ -42,6 +45,9 @@ default = []
 http = ["dep:reqwest", "dep:futures-util", "dep:serde"]
 # MCP stdio client + capability. Spawns and talks to a child process.
 mcp = ["dep:tokio", "tokio/rt", "tokio/process", "tokio/io-util", "tokio/sync", "tokio/time"]
+# OAuth 2.1 discovery, dynamic registration, PKCE login, and token refresh for
+# remote MCP servers. Browser opening and token persistence stay with the host.
+mcp-oauth = ["mcp", "http", "dep:base64", "dep:rand", "dep:sha2", "tokio/net"]
 # FileSystemCapability + RealDisk/InMemory stores.
 # `regex` rides along because `grep_files` is the tool a coding agent reaches
 # for most, and a literal-only search sends it back to the shell for every
@@ -52,7 +58,7 @@ fs = ["dep:tokio", "tokio/fs", "tokio/sync", "dep:regex"]
 # contract remains available without this feature.
 hooks = ["dep:tokio", "tokio/process", "tokio/time", "tokio/io-util", "tokio/macros"]
 # Everything the framework bundles.
-full = ["http", "mcp", "fs", "hooks"]
+full = ["http", "mcp", "mcp-oauth", "fs", "hooks"]
 
 [package.metadata.docs.rs]
 all-features = true

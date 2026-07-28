@@ -6,9 +6,10 @@
 //! - **stdio** — a child process spoken to in newline-delimited JSON-RPC 2.0.
 //!   Credentials go in its environment.
 //! - **HTTP** (also needs feature `http`) — the Streamable HTTP transport, for
-//!   servers you do not run yourself. Those are the ones that need
-//!   [`McpAuthProvider`]: a hosted server authenticates per request, and a
-//!   token that expires must be re-read rather than captured at connect time.
+//!   servers you do not run yourself. [`McpProtocolMode::Auto`] tries the
+//!   stateless `2026-07-28` era first and falls back to a stateful handshake
+//!   when required. Hosted servers use [`McpAuthProvider`] per request, so an
+//!   expiring token can be refreshed without reconnecting.
 //!
 //! Attach it like any other capability:
 //!
@@ -45,7 +46,13 @@ use agentyk_core::error::{Error, Result};
 use agentyk_core::tool::{Tool, ToolContext, ToolDefinition, ToolOutput};
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
-const PROTOCOL_VERSION: &str = "2025-06-18";
+#[cfg(feature = "mcp-oauth")]
+#[cfg_attr(docsrs, doc(cfg(feature = "mcp-oauth")))]
+pub mod oauth;
+/// MCP protocol versions and HTTP negotiation policy.
+pub mod protocol;
+
+pub use protocol::McpProtocolMode;
 
 /// How to reach an MCP server.
 #[derive(Debug, Clone)]
@@ -79,6 +86,8 @@ pub struct McpServer {
     pub name: String,
     /// How to reach it.
     pub transport: McpTransport,
+    /// Protocol-era policy for HTTP. Stdio always uses the stable handshake.
+    pub protocol_mode: McpProtocolMode,
 }
 
 impl McpServer {
@@ -91,12 +100,14 @@ impl McpServer {
                 args: Vec::new(),
                 env: Vec::new(),
             },
+            protocol_mode: McpProtocolMode::Stable,
         }
     }
 
-    /// A remote server over HTTP. Needs feature `http` as well as `mcp` —
-    /// without it, connecting reports that rather than silently doing
-    /// nothing.
+    /// A remote server over HTTP, using [`McpProtocolMode::Auto`].
+    ///
+    /// Needs feature `http` as well as `mcp`; without it, connecting reports
+    /// that rather than silently doing nothing.
     pub fn http(name: impl Into<String>, url: impl Into<String>) -> Self {
         Self {
             name: name.into(),
@@ -104,6 +115,7 @@ impl McpServer {
                 url: url.into(),
                 headers: Vec::new(),
             },
+            protocol_mode: McpProtocolMode::Auto,
         }
     }
 
@@ -140,6 +152,12 @@ impl McpServer {
         if let McpTransport::Http { headers, .. } = &mut self.transport {
             headers.push((key.into(), value.into()));
         }
+        self
+    }
+
+    /// Select the HTTP protocol era. Ignored for stdio.
+    pub fn protocol_mode(mut self, mode: McpProtocolMode) -> Self {
+        self.protocol_mode = mode;
         self
     }
 }
@@ -346,11 +364,14 @@ impl Transport for StdioTransport {
 #[cfg(feature = "http")]
 mod http {
     use super::*;
+    use protocol::{MCP_PROTOCOL_VERSION_STABLE, Negotiated};
 
-    /// Header the server uses to bind subsequent requests to a session it
-    /// created during `initialize`.
-    const SESSION_HEADER: &str = "Mcp-Session-Id";
-    const PROTOCOL_HEADER: &str = "MCP-Protocol-Version";
+    struct RawResponse {
+        status: reqwest::StatusCode,
+        content_type: String,
+        session_id: Option<String>,
+        body: String,
+    }
 
     pub(super) struct HttpTransport {
         server_name: String,
@@ -358,8 +379,9 @@ mod http {
         headers: Vec<(String, String)>,
         auth: Option<Arc<dyn McpAuthProvider>>,
         client: reqwest::Client,
-        /// Learned from the `initialize` response, sent on everything after.
-        session: Mutex<Option<String>>,
+        mode: McpProtocolMode,
+        negotiated: Mutex<Option<Negotiated>>,
+        negotiation_gate: Mutex<()>,
     }
 
     impl HttpTransport {
@@ -368,6 +390,7 @@ mod http {
             url: &str,
             headers: &[(String, String)],
             auth: Option<Arc<dyn McpAuthProvider>>,
+            mode: McpProtocolMode,
         ) -> Self {
             Self {
                 server_name: server_name.to_string(),
@@ -375,26 +398,30 @@ mod http {
                 headers: headers.to_vec(),
                 auth,
                 client: reqwest::Client::new(),
-                session: Mutex::new(None),
+                mode,
+                negotiated: Mutex::new(mode.initial()),
+                negotiation_gate: Mutex::new(()),
             }
         }
 
-        async fn send(&self, payload: Value) -> Result<reqwest::Response> {
+        async fn send_raw(
+            &self,
+            payload: Value,
+            negotiated: &Negotiated,
+            method: &str,
+            tool_name: Option<&str>,
+        ) -> Result<RawResponse> {
             let mut builder = self
                 .client
                 .post(&self.url)
                 .header("Content-Type", "application/json")
-                // Both are legal responses; saying so lets the server pick.
-                .header("Accept", "application/json, text/event-stream")
-                .header(PROTOCOL_HEADER, PROTOCOL_VERSION);
+                .header("Accept", "application/json, text/event-stream");
             for (key, value) in &self.headers {
                 builder = builder.header(key, value);
             }
-            if let Some(session) = self.session.lock().await.as_ref() {
-                builder = builder.header(SESSION_HEADER, session);
+            for (key, value) in protocol::routable_headers(negotiated, method, tool_name) {
+                builder = builder.header(key, value);
             }
-            // Asked per request, not captured at connect: that is what makes
-            // an expiring token workable.
             if let Some(auth) = &self.auth
                 && let Some(value) = auth.authorization(&self.server_name).await?
             {
@@ -407,35 +434,42 @@ mod http {
                     self.server_name
                 ))
             })?;
-
-            if let Some(session) = response
+            let content_type = response
                 .headers()
-                .get(SESSION_HEADER)
+                .get("content-type")
                 .and_then(|value| value.to_str().ok())
-            {
-                *self.session.lock().await = Some(session.to_string());
-            }
-
+                .unwrap_or("application/json")
+                .to_string();
+            let session_id = response
+                .headers()
+                .get(protocol::HEADER_SESSION_ID)
+                .and_then(|value| value.to_str().ok())
+                .map(str::to_string);
             let status = response.status();
-            if !status.is_success() {
-                let body = response.text().await.unwrap_or_default();
-                // 401 is worth naming: it is almost always the auth provider,
-                // not the protocol.
-                let hint = match status.as_u16() {
-                    401 | 403 => " — check the McpAuthProvider for this server",
-                    _ => "",
-                };
-                return Err(Error::Mcp(format!(
-                    "mcp `{}` returned {status}{hint}: {}",
-                    self.server_name,
-                    body.trim()
-                )));
-            }
-            Ok(response)
+            let body = response.text().await.map_err(|error| {
+                Error::Mcp(format!("mcp `{}` read failed: {error}", self.server_name))
+            })?;
+            Ok(RawResponse {
+                status,
+                content_type,
+                session_id,
+                body,
+            })
         }
 
-        /// Pull the JSON-RPC envelope with this id out of a response body,
-        /// whether it arrived as JSON or as SSE events.
+        fn status_error(&self, response: &RawResponse) -> Error {
+            let hint = match response.status.as_u16() {
+                401 | 403 => " — check the McpAuthProvider for this server",
+                _ => "",
+            };
+            Error::Mcp(format!(
+                "mcp `{}` returned {}{hint}: {}",
+                self.server_name,
+                response.status,
+                response.body.trim()
+            ))
+        }
+
         fn extract(&self, id: i64, content_type: &str, body: &str) -> Result<Value> {
             if content_type.starts_with("text/event-stream") {
                 for line in body.lines() {
@@ -463,41 +497,161 @@ mod http {
                 ))
             })
         }
+
+        async fn handshake(&self, preferred_version: &str, initialize_id: i64) -> Result<Value> {
+            let initial = Negotiated::stateful(preferred_version);
+            let params = json!({
+                "protocolVersion": preferred_version,
+                "capabilities": {},
+                "clientInfo": {
+                    "name": "agentyk",
+                    "version": env!("CARGO_PKG_VERSION"),
+                },
+            });
+            let response = self
+                .send_raw(
+                    json!({
+                        "jsonrpc": "2.0",
+                        "id": initialize_id,
+                        "method": "initialize",
+                        "params": params,
+                    }),
+                    &initial,
+                    "initialize",
+                    None,
+                )
+                .await?;
+            if !response.status.is_success() {
+                return Err(self.status_error(&response));
+            }
+            let envelope = self.extract(initialize_id, &response.content_type, &response.body)?;
+            let version = envelope["result"]["protocolVersion"]
+                .as_str()
+                .unwrap_or(preferred_version)
+                .to_string();
+            let negotiated = Negotiated {
+                version,
+                stateful: true,
+                session_id: response.session_id,
+            };
+            *self.negotiated.lock().await = Some(negotiated.clone());
+            Ok(envelope)
+        }
+
+        async fn send_operation(
+            &self,
+            id: i64,
+            method: &str,
+            params: Value,
+            negotiated: &Negotiated,
+        ) -> Result<Value> {
+            let tool_name = (method == "tools/call")
+                .then(|| params["name"].as_str().map(str::to_string))
+                .flatten();
+            let response = self
+                .send_raw(
+                    json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "method": method,
+                        "params": protocol::with_request_meta(params),
+                    }),
+                    negotiated,
+                    method,
+                    tool_name.as_deref(),
+                )
+                .await?;
+            if !response.status.is_success() {
+                return Err(self.status_error(&response));
+            }
+            self.extract(id, &response.content_type, &response.body)
+        }
+
+        async fn negotiate_and_send(&self, id: i64, method: &str, params: Value) -> Result<Value> {
+            let _gate = self.negotiation_gate.lock().await;
+            if let Some(negotiated) = self.negotiated.lock().await.clone() {
+                return self.send_operation(id, method, params, &negotiated).await;
+            }
+
+            let stateless = Negotiated::stateless(protocol::MCP_PROTOCOL_VERSION_RC);
+            let tool_name = (method == "tools/call")
+                .then(|| params["name"].as_str().map(str::to_string))
+                .flatten();
+            let payload = json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "method": method,
+                "params": protocol::with_request_meta(params.clone()),
+            });
+            let probe = self
+                .send_raw(payload, &stateless, method, tool_name.as_deref())
+                .await?;
+
+            if protocol::looks_like_handshake_required(probe.status.as_u16(), &probe.body) {
+                self.handshake(MCP_PROTOCOL_VERSION_STABLE, 0).await?;
+                let _ = self.notify("notifications/initialized", json!({})).await;
+                let negotiated = self
+                    .negotiated
+                    .lock()
+                    .await
+                    .clone()
+                    .expect("handshake stores negotiation");
+                return self.send_operation(id, method, params, &negotiated).await;
+            }
+            if !probe.status.is_success() {
+                return Err(self.status_error(&probe));
+            }
+            let envelope = self.extract(id, &probe.content_type, &probe.body)?;
+            *self.negotiated.lock().await = Some(stateless);
+            Ok(envelope)
+        }
     }
 
     #[async_trait]
     impl Transport for HttpTransport {
         async fn request(&self, id: i64, method: &str, params: Value) -> Result<Value> {
-            let response = self
-                .send(json!({
-                    "jsonrpc": "2.0",
-                    "id": id,
-                    "method": method,
-                    "params": params,
-                }))
-                .await?;
-            let content_type = response
-                .headers()
-                .get("content-type")
-                .and_then(|value| value.to_str().ok())
-                .unwrap_or("application/json")
-                .to_string();
-            let body = response.text().await.map_err(|error| {
-                Error::Mcp(format!("mcp `{}` read failed: {error}", self.server_name))
-            })?;
-            self.extract(id, &content_type, &body)
+            if method == "initialize" {
+                let preferred = params["protocolVersion"]
+                    .as_str()
+                    .unwrap_or(MCP_PROTOCOL_VERSION_STABLE);
+                return self.handshake(preferred, id).await;
+            }
+            if self.mode == McpProtocolMode::Auto && self.negotiated.lock().await.is_none() {
+                return self.negotiate_and_send(id, method, params).await;
+            }
+            let negotiated = self
+                .negotiated
+                .lock()
+                .await
+                .clone()
+                .ok_or_else(|| Error::Mcp("HTTP protocol was not initialized".into()))?;
+            self.send_operation(id, method, params, &negotiated).await
         }
 
         async fn notify(&self, method: &str, params: Value) -> Result<()> {
-            // A notification has no id and the server answers 202 with no
-            // body; nothing to read.
-            self.send(json!({
-                "jsonrpc": "2.0",
-                "method": method,
-                "params": params,
-            }))
-            .await
-            .map(|_| ())
+            let negotiated = self
+                .negotiated
+                .lock()
+                .await
+                .clone()
+                .ok_or_else(|| Error::Mcp("HTTP protocol was not initialized".into()))?;
+            let response = self
+                .send_raw(
+                    json!({
+                        "jsonrpc": "2.0",
+                        "method": method,
+                        "params": params,
+                    }),
+                    &negotiated,
+                    method,
+                    None,
+                )
+                .await?;
+            if response.status.is_success() {
+                Ok(())
+            } else {
+                Err(self.status_error(&response))
+            }
         }
     }
 
@@ -506,7 +660,13 @@ mod http {
         use super::*;
 
         fn transport() -> HttpTransport {
-            HttpTransport::new("demo", "http://127.0.0.1:1/mcp", &[], None)
+            HttpTransport::new(
+                "demo",
+                "http://127.0.0.1:1/mcp",
+                &[],
+                None,
+                McpProtocolMode::Auto,
+            )
         }
 
         #[test]
@@ -558,10 +718,11 @@ impl std::fmt::Display for ServerLabel<'_> {
 }
 
 impl McpClient {
-    /// Connect to the server and complete the MCP initialize handshake.
+    /// Connect to the server.
     ///
-    /// A stdio server's child process is killed when the client is dropped;
-    /// an HTTP connection holds no process at all.
+    /// Stdio and pinned stateful HTTP modes initialize immediately. Auto and
+    /// RC HTTP modes defer protocol selection until the first operation. A
+    /// stdio server's child process is killed when the client is dropped.
     pub async fn connect(server: &McpServer) -> Result<Self> {
         Self::connect_with_auth(server, None).await
     }
@@ -578,9 +739,13 @@ impl McpClient {
                 Box::new(StdioTransport::spawn(&server.name, command, args, env).await?)
             }
             #[cfg(feature = "http")]
-            McpTransport::Http { url, headers } => {
-                Box::new(http::HttpTransport::new(&server.name, url, headers, auth))
-            }
+            McpTransport::Http { url, headers } => Box::new(http::HttpTransport::new(
+                &server.name,
+                url,
+                headers,
+                auth,
+                server.protocol_mode,
+            )),
             #[cfg(not(feature = "http"))]
             McpTransport::Http { .. } => {
                 let _ = auth;
@@ -597,23 +762,29 @@ impl McpClient {
             next_id: AtomicI64::new(1),
             transport,
         };
-        client
-            .request(
-                "initialize",
-                json!({
-                    "protocolVersion": PROTOCOL_VERSION,
-                    "capabilities": {},
-                    "clientInfo": {
-                        "name": "agentyk",
-                        "version": env!("CARGO_PKG_VERSION"),
-                    },
-                }),
-            )
-            .await?;
-        client
-            .transport
-            .notify("notifications/initialized", json!({}))
-            .await?;
+        let handshake_version = match &server.transport {
+            McpTransport::Stdio { .. } => Some(protocol::MCP_PROTOCOL_VERSION_STABLE),
+            McpTransport::Http { .. } => server.protocol_mode.handshake_version(),
+        };
+        if let Some(protocol_version) = handshake_version {
+            client
+                .request(
+                    "initialize",
+                    json!({
+                        "protocolVersion": protocol_version,
+                        "capabilities": {},
+                        "clientInfo": {
+                            "name": "agentyk",
+                            "version": env!("CARGO_PKG_VERSION"),
+                        },
+                    }),
+                )
+                .await?;
+            client
+                .transport
+                .notify("notifications/initialized", json!({}))
+                .await?;
+        }
         Ok(client)
     }
 
