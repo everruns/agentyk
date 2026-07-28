@@ -21,6 +21,11 @@ release — every release bumps the patch component (`0.1.z`). See
 
 ### Added
 
+- **Everruns-compatible event listener composition.** `EventListener` can
+  filter by dot-notation event type; `CompositeEventListener` provides ordered
+  fan-out with per-listener panic isolation; and `NoopEventListener` fills
+  optional observer slots. Agent-attached listeners use the same dispatcher,
+  so filters work without an explicit composite.
 - **A turn can be opened with an image.** `Session::run` (and its variants,
   and `Agent::run`) take `impl Into<Message>` rather than `impl Into<String>`,
   so `run("hello")` is unchanged while

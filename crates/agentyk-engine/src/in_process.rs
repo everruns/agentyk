@@ -7,7 +7,7 @@ use agentyk_core::cancellation::CancellationToken;
 use agentyk_core::concurrency::join_all;
 use agentyk_core::driver::DeltaSink;
 use agentyk_core::error::{Error, Result};
-use agentyk_core::event::{EventData, EventListener, EventRequest};
+use agentyk_core::event::{EventData, EventListener, EventRequest, notify_event_listeners};
 use agentyk_core::id::{EventId, MessageId, SessionId, TurnId};
 use agentyk_core::message::Message;
 use agentyk_core::tool::{ToolContext, ToolOutput, ToolProgress, ToolProgressSink};
@@ -48,9 +48,7 @@ impl ToolProgressSink for ListenerProgressSink {
         };
         let event = EventRequest::with_turn(self.session_id, self.turn_id, data)
             .into_ephemeral_event(EventId::new(), Utc::now());
-        for listener in &self.listeners {
-            listener.on_event(&event).await;
-        }
+        notify_event_listeners(&self.listeners, &event).await;
     }
 }
 

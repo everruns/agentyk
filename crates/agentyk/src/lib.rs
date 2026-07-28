@@ -79,18 +79,19 @@ pub use agentyk_core::{
 
 pub use agentyk_core::{
     BudgetChecker, BudgetDecision, CancellationToken, Capability, ChatDriver, ChatRequest,
-    ChatResponse, CommandContext, CommandDescriptor, ContentPart, ContextAssembler,
-    ContextAssembly, ContextEvent, ContextRequest, ContextSource, DeferrablePolicy, DeltaSink,
-    DriverId, DriverRegistry, Error, Event, EventData, EventId, EventListener, EventLog, EventPage,
-    EventRange, EventRequest, EventStore, ExpectedVersion, Extensions, FnTool, History,
-    ImageContentPart, InMemoryEventLog, InMemoryModelCatalog, InMemorySnapshotStore, InputQueue,
-    LlmErrorKind, Message, MessageId, ModelCatalog, ModelProfile, ModelSpec,
-    PassthroughContextAssembler, ProjectionSnapshot, ReasoningConfig, Result, Role, SealReason,
-    SessionId, SessionPoint, SnapshotStore, SystemPromptContext, TextContentPart, Tool, ToolCall,
-    ToolCallDecision, ToolChainOutcome, ToolContext, ToolDefinition, ToolInvocation, ToolOutput,
-    ToolPolicy, ToolProgress, ToolProgressSink, TurnAction, TurnControls, TurnId, TurnMiddleware,
-    TurnOutcome, TurnPhase, TurnState, Usage, after_tool_chain, before_tool_chain, event_types,
-    messages_from_events,
+    ChatResponse, CommandContext, CommandDescriptor, CompositeEventListener, ContentPart,
+    ContextAssembler, ContextAssembly, ContextEvent, ContextRequest, ContextSource,
+    DeferrablePolicy, DeltaSink, DriverId, DriverRegistry, Error, Event, EventData, EventId,
+    EventListener, EventLog, EventPage, EventRange, EventRequest, EventStore, ExpectedVersion,
+    Extensions, FnTool, History, ImageContentPart, InMemoryEventLog, InMemoryModelCatalog,
+    InMemorySnapshotStore, InputQueue, LlmErrorKind, Message, MessageId, ModelCatalog,
+    ModelProfile, ModelSpec, NoopEventListener, PassthroughContextAssembler, ProjectionSnapshot,
+    ReasoningConfig, Result, Role, SealReason, SessionId, SessionPoint, SnapshotStore,
+    SystemPromptContext, TextContentPart, Tool, ToolCall, ToolCallDecision, ToolChainOutcome,
+    ToolContext, ToolDefinition, ToolInvocation, ToolOutput, ToolPolicy, ToolProgress,
+    ToolProgressSink, TurnAction, TurnControls, TurnId, TurnMiddleware, TurnOutcome, TurnPhase,
+    TurnState, Usage, after_tool_chain, before_tool_chain, event_types, messages_from_events,
+    notify_event_listeners,
 };
 /// The names most applications want in scope at once.
 ///
@@ -106,10 +107,10 @@ pub use agentyk_core::{
 /// ```
 pub mod prelude {
     pub use crate::{
-        Agent, AgentBuilder, Capability, ChatDriver, Event, EventData, EventListener, EventLog,
-        FnTool, Message, ModelSpec, Result, RunOptions, Session, SessionView, Tool,
-        ToolCallDecision, ToolContext, ToolDefinition, ToolInvocation, ToolOutput, TurnMiddleware,
-        TurnResult,
+        Agent, AgentBuilder, Capability, ChatDriver, CompositeEventListener, Event, EventData,
+        EventListener, EventLog, FnTool, Message, ModelSpec, NoopEventListener, Result, RunOptions,
+        Session, SessionView, Tool, ToolCallDecision, ToolContext, ToolDefinition, ToolInvocation,
+        ToolOutput, TurnMiddleware, TurnResult,
     };
 }
 

@@ -5,7 +5,7 @@ use chrono::Utc;
 use agentyk_core::cancellation::CancellationToken;
 use agentyk_core::driver::{ModelSpec, Usage};
 use agentyk_core::error::Result;
-use agentyk_core::event::{EventData, EventRequest};
+use agentyk_core::event::{EventData, EventRequest, notify_event_listeners};
 use agentyk_core::event_log::{EventLog, ExpectedVersion};
 use agentyk_core::id::{EventId, SessionId, TurnId};
 use agentyk_core::input::InputQueue;
@@ -136,9 +136,7 @@ impl<'a> TurnHost<'a> {
             if event.sequence.is_some() {
                 self.history.apply(&event.data);
             }
-            for listener in &self.environment.listeners {
-                listener.on_event(&event).await;
-            }
+            notify_event_listeners(&self.environment.listeners, &event).await;
         }
         Ok(())
     }
@@ -148,11 +146,12 @@ impl<'a> TurnHost<'a> {
 mod tests {
     use std::pin::pin;
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicU32, Ordering};
     use std::task::{Context, Poll, Waker};
 
     use agentyk_core::context::PassthroughContextAssembler;
     use agentyk_core::driver::{DriverRegistry, ModelSpec};
-    use agentyk_core::event::{Event, EventRequest};
+    use agentyk_core::event::{Event, EventListener, EventRequest, event_types};
     use agentyk_core::event_log::EventStore;
     use agentyk_core::extensions::Extensions;
     use agentyk_core::id::MessageId;
@@ -161,6 +160,21 @@ mod tests {
     use crate::agent::{AgentDefinition, AgentEnvironment};
 
     struct RejectingStore;
+
+    struct FilteredListener {
+        count: Arc<AtomicU32>,
+    }
+
+    #[async_trait::async_trait]
+    impl EventListener for FilteredListener {
+        async fn on_event(&self, _event: &Event) {
+            self.count.fetch_add(1, Ordering::SeqCst);
+        }
+
+        fn event_types(&self) -> Option<Vec<&'static str>> {
+            Some(vec![event_types::INPUT_MESSAGE])
+        }
+    }
 
     #[async_trait::async_trait]
     impl EventStore for RejectingStore {
@@ -257,6 +271,50 @@ mod tests {
             }],
         ))
         .unwrap();
+    }
+
+    #[test]
+    fn host_honors_listener_event_type_filters() {
+        let definition = AgentDefinition {
+            name: "test".into(),
+            instructions: String::new(),
+            model: ModelSpec::llmsim(),
+            capabilities: Vec::new(),
+            max_iterations: 4,
+            middleware: Vec::new(),
+            budget_checker: None,
+            context_assembler: Arc::new(PassthroughContextAssembler),
+            model_profile: None,
+            context_token_limit: None,
+        };
+        let count = Arc::new(AtomicU32::new(0));
+        let environment = AgentEnvironment {
+            drivers: DriverRegistry::new(),
+            listeners: vec![Arc::new(FilteredListener {
+                count: count.clone(),
+            })],
+            extensions: Extensions::new(),
+        };
+        let mut history = History::new();
+        let mut host = TurnHost::new(
+            SessionId::new(),
+            &definition,
+            &environment,
+            &RejectingStore,
+            &mut history,
+        );
+
+        block_on(host.record(
+            TurnId::new(),
+            vec![EventData::OutputMessageDelta {
+                message_id: MessageId::new(),
+                delta: "a".into(),
+                accumulated: "a".into(),
+            }],
+        ))
+        .unwrap();
+
+        assert_eq!(count.load(Ordering::SeqCst), 0);
     }
 
     #[test]
