@@ -5,8 +5,8 @@
 use std::sync::Arc;
 
 use agentyk::{
-    Agent, McpAuthProvider, McpCapability, McpServer, ModelSpec, Result, SimDriver, SimTurn,
-    StaticBearer,
+    Agent, McpAuthProvider, McpCapability, McpClient, McpProtocolMode, McpServer, ModelSpec,
+    Result, SimDriver, SimTurn, StaticBearer,
 };
 use async_trait::async_trait;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -21,9 +21,40 @@ struct FakeMcpServer {
     _handle: tokio::task::JoinHandle<()>,
 }
 
+struct FakeReply {
+    status: &'static str,
+    content_type: &'static str,
+    body: String,
+    session_id: Option<&'static str>,
+}
+
+impl FakeReply {
+    fn ok(content_type: &'static str, body: String) -> Self {
+        Self {
+            status: "200 OK",
+            content_type,
+            body,
+            session_id: None,
+        }
+    }
+
+    fn error(status: &'static str, body: impl Into<String>) -> Self {
+        Self {
+            status,
+            content_type: "application/json",
+            body: body.into(),
+            session_id: None,
+        }
+    }
+
+    fn session(mut self, session_id: &'static str) -> Self {
+        self.session_id = Some(session_id);
+        self
+    }
+}
+
 impl FakeMcpServer {
-    /// `replies` are `(content_type, body)` pairs, served in order.
-    async fn serving(replies: Vec<(&'static str, String)>) -> Self {
+    async fn serving(replies: Vec<FakeReply>) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
         let port = listener.local_addr().expect("addr").port();
         let requests = Arc::new(Mutex::new(Vec::new()));
@@ -64,12 +95,19 @@ impl FakeMcpServer {
                     .await
                     .push(String::from_utf8_lossy(&buffer).into_owned());
 
-                let (content_type, body) = replies
+                let reply = replies
                     .next()
-                    .unwrap_or(("application/json", String::from("{}")));
+                    .unwrap_or_else(|| FakeReply::ok("application/json", "{}".into()));
+                let session_header = reply
+                    .session_id
+                    .map(|id| format!("Mcp-Session-Id: {id}\r\n"))
+                    .unwrap_or_default();
                 let response = format!(
-                    "HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\nMcp-Session-Id: session-42\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-                    body.len()
+                    "HTTP/1.1 {}\r\nContent-Type: {}\r\n{session_header}Content-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    reply.status,
+                    reply.content_type,
+                    reply.body.len(),
+                    reply.body,
                 );
                 let _ = socket.write_all(response.as_bytes()).await;
                 let _ = socket.flush().await;
@@ -95,12 +133,13 @@ fn envelope(id: u8, result: serde_json::Value) -> String {
 /// initialize → (notification) → tools/list → tools/call.
 async fn scripted_server() -> FakeMcpServer {
     FakeMcpServer::serving(vec![
-        (
+        FakeReply::ok(
             "application/json",
             envelope(1, serde_json::json!({"protocolVersion": "2025-06-18"})),
-        ),
-        ("application/json", String::from("{}")),
-        (
+        )
+        .session("session-42"),
+        FakeReply::ok("application/json", String::from("{}")).session("session-42"),
+        FakeReply::ok(
             "application/json",
             envelope(
                 2,
@@ -110,10 +149,11 @@ async fn scripted_server() -> FakeMcpServer {
                     "inputSchema": {"type": "object", "properties": {"q": {"type": "string"}}}
                 }]}),
             ),
-        ),
+        )
+        .session("session-42"),
         // The call answers over SSE, which the transport must handle just as
         // well as a JSON body.
-        (
+        FakeReply::ok(
             "text/event-stream",
             format!(
                 "event: message\ndata: {}\n\n",
@@ -122,7 +162,8 @@ async fn scripted_server() -> FakeMcpServer {
                     serde_json::json!({"content": [{"type": "text", "text": "3 open issues"}]})
                 )
             ),
-        ),
+        )
+        .session("session-42"),
     ])
     .await
 }
@@ -136,7 +177,9 @@ async fn a_remote_server_contributes_its_tools_to_a_turn() -> Result<()> {
             SimTurn::tool_call("search_issues", serde_json::json!({"q": "open"})),
             SimTurn::text("3 open issues"),
         ]))
-        .capability(McpCapability::new(McpServer::http("github", &server.url)))
+        .capability(McpCapability::new(
+            McpServer::http("github", &server.url).protocol_mode(McpProtocolMode::Stable),
+        ))
         .build()?;
 
     let mut session = agent.session();
@@ -162,7 +205,9 @@ async fn the_session_id_from_initialize_is_sent_on_later_requests() -> Result<()
     let agent = Agent::builder()
         .model(ModelSpec::llmsim())
         .driver(SimDriver::new([SimTurn::text("done")]))
-        .capability(McpCapability::new(McpServer::http("github", &server.url)))
+        .capability(McpCapability::new(
+            McpServer::http("github", &server.url).protocol_mode(McpProtocolMode::Stable),
+        ))
         .build()?;
     agent.session().run("list the tools").await?;
 
@@ -201,8 +246,10 @@ async fn an_auth_provider_is_asked_for_every_request() -> Result<()> {
         .model(ModelSpec::llmsim())
         .driver(SimDriver::new([SimTurn::text("done")]))
         .capability(
-            McpCapability::new(McpServer::http("github", &server.url))
-                .auth(Rotating(std::sync::atomic::AtomicUsize::new(0))),
+            McpCapability::new(
+                McpServer::http("github", &server.url).protocol_mode(McpProtocolMode::Stable),
+            )
+            .auth(Rotating(std::sync::atomic::AtomicUsize::new(0))),
         )
         .build()?;
     agent.session().run("list the tools").await?;
@@ -228,8 +275,10 @@ async fn a_static_bearer_covers_the_simple_case() -> Result<()> {
         .model(ModelSpec::llmsim())
         .driver(SimDriver::new([SimTurn::text("done")]))
         .capability(
-            McpCapability::new(McpServer::http("github", &server.url))
-                .auth(StaticBearer::new("ghp_secret")),
+            McpCapability::new(
+                McpServer::http("github", &server.url).protocol_mode(McpProtocolMode::Stable),
+            )
+            .auth(StaticBearer::new("ghp_secret")),
         )
         .build()?;
     agent.session().run("list the tools").await?;
@@ -245,7 +294,9 @@ async fn extra_headers_are_sent_and_credentials_are_not_required() -> Result<()>
         .model(ModelSpec::llmsim())
         .driver(SimDriver::new([SimTurn::text("done")]))
         .capability(McpCapability::new(
-            McpServer::http("github", &server.url).header("X-Tenant", "acme"),
+            McpServer::http("github", &server.url)
+                .protocol_mode(McpProtocolMode::Stable)
+                .header("X-Tenant", "acme"),
         ))
         .build()?;
     agent.session().run("list the tools").await?;
@@ -253,5 +304,144 @@ async fn extra_headers_are_sent_and_credentials_are_not_required() -> Result<()>
     let first = server.requests().await[0].clone();
     assert!(first.contains("x-tenant: acme"), "{first}");
     assert!(!first.to_lowercase().contains("authorization:"));
+    Ok(())
+}
+
+#[tokio::test]
+async fn auto_uses_stateless_rc_without_a_handshake_and_caches_the_verdict() -> Result<()> {
+    let server = FakeMcpServer::serving(vec![
+        FakeReply::ok(
+            "application/json",
+            envelope(
+                1,
+                serde_json::json!({"tools": [{
+                    "name": "search",
+                    "description": "Search.",
+                    "inputSchema": {"type": "object"}
+                }]}),
+            ),
+        ),
+        FakeReply::ok(
+            "application/json",
+            envelope(
+                2,
+                serde_json::json!({
+                    "content": [{"type": "text", "text": "found"}],
+                    "isError": false
+                }),
+            ),
+        ),
+    ])
+    .await;
+    let client = McpClient::connect_with_auth(
+        &McpServer::http("rc", &server.url),
+        Some(Arc::new(StaticBearer::new("oauth-token"))),
+    )
+    .await?;
+
+    assert_eq!(client.list_tools().await?[0].name, "search");
+    assert_eq!(
+        client
+            .call_tool("search", serde_json::json!({"q": "mcp"}))
+            .await?
+            .content,
+        "found"
+    );
+
+    let requests = server.requests().await;
+    assert_eq!(requests.len(), 2, "no initialize round trip");
+    for request in &requests {
+        let lower = request.to_lowercase();
+        assert!(lower.contains("mcp-protocol-version: 2026-07-28"));
+        assert!(!lower.contains("mcp-session-id:"));
+        assert!(!request.contains(r#""method":"initialize""#));
+        assert!(request.contains("io.modelcontextprotocol/clientInfo"));
+        assert!(request.contains(r#""name":"agentyk""#));
+        assert!(lower.contains("authorization: bearer oauth-token"));
+    }
+    assert!(
+        requests[0]
+            .to_lowercase()
+            .contains("mcp-method: tools/list")
+    );
+    let call = requests[1].to_lowercase();
+    assert!(call.contains("mcp-method: tools/call"));
+    assert!(call.contains("mcp-name: search"));
+    Ok(())
+}
+
+#[tokio::test]
+async fn auto_falls_back_to_stateful_and_uses_the_server_version_and_session() -> Result<()> {
+    let server = FakeMcpServer::serving(vec![
+        FakeReply::error(
+            "400 Bad Request",
+            r#"{"error":{"message":"Unsupported protocol version"}}"#,
+        ),
+        FakeReply::ok(
+            "application/json",
+            envelope(0, serde_json::json!({"protocolVersion": "2025-03-26"})),
+        )
+        .session("legacy-session"),
+        FakeReply::error("202 Accepted", ""),
+        FakeReply::ok(
+            "application/json",
+            envelope(1, serde_json::json!({"tools": []})),
+        ),
+        FakeReply::ok(
+            "application/json",
+            envelope(2, serde_json::json!({"tools": []})),
+        ),
+    ])
+    .await;
+    let client = McpClient::connect(&McpServer::http("legacy", &server.url)).await?;
+
+    assert!(client.list_tools().await?.is_empty());
+    assert!(client.list_tools().await?.is_empty());
+
+    let requests = server.requests().await;
+    assert_eq!(requests.len(), 5);
+    assert!(requests[0].contains(r#""method":"tools/list""#));
+    assert!(
+        requests[0]
+            .to_lowercase()
+            .contains("mcp-protocol-version: 2026-07-28")
+    );
+    assert!(requests[1].contains(r#""method":"initialize""#));
+    assert!(requests[2].contains(r#""method":"notifications/initialized""#));
+    for request in &requests[2..] {
+        let lower = request.to_lowercase();
+        assert!(lower.contains("mcp-protocol-version: 2025-03-26"));
+        assert!(lower.contains("mcp-session-id: legacy-session"));
+    }
+    assert!(
+        requests[3..]
+            .iter()
+            .all(|request| request.contains(r#""method":"tools/list""#)),
+        "the cached negotiation skips another probe and handshake"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn pinned_rc_surfaces_rejection_without_falling_back() -> Result<()> {
+    let server = FakeMcpServer::serving(vec![FakeReply::error(
+        "400 Bad Request",
+        r#"{"error":{"message":"Unsupported protocol version"}}"#,
+    )])
+    .await;
+    let client = McpClient::connect(
+        &McpServer::http("rc-only", &server.url).protocol_mode(McpProtocolMode::Rc),
+    )
+    .await?;
+
+    let error = client.list_tools().await.expect_err("RC is pinned");
+    assert!(error.to_string().contains("400 Bad Request"), "{error}");
+    let requests = server.requests().await;
+    assert_eq!(requests.len(), 1, "pinned RC must not initialize");
+    assert!(
+        requests[0]
+            .to_lowercase()
+            .contains("mcp-protocol-version: 2026-07-28")
+    );
     Ok(())
 }

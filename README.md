@@ -49,9 +49,14 @@ println!("{}", turn.response);
   events while it works. Results can carry structured `metadata` for the host
   and image `parts` for the model, alongside the text both read.
 - **MCP** — `McpCapability` connects to Model Context Protocol servers over
-  stdio or HTTP and exposes their tools to the model. `McpAuthProvider`
-  supplies a remote server's credentials per request, so an expiring token is
-  a matter of returning a fresh value.
+  stdio or HTTP and exposes their tools to the model. HTTP defaults to
+  `McpProtocolMode::Auto`: it tries the stateless `2026-07-28` release
+  candidate first, then negotiates the server-reported legacy/stable version
+  and session when a server requires the initialize handshake.
+  `McpAuthProvider` supplies credentials per request. Feature `mcp-oauth` adds
+  OAuth 2.1 discovery, dynamic client registration, PKCE browser login, and
+  automatic token refresh; the application opens the returned URL and
+  persists tokens.
 - **Steering** — `Session::input()` hands out a queue a UI can push to while a
   turn is running; messages join the conversation at its next reasoning step.
 - **User hooks** — the six Everruns lifecycle points (`session_start`,
@@ -96,6 +101,7 @@ nothing that can open a socket or spawn a process. Opt in to what you need.
 | *(none)* | turn loop, `InMemoryEventLog`, `JsonlEventLog`, `SimDriver` | — |
 | `http` | `OpenAiDriver`, `AnthropicDriver` (SSE streaming) | `reqwest`, `futures-util` |
 | `mcp` | `McpCapability` / `McpClient` over stdio (HTTP transport also needs `http`) | `tokio` (rt, process, io-util, sync, time) |
+| `mcp-oauth` | OAuth 2.1 discovery, DCR, PKCE loopback login, token refresh | `mcp`, `http`, `base64`, `rand`, `sha2` |
 | `fs` | `FileSystemCapability`, real-disk and in-memory stores | `tokio` (fs, sync), `regex` |
 | `hooks` | trusted local `ShellHook` executor | `tokio` (process, io-util, time) |
 | `full` | all of the above | all of the above |

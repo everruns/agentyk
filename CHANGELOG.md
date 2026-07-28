@@ -36,6 +36,14 @@ release — every release bumps the patch component (`0.1.z`). See
   their own executor. The canonical engine/session path owns every firing
   point, including durable hosts. `Session::close()` provides the async
   session-end boundary.
+- **MCP OAuth and multi-era HTTP negotiation.** Feature `mcp-oauth` adds OAuth
+  2.1 metadata discovery, dynamic client registration, PKCE loopback login,
+  serializable redacted token sets, and refresh-before-request. Remote MCP
+  servers now default to `McpProtocolMode::Auto`: stateless `2026-07-28`
+  requests carry client metadata and routable headers without an initialize
+  round trip, while an explicit handshake-required response falls back once
+  to the server-negotiated legacy/stable version and session. Pinned
+  `Rc`/`Stable`/`Legacy` modes are available for deterministic deployments.
 
 - **A turn can be opened with an image.** `Session::run` (and its variants,
   and `Agent::run`) take `impl Into<Message>` rather than `impl Into<String>`,

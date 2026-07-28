@@ -141,8 +141,17 @@ server):
   (Chat Completions; any OpenAI-compatible endpoint via `base_url`) and
   `AnthropicDriver` (Messages API) behind the `http` feature. Both stream
   real incremental SSE deltas.
-- MCP — stdio JSON-RPC client (initialize handshake, `tools/list`,
-  `tools/call`), lazy connection, tools exposed as ordinary `Tool`s.
+- MCP — stdio and Streamable HTTP JSON-RPC clients (initialize handshake,
+  `tools/list`, `tools/call`), lazy connection, tools exposed as ordinary
+  `Tool`s. HTTP defaults to multi-era `Auto`: optimistically send a stateless
+  `2026-07-28` request with per-request client metadata and routable headers,
+  then fall back once to the stateful `2025-06-18` handshake when the server
+  explicitly requires it. The returned protocol version and session id become
+  the connection's cached verdict; `Rc`/`Stable`/`Legacy` pin an era.
+  Optional OAuth 2.1 support discovers protected-resource and
+  authorization-server metadata, dynamically registers a public client,
+  prepares a PKCE loopback login, and refreshes tokens. Browser opening and
+  token persistence remain host concerns.
 - Execution abstraction — `TurnEngine` prepares one provider-neutral model
   operation or tool batch and applies its result. `InProcessExecutor` is a thin
   immediate host. `durable_host_replays_state_between_every_engine_step`

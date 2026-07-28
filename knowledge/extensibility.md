@@ -67,7 +67,7 @@ identity-first lifecycle. See
 | Host services reaching tools | `ToolContext.extensions` (typed, `TypeId`-keyed bag) |
 | A domain event core lacks | `EventData::Custom { event_type, payload }` |
 | Model capability knowledge (context window, supported efforts) | `profile::ModelCatalog` — a host-implemented seam, because a model list inside a library is stale by the next provider release |
-| Remote-service credentials that expire | An auth provider trait asked **per request**, not a config field read once — see `mcp::McpAuthProvider` |
+| Remote-service credentials that expire | An auth provider trait asked **per request**, not a config field read once — see `mcp::McpAuthProvider`; `mcp::oauth::McpOAuthTokenProvider` supplies OAuth discovery/login/refresh without owning browser or storage policy |
 
 Event observation follows the Everruns contract. `EventListener::event_types`
 can restrict delivery by dot-notation type; `CompositeEventListener` provides

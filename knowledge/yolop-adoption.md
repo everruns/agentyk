@@ -183,6 +183,18 @@ Real, worked around, but each one costs an adopter something.
    id correlation — shared rather than duplicated per transport.
    `McpAuthProvider` supplies the `Authorization` header **per request**, not
    per connection, so an expiring token only has to return a fresh value.
+   The optional `mcp-oauth` feature adopts yolop's protocol layer: RFC 9728 /
+   RFC 8414 discovery, dynamic client registration, PKCE loopback login, code
+   exchange, and serialized token refresh. The reusable library stops at the
+   authorization URL and serializable tokens; opening a browser and choosing
+   a credential store belong to the host.
+   HTTP protocol handling now has the same multi-era policy as
+   `everruns-mcp`: `Auto` probes the stateless `2026-07-28` release candidate
+   and falls back to the server-negotiated stateful era only on an explicit
+   handshake-required signal. Pinned `Rc`/`Stable`/`Legacy` modes skip the
+   probe. Because one `McpClient` owns one logical connection, its negotiation
+   verdict lives with that client rather than in everruns' shared,
+   credential-keyed transport cache.
    Needs the `http` feature alongside `mcp`; without it, connecting says so.
    Capabilities contributing servers (gap 13) is still open.
 9. ✅ **Reasoning effort is unvalidated — fixed.**
