@@ -48,8 +48,11 @@ mcp = ["dep:tokio", "tokio/rt", "tokio/process", "tokio/io-util", "tokio/sync", 
 # lookup — which is both slower and outside whatever gate the host puts on
 # shell access.
 fs = ["dep:tokio", "tokio/fs", "tokio/sync", "dep:regex"]
+# Trusted local shell hooks. Process spawning is opt-in; the portable Hook
+# contract remains available without this feature.
+hooks = ["dep:tokio", "tokio/process", "tokio/time", "tokio/io-util", "tokio/macros"]
 # Everything the framework bundles.
-full = ["http", "mcp", "fs"]
+full = ["http", "mcp", "fs", "hooks"]
 
 [package.metadata.docs.rs]
 all-features = true
@@ -74,3 +77,7 @@ required-features = ["mcp"]
 [[test]]
 name = "http_drivers"
 required-features = ["http"]
+
+[[test]]
+name = "shell_hooks"
+required-features = ["hooks"]

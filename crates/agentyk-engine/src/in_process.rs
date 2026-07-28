@@ -118,11 +118,28 @@ impl InProcessExecutor {
 impl InProcessExecutor {
     /// Run one turn by immediately executing every prepared engine operation.
     pub async fn run_turn(&self, host: &mut TurnHost<'_>, input: Message) -> Result<TurnResult> {
-        let (state, events) =
-            TurnState::start(host.session_id, host.definition.max_iterations, &input);
-        let turn_id = state.turn_id;
-        host.record(turn_id, events).await?;
-        self.resume_turn(host, state).await
+        let engine = TurnEngine;
+        let started = engine.start(host, input).await;
+        let turn_id = started.state.turn_id;
+        host.record(turn_id, started.events).await?;
+        if let Some(rejection) = started.rejection {
+            let warnings = engine
+                .finish(
+                    host,
+                    turn_id,
+                    serde_json::json!({
+                        "success": false,
+                        "error": rejection.reason,
+                    }),
+                )
+                .await;
+            host.record(turn_id, warnings).await?;
+            return Err(Error::HookBlocked {
+                reason: rejection.reason,
+                user_message: rejection.user_message,
+            });
+        }
+        self.resume_turn(host, started.state).await
     }
 
     /// Continue a replayed, incomplete turn from its current durable head.
@@ -132,6 +149,30 @@ impl InProcessExecutor {
     /// recovery invokes that tool again. Hosts that need stronger guarantees
     /// must give tools idempotency keys or deduplicate at the activity boundary.
     pub async fn resume_turn(
+        &self,
+        host: &mut TurnHost<'_>,
+        state: TurnState,
+    ) -> Result<TurnResult> {
+        let turn_id = state.turn_id;
+        let result = self.resume_turn_inner(host, state).await;
+        let data = match &result {
+            Ok(result) => serde_json::json!({
+                "success": true,
+                "response": result.response,
+                "tool_calls": result.tool_calls,
+                "iterations": result.iterations,
+            }),
+            Err(error) => serde_json::json!({
+                "success": false,
+                "error": error.to_string(),
+            }),
+        };
+        let warnings = TurnEngine.finish(host, turn_id, data).await;
+        host.record(turn_id, warnings).await?;
+        result
+    }
+
+    async fn resume_turn_inner(
         &self,
         host: &mut TurnHost<'_>,
         mut state: TurnState,

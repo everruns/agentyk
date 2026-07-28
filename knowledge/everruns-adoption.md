@@ -153,9 +153,14 @@ expensive to change the longer we wait.
    (a capability contribution may bundle a tool with its middleware)
    and **dispatch strategy** (a host dispatcher concurrently fans out the
    engine's prepared batch).
-   `PostActHook` (turn-level) and `ClientSideToolHook` (client/server split)
-   remain unported — no use case yet, and each would be a defaulted method on
-   `TurnMiddleware` rather than a new trait.
+   **User hooks are now also done.** A separate host-neutral `Hook` trait
+   covers Everruns' six operator-facing lifecycle events: session start/end,
+   user prompt submit, pre/post tool use, and turn end. It includes ordered
+   mutation/block decisions, error policy, tool matchers, structured payloads,
+   and an opt-in trusted local shell executor. See [`hooks.md`](hooks.md).
+   Everruns' internal `PostActHook` / `ClientSideToolHook` remain host
+   mechanisms rather than user-hook events; client-side tool handoff still
+   needs a protocol/turn-state design before it belongs here.
 
    **Known limit:** middleware governs the act phase. A rewrite cannot redact
    what the model already generated — `output.message.completed` still holds

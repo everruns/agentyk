@@ -11,9 +11,12 @@ pub mod in_process;
 pub mod session;
 
 mod config;
+mod hooks;
 
 pub use agent::{Agent, AgentBuilder, AgentDefinition, AgentEnvironment};
-pub use engine::{PreparedStep, PreparedToolCall, TurnEngine, TurnOperation};
+pub use engine::{
+    HookRejection, PreparedStep, PreparedToolCall, PreparedTurnStart, TurnEngine, TurnOperation,
+};
 pub use host::{TurnHost, TurnResult};
 pub use in_process::InProcessExecutor;
 pub use session::{RunOptions, Session, SessionView};

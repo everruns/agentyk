@@ -4,11 +4,14 @@
 //! rebuilt by replaying the log. If this test passes, the execution
 //! abstraction is sufficient for durable execution.
 
+use std::sync::{Arc, Mutex};
+
 use agentyk::{
-    Agent, EventData, EventLog, EventRequest, ExpectedVersion, FnTool, History, InMemoryEventLog,
-    ModelSpec, Result, SimDriver, SimTurn, ToolContext, ToolOutput, TurnEngine, TurnHost,
-    TurnOperation, TurnOutcome, TurnState, atoms,
+    Agent, EventData, EventLog, EventRequest, ExpectedVersion, FnTool, History, Hook, HookEvent,
+    HookOutcome, HookPayload, InMemoryEventLog, ModelSpec, Result, SimDriver, SimTurn, ToolContext,
+    ToolOutput, TurnEngine, TurnHost, TurnOperation, TurnOutcome, TurnState, atoms,
 };
+use async_trait::async_trait;
 use serde_json::json;
 
 fn add_tool() -> FnTool {
@@ -26,6 +29,34 @@ fn add_tool() -> FnTool {
             ToolOutput::text((a + b).to_string())
         },
     )
+}
+
+struct RecordingHook {
+    event: HookEvent,
+    seen: Arc<Mutex<Vec<HookEvent>>>,
+}
+
+#[async_trait]
+impl Hook for RecordingHook {
+    fn id(&self) -> &str {
+        "durable-test"
+    }
+
+    fn event(&self) -> HookEvent {
+        self.event
+    }
+
+    async fn run(&self, payload: &HookPayload) -> HookOutcome {
+        self.seen.lock().unwrap().push(payload.event);
+        if payload.event == HookEvent::UserPromptSubmit {
+            HookOutcome::Mutate {
+                patch: json!({"message": "rewritten by hook"}),
+                reason: None,
+            }
+        } else {
+            HookOutcome::Allow
+        }
+    }
 }
 
 /// A durable host's write path: persist effects, exactly like the executor
@@ -52,22 +83,28 @@ async fn record(
 
 #[tokio::test]
 async fn durable_host_replays_state_between_every_engine_step() -> Result<()> {
+    let seen_hooks = Arc::new(Mutex::new(Vec::new()));
     let agent = Agent::builder()
         .system_prompt("You do arithmetic.")
         .model(ModelSpec::llmsim())
+        .max_iterations(4)
         .driver(SimDriver::new([
             SimTurn::tool_call("add", json!({"a": 20, "b": 22})),
             SimTurn::text("The answer is 42."),
         ]))
         .tool(add_tool())
+        .hook(RecordingHook {
+            event: HookEvent::UserPromptSubmit,
+            seen: seen_hooks.clone(),
+        })
+        .hook(RecordingHook {
+            event: HookEvent::TurnEnd,
+            seen: seen_hooks.clone(),
+        })
         .build()?;
     let log = InMemoryEventLog::new();
     let session_id = agentyk::SessionId::new();
     let input = agentyk::Message::user("what is 20 + 22?");
-    let (initial, effects) = TurnState::start(session_id, 4, &input);
-    let turn_id = initial.turn_id;
-    record(&log, &initial, effects).await?;
-
     let engine = TurnEngine;
     let mut bootstrap_history = History::new();
     let bootstrap_host = TurnHost::new(
@@ -77,6 +114,10 @@ async fn durable_host_replays_state_between_every_engine_step() -> Result<()> {
         &log,
         &mut bootstrap_history,
     );
+    let started = engine.start(&bootstrap_host, input).await;
+    assert!(started.rejection.is_none());
+    let turn_id = started.state.turn_id;
+    record(&log, &started.state, started.events).await?;
     let assembled = engine.assemble(&bootstrap_host).await?;
     let driver = agent.driver_for_model().expect("driver");
 
@@ -144,6 +185,14 @@ async fn durable_host_replays_state_between_every_engine_step() -> Result<()> {
                         response: "The answer is 42.".into()
                     }
                 );
+                let effects = engine
+                    .finish(
+                        &host,
+                        turn_id,
+                        json!({"success": true, "response": "The answer is 42."}),
+                    )
+                    .await;
+                record(&log, &state, effects).await?;
                 break;
             }
         }
@@ -153,5 +202,21 @@ async fn durable_host_replays_state_between_every_engine_step() -> Result<()> {
     assert_eq!(state.iterations, 2);
     assert_eq!(state.tool_calls_executed, 1);
     assert!(state.is_complete());
+    assert_eq!(
+        *seen_hooks.lock().unwrap(),
+        [HookEvent::UserPromptSubmit, HookEvent::TurnEnd]
+    );
+    assert_eq!(
+        state.phase,
+        agentyk::TurnPhase::Completed(TurnOutcome::Success {
+            response: "The answer is 42.".into(),
+        })
+    );
+    assert!(log.read(session_id).await?.iter().any(|event| {
+        matches!(
+            &event.data,
+            EventData::InputMessage { message } if message.text() == "rewritten by hook"
+        )
+    }));
     Ok(())
 }

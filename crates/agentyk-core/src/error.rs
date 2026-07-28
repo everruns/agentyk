@@ -90,6 +90,15 @@ pub enum Error {
     #[error("turn sealed: {0:?}")]
     Sealed(crate::turn::SealReason),
 
+    /// A blockable user hook refused the prompt or tool action.
+    #[error("hook blocked execution: {reason}")]
+    HookBlocked {
+        /// Diagnostic reason supplied by the hook.
+        reason: String,
+        /// Optional message suitable for a user-facing surface.
+        user_message: Option<String>,
+    },
+
     /// An LLM driver failed. `kind` classifies whether retrying is worth it
     /// — see [`Error::is_retryable`].
     #[error("driver error ({kind}): {message}")]

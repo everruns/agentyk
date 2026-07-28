@@ -12,6 +12,8 @@ okf_version: "0.2"
   direction, and runtime architecture.
 - [Extending agentyk without changing core](extensibility.md) — Defines composition seams for
   capabilities, middleware, providers, persistence, and hosts.
+- [User hook lifecycle](hooks.md) — Defines Agentyk’s Everruns-compatible hook events,
+  composition semantics, and executor boundary.
 - [Session timelines](session-timelines.md) — Defines immutable history, branching, snapshots, and
   context assembly for long-lived sessions.
 

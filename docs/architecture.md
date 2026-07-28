@@ -169,12 +169,19 @@ may contain instructions, tools, and the middleware governing those tools.
 This lets a filesystem or MCP capability package its behavior without a
 registry or a host-specific id.
 
+User hooks are a parallel operator-facing seam at six stable lifecycle
+points. Their payload and decision types live in core; the canonical engine
+owns ordering and mutation/block semantics. Process execution does not:
+feature `hooks` supplies a trusted local shell adapter, while a sandboxed or
+durable host implements the same `Hook` trait using its own executor.
+
 Heavy dependencies remain optional through Cargo features:
 
 ```text
 http  → OpenAI-compatible and Anthropic driver modules
 mcp   → MCP client and capability module
 fs    → filesystem abstractions and capability module
+hooks → trusted local shell-hook executor
 full  → all bundled modules
 ```
 

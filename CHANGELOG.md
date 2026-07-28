@@ -26,6 +26,17 @@ release — every release bumps the patch component (`0.1.z`). See
   fan-out with per-listener panic isolation; and `NoopEventListener` fills
   optional observer slots. Agent-attached listeners use the same dispatcher,
   so filters work without an explicit composite.
+- **Everruns-level user hooks.** `Hook` covers `session_start`,
+  `user_prompt_submit`, `pre_tool_use`, `post_tool_use`, `turn_end`, and
+  `session_end` with ordered mutation/block decisions, error policy, tool
+  matchers, and structured JSON payloads. The canonical engine owns every
+  firing point. Feature `hooks` adds a trusted local `ShellHook` with
+  stdin/environment payload delivery, structured stdout decisions, timeout,
+  and output ceilings; sandboxed hosts implement the same core trait with
+  their own executor. The canonical engine/session path owns every firing
+  point, including durable hosts. `Session::close()` provides the async
+  session-end boundary.
+
 - **A turn can be opened with an image.** `Session::run` (and its variants,
   and `Agent::run`) take `impl Into<Message>` rather than `impl Into<String>`,
   so `run("hello")` is unchanged while

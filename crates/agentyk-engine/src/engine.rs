@@ -6,11 +6,13 @@ use agentyk_core::context::ContextRequest;
 use agentyk_core::driver::{ChatRequest, ChatResponse};
 use agentyk_core::error::{Error, Result};
 use agentyk_core::event::EventData;
-use agentyk_core::message::ToolCall;
+use agentyk_core::hook::{HookContext, HookEvent};
+use agentyk_core::message::{Message, ToolCall};
 use agentyk_core::middleware::{self, ToolChainOutcome};
 use agentyk_core::tool::{ToolContext, ToolOutput};
 use agentyk_core::turn::{SealReason, TurnAction, TurnOutcome, TurnState};
 
+use crate::hooks::{self, PromptDecision, ToolDecision};
 use crate::host::TurnHost;
 /// External work requested by one prepared engine step.
 ///
@@ -52,11 +54,96 @@ pub struct PreparedStep {
     pub operation: TurnOperation,
 }
 
+/// Canonical effects of opening a turn, before any model work is scheduled.
+pub struct PreparedTurnStart {
+    /// New pure turn state.
+    pub state: TurnState,
+    /// `turn.started`, the final (possibly rewritten) input, and hook effects.
+    pub events: Vec<EventData>,
+    /// Why a prompt hook rejected the turn, if it did.
+    pub rejection: Option<HookRejection>,
+}
+
+/// A block decision returned by a prompt hook.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HookRejection {
+    /// Diagnostic reason supplied by the hook.
+    pub reason: String,
+    /// Optional safer text for a user-facing surface.
+    pub user_message: Option<String>,
+}
+
 /// The single interpreter of Agentyk turn semantics.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct TurnEngine;
 
 impl TurnEngine {
+    /// Open a turn and apply `user_prompt_submit` hooks before its input is
+    /// persisted.
+    ///
+    /// Durable and immediate hosts both call this method, so prompt mutation
+    /// and rejection cannot drift between execution strategies.
+    pub async fn start(&self, host: &TurnHost<'_>, input: Message) -> PreparedTurnStart {
+        let (mut state, mut events) =
+            TurnState::start(host.session_id, host.definition.max_iterations, &input);
+        let (decision, hook_events) = hooks::run_prompt_hooks(
+            &host.definition.hooks,
+            HookContext::turn(host.session_id, state.turn_id),
+            input,
+        )
+        .await;
+        events.extend(hook_events);
+        let rejection = match decision {
+            PromptDecision::Continue(message) => {
+                for event in &mut events {
+                    if let EventData::InputMessage { message: recorded } = event {
+                        *recorded = message.clone();
+                    }
+                }
+                None
+            }
+            PromptDecision::Block {
+                reason,
+                user_message,
+            } => {
+                events.extend(
+                    state.on_failure(user_message.clone().unwrap_or_else(|| reason.clone())),
+                );
+                Some(HookRejection {
+                    reason,
+                    user_message,
+                })
+            }
+        };
+        PreparedTurnStart {
+            state,
+            events,
+            rejection,
+        }
+    }
+
+    /// Apply advisory `turn_end` hooks to a host-provided terminal summary.
+    ///
+    /// `data` uses the public hook wire shape (`success` plus result/error
+    /// details). The engine owns dispatch and error policy; a durable host
+    /// owns when its terminal operation has been committed and therefore when
+    /// to call this method. Like tool execution, a hook may run more than once
+    /// if the durable host crashes before committing its effects.
+    pub async fn finish(
+        &self,
+        host: &TurnHost<'_>,
+        turn_id: agentyk_core::id::TurnId,
+        data: serde_json::Value,
+    ) -> Vec<EventData> {
+        hooks::run_advisory_hooks(
+            &host.definition.hooks,
+            HookEvent::TurnEnd,
+            HookContext::turn(host.session_id, turn_id),
+            data,
+        )
+        .await
+    }
+
     /// Resolve the agent's capabilities into the environment used by steps.
     pub async fn assemble(&self, host: &TurnHost<'_>) -> Result<AssembledTurn> {
         atoms::assemble(
@@ -150,24 +237,78 @@ impl TurnEngine {
                 let mut events = Vec::new();
                 let mut prepared = Vec::with_capacity(calls.len());
                 for call in calls {
-                    let definition = assembled.tool(&call.name).map(|tool| tool.definition());
+                    let hook_context = HookContext::turn(host.session_id, state.turn_id);
+                    let (hook_decision, hook_events) = hooks::run_pre_tool_hooks(
+                        &host.definition.hooks,
+                        hook_context,
+                        call.clone(),
+                    )
+                    .await;
+                    events.extend(hook_events);
+                    let call_after_hooks = match hook_decision {
+                        ToolDecision::Block {
+                            call: blocked,
+                            reason,
+                            user_message,
+                        } => {
+                            if blocked != call {
+                                events.extend(state.on_tool_rewritten(
+                                    &call.id,
+                                    blocked.clone(),
+                                    Some("user_hook".into()),
+                                ));
+                            }
+                            events.extend(state.on_tool_started(&blocked.id));
+                            events.push(EventData::ToolDenied {
+                                call_id: blocked.id.clone(),
+                                name: blocked.name.clone(),
+                                reason: reason.clone(),
+                            });
+                            if let Some(user_message) = user_message {
+                                events.push(EventData::custom(
+                                    "hook.user_message",
+                                    serde_json::json!({
+                                        "call_id": blocked.id,
+                                        "message": user_message,
+                                    }),
+                                ));
+                            }
+                            prepared.push(PreparedToolCall {
+                                call: blocked,
+                                denied: Some(ToolOutput::error(reason)),
+                            });
+                            continue;
+                        }
+                        ToolDecision::Continue(updated) => updated,
+                    };
+                    if call_after_hooks != call {
+                        events.extend(state.on_tool_rewritten(
+                            &call.id,
+                            call_after_hooks.clone(),
+                            Some("user_hook".into()),
+                        ));
+                    }
+
+                    let definition = assembled
+                        .tool(&call_after_hooks.name)
+                        .map(|tool| tool.definition());
                     let decision = middleware::before_tool_chain(
                         &host.definition.middleware,
-                        &call,
+                        &call_after_hooks,
                         definition.as_ref(),
                         &context,
                     )
                     .await;
                     match decision {
                         ToolChainOutcome::Deny { reason } => {
-                            events.extend(state.on_tool_started(&call.id));
+                            events.extend(state.on_tool_started(&call_after_hooks.id));
                             events.push(EventData::ToolDenied {
-                                call_id: call.id.clone(),
-                                name: call.name.clone(),
+                                call_id: call_after_hooks.id.clone(),
+                                name: call_after_hooks.name.clone(),
                                 reason: reason.clone(),
                             });
                             prepared.push(PreparedToolCall {
-                                call,
+                                call: call_after_hooks,
                                 denied: Some(ToolOutput::error(reason)),
                             });
                         }
@@ -177,7 +318,7 @@ impl TurnEngine {
                         } => {
                             if rewritten {
                                 events.extend(state.on_tool_rewritten(
-                                    &call.id,
+                                    &call_after_hooks.id,
                                     executed.clone(),
                                     None,
                                 ));
@@ -253,14 +394,24 @@ impl TurnEngine {
                 .with_extensions(host.environment.extensions.clone())
                 .with_cancellation(host.cancellation.clone());
             let definition = assembled.tool(&call.name).map(|tool| tool.definition());
-            middleware::after_tool_chain(
+            let output = middleware::after_tool_chain(
                 &host.definition.middleware,
                 call,
                 definition.as_ref(),
                 &context,
                 output,
             )
-            .await
+            .await;
+            let (output, warnings) = hooks::run_post_tool_hooks(
+                &host.definition.hooks,
+                HookContext::turn(host.session_id, state.turn_id),
+                call,
+                output,
+            )
+            .await;
+            let mut events = warnings;
+            events.extend(state.on_tool_completed(&call.id, &output));
+            return events;
         };
         state.on_tool_completed(&call.id, &output)
     }
