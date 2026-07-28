@@ -21,6 +21,18 @@ release — every release bumps the patch component (`0.1.z`). See
 
 ### Added
 
+- **Open Responses and OpenRouter drivers.** `OpenResponsesDriver` implements
+  the `/responses` item/event protocol, including multimodal input, tool-call
+  replay, reasoning signatures, usage, and incremental SSE output.
+  `OpenRouterDriver` is a first-class `"openrouter"` driver over OpenRouter's
+  Responses endpoint rather than a renamed Chat Completions client.
+- **Request-time model-driver authentication.** `AuthHeaderProvider` is called
+  immediately before every HTTP request and overrides a static
+  `ModelSpec::api_key`. A host can cache and refresh OAuth access tokens,
+  rotate refresh tokens in its own durable store, and return the resulting
+  header without putting OAuth lifecycle or secrets into the driver protocol.
+  OpenAI, Open Responses, OpenRouter, and Anthropic drivers expose the seam.
+
 - **A turn can be opened with an image.** `Session::run` (and its variants,
   and `Agent::run`) take `impl Into<Message>` rather than `impl Into<String>`,
   so `run("hello")` is unchanged while

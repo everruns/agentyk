@@ -4,12 +4,15 @@
 //! Wire mapping only — sending, status/transport classification, and SSE
 //! framing live in the crate-internal `drivers::http` layer.
 
+use std::sync::Arc;
+
 use async_trait::async_trait;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
 use agentyk_core::driver::{
-    ChatDriver, ChatRequest, ChatResponse, DeltaSink, DriverId, ModelSpec, Usage,
+    AuthHeaderProvider, ChatDriver, ChatRequest, ChatResponse, DeltaSink, DriverId, ModelSpec,
+    Usage,
 };
 use agentyk_core::error::{Error, LlmErrorKind, Result};
 use agentyk_core::message::{ContentPart, Message, Role, ToolCall};
@@ -26,6 +29,7 @@ const DEFAULT_BASE_URL: &str = "https://api.openai.com/v1";
 pub struct OpenAiDriver {
     id: DriverId,
     client: reqwest::Client,
+    auth: Option<Arc<dyn AuthHeaderProvider>>,
 }
 
 impl OpenAiDriver {
@@ -40,6 +44,7 @@ impl OpenAiDriver {
         Self {
             id,
             client: super::http::client(),
+            auth: None,
         }
     }
 
@@ -47,6 +52,21 @@ impl OpenAiDriver {
     /// its business, not the driver's.
     pub fn with_client(mut self, client: reqwest::Client) -> Self {
         self.client = client;
+        self
+    }
+
+    /// Resolve authentication immediately before every request.
+    ///
+    /// This overrides [`ModelSpec::api_key`] and is the seam for OAuth token
+    /// refresh, workload identity, and other short-lived credentials.
+    pub fn with_auth_provider(mut self, provider: impl AuthHeaderProvider + 'static) -> Self {
+        self.auth = Some(Arc::new(provider));
+        self
+    }
+
+    /// Attach a shared request-time authentication provider.
+    pub fn with_auth_provider_arc(mut self, provider: Arc<dyn AuthHeaderProvider>) -> Self {
+        self.auth = Some(provider);
         self
     }
 }
@@ -357,6 +377,7 @@ impl StreamAccumulator for OpenAiStream {
     }
 }
 
+#[async_trait]
 impl HttpProvider for OpenAiDriver {
     type Accumulator = OpenAiStream;
 
@@ -373,11 +394,14 @@ impl HttpProvider for OpenAiDriver {
     }
 
     /// A key is optional: local runtimes and proxies routinely need none.
-    fn authorize(
+    async fn authorize(
         &self,
         builder: reqwest::RequestBuilder,
         model: &ModelSpec,
     ) -> Result<reqwest::RequestBuilder> {
+        if let Some(provider) = &self.auth {
+            return http::apply_auth_header(builder, provider.auth_header().await?);
+        }
         Ok(match &model.api_key {
             Some(key) => builder.bearer_auth(key),
             None => builder,

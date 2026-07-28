@@ -47,6 +47,16 @@ impl DriverId {
         Self::new("anthropic")
     }
 
+    /// `"openresponses"` — the vendor-neutral Open Responses protocol.
+    pub fn openresponses() -> Self {
+        Self::new("openresponses")
+    }
+
+    /// `"openrouter"` — OpenRouter's Open Responses-compatible endpoint.
+    pub fn openrouter() -> Self {
+        Self::new("openrouter")
+    }
+
     /// `"llmsim"` — the scripted offline simulator, for tests and examples.
     pub fn llmsim() -> Self {
         Self::new("llmsim")
@@ -108,12 +118,12 @@ pub struct ModelSpec {
     /// shape [`crate::tool::ToolDefinition::metadata`] established.
     ///
     /// `api_key` + `base_url` covers a plain API-key provider. It does not
-    /// cover the rest of what real providers ask for: an OAuth
-    /// subscription's refresh token, account id, and expiry; an
-    /// organization or project id; extra headers a gateway requires. Those
-    /// are provider-specific, so they ride here and the driver that
-    /// understands them reads them, rather than every adopter waiting on a
-    /// core release for a field only one provider uses.
+    /// cover the rest of what real providers ask for: an organization or
+    /// project id, routing options, or extra headers a gateway requires.
+    /// Those are provider-specific, so they ride here and the driver that
+    /// understands them reads them. Expiring credentials do **not** belong
+    /// here; attach an [`AuthHeaderProvider`] to the HTTP driver so the host
+    /// can refresh them immediately before a request.
     ///
     /// **Treat it as sensitive.** It is the natural home for credentials, so
     /// it is redacted in `Debug` alongside `api_key`, and a `ModelSpec` must
@@ -161,6 +171,16 @@ impl ModelSpec {
     /// A model served over the Anthropic Messages protocol.
     pub fn anthropic(model: impl Into<String>) -> Self {
         Self::new(DriverId::anthropic(), model)
+    }
+
+    /// A model served over the vendor-neutral Open Responses protocol.
+    pub fn openresponses(model: impl Into<String>) -> Self {
+        Self::new(DriverId::openresponses(), model)
+    }
+
+    /// A model routed through OpenRouter's Open Responses-compatible API.
+    pub fn openrouter(model: impl Into<String>) -> Self {
+        Self::new(DriverId::openrouter(), model)
     }
 
     /// The scripted offline simulator (the `SimDriver` in the `agentyk`
@@ -325,6 +345,64 @@ pub trait DeltaSink: Send {
     async fn delta(&mut self, delta: &str, accumulated: &str) -> Result<()>;
 }
 
+/// One authentication header resolved immediately before an HTTP request.
+///
+/// Keeping the value opaque and out of [`ModelSpec`] lets hosts rotate OAuth
+/// access tokens without rebuilding an agent or persisting short-lived
+/// credentials in session state.
+#[derive(Clone, PartialEq, Eq)]
+pub struct AuthHeader {
+    name: String,
+    value: String,
+}
+
+impl AuthHeader {
+    /// Build an authentication header from its wire name and value.
+    pub fn new(name: impl Into<String>, value: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            value: value.into(),
+        }
+    }
+
+    /// Build an `Authorization: Bearer …` header.
+    pub fn bearer(token: impl Into<String>) -> Self {
+        Self::new("Authorization", format!("Bearer {}", token.into()))
+    }
+
+    /// The HTTP header name.
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// The sensitive HTTP header value.
+    pub fn value(&self) -> &str {
+        &self.value
+    }
+}
+
+impl fmt::Debug for AuthHeader {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AuthHeader")
+            .field("name", &self.name)
+            .field("value", &"<redacted>")
+            .finish()
+    }
+}
+
+/// Supplies request-time authentication for an HTTP model driver.
+///
+/// The driver calls this once per request, after building the provider
+/// payload and immediately before sending it. Implementations may return a
+/// cached header cheaply or refresh an expiring OAuth token first. Token
+/// storage, refresh-token rotation, and interactive login remain host
+/// concerns; this trait is only the request-time seam.
+#[async_trait]
+pub trait AuthHeaderProvider: Send + Sync {
+    /// Resolve the authentication header for the next request.
+    async fn auth_header(&self) -> Result<AuthHeader>;
+}
+
 /// One provider protocol. Implementations translate [`ChatRequest`] to the
 /// provider's wire format and back.
 #[async_trait]
@@ -396,7 +474,7 @@ impl DriverRegistry {
 
 #[cfg(test)]
 mod tests {
-    use super::ModelSpec;
+    use super::{AuthHeader, ModelSpec};
 
     #[test]
     fn model_debug_redacts_credentials() {
@@ -406,5 +484,16 @@ mod tests {
 
         assert!(debug.contains("<redacted>"));
         assert!(!debug.contains("super-secret"));
+    }
+
+    #[test]
+    fn auth_header_debug_redacts_its_value() {
+        let header = AuthHeader::bearer("oauth-secret");
+
+        let debug = format!("{header:?}");
+
+        assert!(debug.contains("Authorization"));
+        assert!(debug.contains("<redacted>"));
+        assert!(!debug.contains("oauth-secret"));
     }
 }

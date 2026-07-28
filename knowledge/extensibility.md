@@ -66,7 +66,8 @@ identity-first lifecycle. See
 | Host services reaching tools | `ToolContext.extensions` (typed, `TypeId`-keyed bag) |
 | A domain event core lacks | `EventData::Custom { event_type, payload }` |
 | Model capability knowledge (context window, supported efforts) | `profile::ModelCatalog` — a host-implemented seam, because a model list inside a library is stale by the next provider release |
-| Remote-service credentials that expire | An auth provider trait asked **per request**, not a config field read once — see `mcp::McpAuthProvider` |
+| Remote MCP credentials that expire | `mcp::McpAuthProvider`, asked per request |
+| Model-provider credentials that expire | `driver::AuthHeaderProvider`, asked immediately before each HTTP request |
 
 `Custom` also provides forward compatibility for **observational** events. An
 unknown kind can be retained as custom data so a listener or newer host may
@@ -87,6 +88,27 @@ an argument had to fork the entire act loop, duplicating the cancel check, the
 delta sink, and the outcome mapping — code that then drifts. The canonical step
 engine removes the copied loop itself.
 
+## Request-time model authentication
+
+OAuth lifecycle belongs to the host, not `ModelSpec` or a protocol driver.
+Interactive login, refresh-token storage, single-use token rotation, expiry
+checks, and recovery from a refresh race all depend on the application and its
+durability model. The driver needs only the resulting HTTP authentication
+header.
+
+`AuthHeaderProvider` is therefore async and called immediately before each
+HTTP request. Its implementation may return a cached access token or refresh
+one, persist the rotated credentials, and then return an `AuthHeader`. A
+configured provider overrides `ModelSpec::api_key`; the static key remains the
+simple path for ordinary API-key providers. The header value is redacted in
+`Debug` and validated only at the HTTP boundary, keeping `agentyk-core`
+independent of an HTTP library.
+
+This follows the Codex implementation proven in yolop: the host owns the
+OAuth store and refresh coordination, while the driver takes a fresh token
+snapshot for the request. Agentyk deliberately does not implement a browser,
+device-code, token endpoint, or credential store.
+
 ## What needed a core change (0.1.2)
 
 Two more hatches, both from the yolop port
@@ -98,11 +120,12 @@ than bending it:
   accepts; that is lossy for a UI, which then re-parses prose to render a diff
   or an exit code. The structured form is host-owned, so it is a hatch, and it
   rides on `tool.completed` so listeners and replay both see it.
-- **`ModelSpec.metadata`** — provider-flavored configuration (OAuth refresh
-  token, account id, organization id, gateway headers). Only the driver that
+- **`ModelSpec.metadata`** — provider-flavored configuration (account id,
+  organization id, routing options, gateway headers). Only the driver that
   understands a given provider reads it, which is the definition of
   everruns-flavored richness. Treated as sensitive: redacted in `Debug`
   alongside `api_key`, and a `ModelSpec` still never reaches an event.
+  Refreshable credentials use `AuthHeaderProvider` instead.
 
 `EventData::ToolProgress` is the counter-example worth noting — it is a typed
 variant, not `Custom`, because ephemerality is a **protocol** property. The
