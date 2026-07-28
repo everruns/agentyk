@@ -2,6 +2,8 @@
 //! log. Mirrors the everruns message vocabulary (`Message`, `Role`,
 //! `ToolCall`, `ContentPart`).
 
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
 
 /// Who a [`Message`] came from.
@@ -21,6 +23,49 @@ pub enum Role {
     Assistant,
     /// A tool result addressed back to the model.
     Tool,
+}
+
+/// Identity of a user message originating outside the embedding application.
+///
+/// Channel adapters attach this value so several people can speak in one
+/// session without coupling the core protocol to Slack, Discord, Teams, or
+/// another transport. The model-facing request prefixes the user's text with
+/// [`Self::display_label`]; the durable message itself remains unchanged.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ExternalActor {
+    /// Opaque identifier assigned by the source, such as a Slack user id.
+    pub actor_id: String,
+    /// Human-readable name, when the source resolved one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub actor_name: Option<String>,
+    /// Source namespace, such as `slack` or `discord`.
+    pub source: String,
+    /// Source-specific attributes useful to the embedding host.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<HashMap<String, String>>,
+}
+
+impl ExternalActor {
+    /// Create an actor from its source namespace and opaque source id.
+    pub fn new(source: impl Into<String>, actor_id: impl Into<String>) -> Self {
+        Self {
+            actor_id: actor_id.into(),
+            actor_name: None,
+            source: source.into(),
+            metadata: None,
+        }
+    }
+
+    /// Attach the name shown to the model and presentation layers.
+    pub fn name(mut self, name: impl Into<String>) -> Self {
+        self.actor_name = Some(name.into());
+        self
+    }
+
+    /// Human-readable name when present, otherwise the source id.
+    pub fn display_label(&self) -> &str {
+        self.actor_name.as_deref().unwrap_or(&self.actor_id)
+    }
 }
 
 /// A tool invocation requested by the model.
@@ -171,6 +216,12 @@ pub struct Message {
     /// the common case.
     #[serde(default, skip_serializing_if = "serde_json::Value::is_null")]
     pub metadata: serde_json::Value,
+    /// External identity of the user who produced this message.
+    ///
+    /// Kept separate from generic metadata because correct multi-actor model
+    /// context depends on it: drivers must be able to distinguish speakers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub external_actor: Option<ExternalActor>,
 }
 
 impl Message {
@@ -192,6 +243,7 @@ impl Message {
             thinking: None,
             thinking_signature: None,
             metadata: serde_json::Value::Null,
+            external_actor: None,
         }
     }
 
@@ -255,6 +307,12 @@ impl Message {
     /// Attach extension metadata — see [`Message::metadata`].
     pub fn with_metadata(mut self, metadata: serde_json::Value) -> Self {
         self.metadata = metadata;
+        self
+    }
+
+    /// Attribute a user message to an external channel actor.
+    pub fn with_external_actor(mut self, actor: ExternalActor) -> Self {
+        self.external_actor = Some(actor);
         self
     }
 
@@ -325,12 +383,27 @@ mod tests {
     }
 
     #[test]
+    fn external_actor_round_trips_and_uses_name_as_label() {
+        let message = Message::user("hello")
+            .with_external_actor(ExternalActor::new("slack", "U123").name("Alice"));
+        let json = serde_json::to_string(&message).unwrap();
+        let back: Message = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(back, message);
+        assert_eq!(
+            back.external_actor.as_ref().unwrap().display_label(),
+            "Alice"
+        );
+    }
+
+    #[test]
     fn plain_messages_omit_the_new_fields_from_json() {
         // Back-compat: a message with no reasoning/metadata serializes exactly
         // as before, and pre-0.1.1 JSON (without these keys) still loads.
         let json = serde_json::to_string(&Message::user("hi")).unwrap();
         assert!(!json.contains("thinking"));
         assert!(!json.contains("metadata"));
+        assert!(!json.contains("external_actor"));
         let back: Message =
             serde_json::from_str(r#"{"role":"user","content":[{"type":"text","text":"hi"}]}"#)
                 .unwrap();

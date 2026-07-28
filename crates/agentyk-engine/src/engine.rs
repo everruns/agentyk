@@ -97,7 +97,7 @@ impl TurnEngine {
             PromptDecision::Continue(message) => {
                 for event in &mut events {
                     if let EventData::InputMessage { message: recorded } = event {
-                        *recorded = message.clone();
+                        *recorded = (*message).clone();
                     }
                 }
                 None

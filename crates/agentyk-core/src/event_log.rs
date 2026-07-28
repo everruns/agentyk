@@ -277,6 +277,7 @@ pub trait EventStore: Send + Sync {
             .map(|event| EventRequest {
                 session_id: child,
                 turn_id: event.turn_id,
+                metadata: event.metadata,
                 data: event.data,
             })
             .collect();

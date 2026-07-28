@@ -21,6 +21,13 @@ release — every release bumps the patch component (`0.1.z`). See
 
 ### Added
 
+- **Multi-actor sessions.** `Session::run_with_agent` overlays an addressed
+  by-value agent's behavior on the host harness and one replayable history;
+  `Message.external_actor` preserves external user identity and labels
+  provider-facing context; and host-owned participant provenance rides on
+  additive `Event.metadata`. Membership, roles, and authorization remain host
+  concerns. `examples/osbb` demonstrates Ada and Grace sharing a live
+  `gpt-5.6-terra` conversation with a named agent.
 - **Everruns-compatible event listener composition.** `EventListener` can
   filter by dot-notation event type; `CompositeEventListener` provides ordered
   fan-out with per-listener panic isolation; and `NoopEventListener` fills

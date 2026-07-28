@@ -351,6 +351,12 @@ pub struct Event {
     /// persisted — see [`EventData::is_ephemeral`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sequence: Option<u64>,
+    /// Host-owned provenance and presentation data.
+    ///
+    /// A multi-actor host uses this for values such as `participant_id` and
+    /// `agent_id` without making its identity catalog part of core.
+    #[serde(default, skip_serializing_if = "serde_json::Value::is_null")]
+    pub metadata: serde_json::Value,
     /// What happened.
     pub data: EventData,
 }
@@ -368,6 +374,8 @@ struct EventRepr {
     turn_id: Option<TurnId>,
     #[serde(default)]
     sequence: Option<u64>,
+    #[serde(default)]
+    metadata: serde_json::Value,
     data: serde_json::Value,
 }
 
@@ -398,6 +406,7 @@ impl<'de> Deserialize<'de> for Event {
             session_id: repr.session_id,
             turn_id: repr.turn_id,
             sequence: repr.sequence,
+            metadata: repr.metadata,
             data,
         })
     }
@@ -412,6 +421,8 @@ pub struct EventRequest {
     pub session_id: SessionId,
     /// The turn it belongs to, if it was emitted inside one.
     pub turn_id: Option<TurnId>,
+    /// Host-owned provenance and presentation data copied to the event.
+    pub metadata: serde_json::Value,
     /// What happened.
     pub data: EventData,
 }
@@ -422,6 +433,7 @@ impl EventRequest {
         Self {
             session_id,
             turn_id: None,
+            metadata: serde_json::Value::Null,
             data,
         }
     }
@@ -431,8 +443,15 @@ impl EventRequest {
         Self {
             session_id,
             turn_id: Some(turn_id),
+            metadata: serde_json::Value::Null,
             data,
         }
+    }
+
+    /// Attach host-owned event metadata.
+    pub fn with_metadata(mut self, metadata: serde_json::Value) -> Self {
+        self.metadata = metadata;
+        self
     }
 
     /// Finalize into a durable [`Event`] with an assigned sequence — called
@@ -445,6 +464,7 @@ impl EventRequest {
             session_id: self.session_id,
             turn_id: self.turn_id,
             sequence: Some(sequence),
+            metadata: self.metadata,
             data: self.data,
         }
     }
@@ -461,6 +481,7 @@ impl EventRequest {
             session_id: self.session_id,
             turn_id: self.turn_id,
             sequence: None,
+            metadata: self.metadata,
             data: self.data,
         }
     }
@@ -621,13 +642,15 @@ mod tests {
             EventData::InputMessage {
                 message: Message::user("hi"),
             },
-        );
+        )
+        .with_metadata(serde_json::json!({"participant_id": "part_123"}));
         let event = request.into_event(EventId::new(), Utc::now(), 1);
         assert_eq!(event.event_type, "input.message");
         assert_eq!(event.sequence, Some(1));
         let json = serde_json::to_string(&event).unwrap();
         let back: Event = serde_json::from_str(&json).unwrap();
         assert_eq!(event, back);
+        assert_eq!(back.metadata["participant_id"], "part_123");
     }
 
     #[test]

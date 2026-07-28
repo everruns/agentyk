@@ -9,7 +9,7 @@ use agentyk_core::tool::ToolOutput;
 use serde_json::{Value, json};
 
 pub(crate) enum PromptDecision {
-    Continue(Message),
+    Continue(Box<Message>),
     Block {
         reason: String,
         user_message: Option<String>,
@@ -79,7 +79,7 @@ pub(crate) async fn run_prompt_hooks(
             },
         }
     }
-    (PromptDecision::Continue(message), warnings)
+    (PromptDecision::Continue(Box::new(message)), warnings)
 }
 
 pub(crate) async fn run_pre_tool_hooks(
