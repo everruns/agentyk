@@ -1,0 +1,62 @@
+{
+  "eval": "tool_policy",
+  "sample": "prefer-file-tools",
+  "target": "anthropic/claude-sonnet-5",
+  "input": [
+    "What is the value of TIMEOUT_MS in config/settings.toml? Reply with only the value."
+  ],
+  "passed": true,
+  "aggregate": 1.0,
+  "scores": [
+    {
+      "scorer": "succeeded",
+      "value": 1.0,
+      "pass": true,
+      "reason": "no error"
+    },
+    {
+      "scorer": "checks",
+      "value": 1.0,
+      "pass": true,
+      "reason": "every declared check held"
+    },
+    {
+      "scorer": "tool_discipline",
+      "value": 1.0,
+      "pass": true,
+      "reason": "used the intended tool surface"
+    }
+  ],
+  "transcript": {
+    "final_response": "4500",
+    "iterations": 2,
+    "tool_calls_count": 1,
+    "tool_calls": [
+      "read_file"
+    ],
+    "usage": {
+      "input_tokens": 3483,
+      "output_tokens": 68,
+      "cache_read_tokens": 3298,
+      "cost_usd": 0.00270015
+    },
+    "timing": {
+      "duration_ms": 6214,
+      "time_to_first_token_ms": 6027
+    },
+    "metrics": {
+      "cache_hit_ratio": 0.9468848693654895,
+      "cache_read_tokens": 3298.0,
+      "cache_write_tokens": 181.0,
+      "denied_tool_calls": 0.0,
+      "duration_ms": 6214.0,
+      "events": 9.0,
+      "input_tokens": 3483.0,
+      "output_tokens": 68.0,
+      "reasoning_tokens": 0.0,
+      "tool_errors": 0.0,
+      "turns": 1.0
+    }
+  },
+  "skipped": false
+}

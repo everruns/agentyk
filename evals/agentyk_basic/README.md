@@ -28,8 +28,9 @@ doppler run -- mira run          # the whole matrix
 ## The matrix
 
 - **targets** — `anthropic/claude-sonnet-5`, `anthropic/claude-haiku-4-5`,
-  `openai/gpt-5.5`; `sim` for the offline eval. A target whose key is missing is
-  skipped, not failed.
+  `openai/gpt-5.5`, `openai/gpt-5.6-terra`; `sim` for the offline eval. A target
+  whose key is missing is skipped, not failed, and a target may carry a
+  `reasoning_effort` in its metadata when the model needs one.
 - **mode** (`coding`) — `stream` vs `buffered`. The engine only ever calls
   `complete_streaming`, so `buffered` wraps the driver to answer from `complete`
   instead. Same cases, same scorers: a difference in pass rate between the two
@@ -78,6 +79,33 @@ Sample::new("id", "the prompt")
 
 An offline (`sim`) case adds `script`, the completions the simulated model
 plays: `[{"tool": "read_file", "args": {…}}, {"text": "…"}]`.
+
+## Saved runs
+
+`results/` holds committed run folders (`report.html` is the transcript viewer;
+`mira report <run_id>` re-renders one). Runs are kept because a study's numbers
+are only meaningful against the run they replaced.
+
+The current baseline — `results/20260728T231856Z-a572`, the whole matrix, **54
+passed / 54 scored**, $0.39 total:
+
+| Target | Cases | Cost | Tokens | Cache reuse | Mean latency |
+|--------|-------|------|--------|-------------|--------------|
+| `sim` | 2/2 | $0 | 0 | — | 1 ms |
+| `anthropic/claude-sonnet-5` | 13/13 | $0.153 | 117 469 | 82% | 5.5 s |
+| `anthropic/claude-haiku-4-5` | 13/13 | $0.109 | 108 463 | 17% | 3.9 s |
+| `openai/gpt-5.5` | 13/13 | $0.071 | 66 058 | 38% | 5.0 s |
+| `openai/gpt-5.6-terra` | 13/13 | $0.058 | 60 401 | 46% | 3.7 s |
+
+Cache reuse is the share of *all* prompt tokens served from cache, so it is
+dragged down by the short cases that never reach a provider's minimum cacheable
+prompt — Haiku's 2048-token floor is why its overall figure is lowest. On the
+`repeated-context` session, which clears every floor, all four live targets
+reuse 63–79% of their prompt.
+
+`gpt-5.6-terra` carries `reasoning_effort = none` in its target metadata: the
+`gpt-5.6` family refuses function tools on chat completions at any other level,
+and this study is nothing but function tools.
 
 ## Findings
 

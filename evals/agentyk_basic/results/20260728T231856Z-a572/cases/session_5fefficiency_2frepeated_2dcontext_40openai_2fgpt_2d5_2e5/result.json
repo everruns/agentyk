@@ -1,0 +1,71 @@
+{
+  "eval": "session_efficiency",
+  "sample": "repeated-context",
+  "target": "openai/gpt-5.5",
+  "input": [
+    "Read data/report.md and summarize it in one sentence.",
+    "From the same file, what is the value on the STATUS line? Reply with only that value.",
+    "How many sections does that file have? Reply with only the number."
+  ],
+  "passed": true,
+  "aggregate": 1.0,
+  "scores": [
+    {
+      "scorer": "succeeded",
+      "value": 1.0,
+      "pass": true,
+      "reason": "no error"
+    },
+    {
+      "scorer": "checks",
+      "value": 1.0,
+      "pass": true,
+      "reason": "every declared check held"
+    },
+    {
+      "scorer": "budgets",
+      "value": 1.0,
+      "pass": true,
+      "reason": "23351 tokens (budget 200000)"
+    },
+    {
+      "scorer": "prompt_cache",
+      "value": 1.0,
+      "pass": true,
+      "reason": "21888 cached prompt tokens (94% of input)"
+    }
+  ],
+  "transcript": {
+    "final_response": "240",
+    "iterations": 4,
+    "tool_calls_count": 1,
+    "tool_calls": [
+      "read_file"
+    ],
+    "usage": {
+      "input_tokens": 23275,
+      "output_tokens": 76,
+      "cache_read_tokens": 21888,
+      "reasoning_tokens": 9,
+      "cost_usd": 0.00522975
+    },
+    "timing": {
+      "duration_ms": 5544,
+      "time_to_first_token_ms": 2244
+    },
+    "metrics": {
+      "cache_hit_ratio": 0.940408163265306,
+      "cache_read_tokens": 21888.0,
+      "cache_write_tokens": 0.0,
+      "denied_tool_calls": 0.0,
+      "duration_ms": 5544.0,
+      "events": 19.0,
+      "input_tokens": 23275.0,
+      "output_tokens": 76.0,
+      "reasoning_tokens": 9.0,
+      "tool_errors": 0.0,
+      "turns": 3.0
+    }
+  },
+  "skipped": false
+}

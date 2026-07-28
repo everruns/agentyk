@@ -35,6 +35,11 @@ fn live_targets() -> Vec<Target> {
         Target::anthropic("claude-sonnet-5"),
         Target::anthropic("claude-haiku-4-5-20251001"),
         Target::openai("gpt-5.5"),
+        // `gpt-5.6` refuses function tools on chat completions at any effort
+        // other than `none`, and this study is nothing but function tools —
+        // so the target carries the effort it needs rather than failing every
+        // case on the first turn.
+        Target::openai("gpt-5.6-terra").meta("reasoning_effort", "none"),
     ]
 }
 

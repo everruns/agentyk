@@ -193,6 +193,10 @@ fn infra_failure(message: String) -> Transcript {
 /// Route the matrix target to a driver + model, with the key from the
 /// environment. `openrouter` rides the OpenAI-compatible driver, which is the
 /// point of that target: it proves the compatible path against a real gateway.
+///
+/// A target may carry a `reasoning_effort` in its metadata, which rides onto
+/// the [`ModelSpec`] — the `gpt-5.6` family needs `none` before it will accept
+/// function tools on chat completions at all.
 fn model_spec(cx: &RunCx) -> Result<ModelSpec, String> {
     let model = cx.target.model.clone();
     let key = |name: &str| {
@@ -201,19 +205,30 @@ fn model_spec(cx: &RunCx) -> Result<ModelSpec, String> {
             .filter(|key| !key.trim().is_empty())
             .ok_or_else(|| format!("{name} is not set"))
     };
-    match cx.target.provider.as_str() {
+    let spec = match cx.target.provider.as_str() {
         // The offline target: no key, no network, a scripted model. It exists
         // so the wiring this harness measures — capabilities, middleware,
         // events, trajectory projection — is graded in CI too, not only when
         // someone has provider credentials.
-        "sim" => Ok(ModelSpec::llmsim()),
-        "anthropic" => Ok(ModelSpec::anthropic(model).api_key(key("ANTHROPIC_API_KEY")?)),
-        "openai" => Ok(ModelSpec::openai(model).api_key(key("OPENAI_API_KEY")?)),
-        "openrouter" => Ok(ModelSpec::openai(model)
+        "sim" => ModelSpec::llmsim(),
+        "anthropic" => ModelSpec::anthropic(model).api_key(key("ANTHROPIC_API_KEY")?),
+        "openai" => ModelSpec::openai(model).api_key(key("OPENAI_API_KEY")?),
+        "openrouter" => ModelSpec::openai(model)
             .api_key(key("OPENROUTER_API_KEY")?)
-            .base_url("https://openrouter.ai/api/v1")),
-        other => Err(format!("no agentyk driver for provider `{other}`")),
-    }
+            .base_url("https://openrouter.ai/api/v1"),
+        other => return Err(format!("no agentyk driver for provider `{other}`")),
+    };
+    Ok(
+        match cx
+            .target
+            .metadata
+            .get("reasoning_effort")
+            .and_then(Value::as_str)
+        {
+            Some(effort) => spec.reasoning_effort(effort),
+            None => spec,
+        },
+    )
 }
 
 fn build_agent(

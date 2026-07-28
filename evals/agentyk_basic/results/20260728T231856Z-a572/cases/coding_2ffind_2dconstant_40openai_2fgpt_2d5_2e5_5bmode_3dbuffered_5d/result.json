@@ -1,0 +1,70 @@
+{
+  "eval": "coding",
+  "sample": "find-constant",
+  "target": "openai/gpt-5.5",
+  "params": {
+    "mode": "buffered"
+  },
+  "input": [
+    "Find the value of RETRY_BUDGET in this workspace and reply with only that value."
+  ],
+  "passed": true,
+  "aggregate": 1.0,
+  "scores": [
+    {
+      "scorer": "succeeded",
+      "value": 1.0,
+      "pass": true,
+      "reason": "no error"
+    },
+    {
+      "scorer": "checks",
+      "value": 1.0,
+      "pass": true,
+      "reason": "every declared check held"
+    },
+    {
+      "scorer": "trajectory",
+      "value": 1.0,
+      "pass": true,
+      "reason": "every tool call carries its observation"
+    },
+    {
+      "scorer": "latency_within",
+      "value": 1.0,
+      "pass": true,
+      "reason": "1815ms <= 300000ms"
+    }
+  ],
+  "transcript": {
+    "final_response": "7321",
+    "iterations": 2,
+    "tool_calls_count": 1,
+    "tool_calls": [
+      "grep_files"
+    ],
+    "usage": {
+      "input_tokens": 1498,
+      "output_tokens": 31,
+      "cost_usd": 0.0021825
+    },
+    "timing": {
+      "duration_ms": 1815,
+      "time_to_first_token_ms": 1815
+    },
+    "metrics": {
+      "cache_hit_ratio": 0.0,
+      "cache_read_tokens": 0.0,
+      "cache_write_tokens": 0.0,
+      "denied_tool_calls": 0.0,
+      "duration_ms": 1815.0,
+      "events": 9.0,
+      "input_tokens": 1498.0,
+      "output_tokens": 31.0,
+      "reasoning_tokens": 0.0,
+      "tool_errors": 0.0,
+      "turns": 1.0
+    }
+  },
+  "skipped": false
+}

@@ -1,0 +1,62 @@
+{
+  "eval": "tool_policy",
+  "sample": "works-without-a-shell",
+  "target": "anthropic/claude-haiku-4-5-20251001",
+  "input": [
+    "Add a `## Usage` section to README.md with one line of example text. Reply with DONE when finished."
+  ],
+  "passed": true,
+  "aggregate": 1.0,
+  "scores": [
+    {
+      "scorer": "succeeded",
+      "value": 1.0,
+      "pass": true,
+      "reason": "no error"
+    },
+    {
+      "scorer": "checks",
+      "value": 1.0,
+      "pass": true,
+      "reason": "every declared check held"
+    },
+    {
+      "scorer": "tool_discipline",
+      "value": 1.0,
+      "pass": true,
+      "reason": "used the intended tool surface"
+    }
+  ],
+  "transcript": {
+    "final_response": "DONE",
+    "iterations": 3,
+    "tool_calls_count": 2,
+    "tool_calls": [
+      "read_file",
+      "edit_file"
+    ],
+    "usage": {
+      "input_tokens": 4630,
+      "output_tokens": 187,
+      "cost_usd": 0.005565
+    },
+    "timing": {
+      "duration_ms": 6025,
+      "time_to_first_token_ms": 4886
+    },
+    "metrics": {
+      "cache_hit_ratio": 0.0,
+      "cache_read_tokens": 0.0,
+      "cache_write_tokens": 0.0,
+      "denied_tool_calls": 0.0,
+      "duration_ms": 6025.0,
+      "events": 13.0,
+      "input_tokens": 4630.0,
+      "output_tokens": 187.0,
+      "reasoning_tokens": 0.0,
+      "tool_errors": 0.0,
+      "turns": 1.0
+    }
+  },
+  "skipped": false
+}
