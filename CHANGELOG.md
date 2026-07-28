@@ -144,6 +144,10 @@ seams, and these are the gaps that port hit. See
 
 ### Documentation
 
+- Strengthened the `/ship` definition of done with explicit bug-reproduction
+  evidence, changed-seam test depth, rustdoc examples and user-facing demos
+  when useful, impact and public-API analysis, security and performance
+  self-review, and fully green PR and main CI gates.
 - Adopted the Everruns diagram system, with narrowly permitted semantic
   colors, and replaced the public architecture page's text sketches with
   co-located Mermaid sources and reviewed SVG renderings.

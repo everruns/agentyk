@@ -25,13 +25,20 @@ Two kinds of evidence, neither substituting for the other:
 
 - **The test.** It drives the changed seam's real entry point — run a turn
   through the executor, fold the event stream, exercise the driver's wire
-  mapping — not a constructor. It stays offline: the scripted `SimDriver` and
-  the canned stdio MCP server mean a missing API key is never the reason a
+  mapping — not a constructor. Cover the meaningful success, failure, boundary,
+  regression, and integration paths. It stays offline: the scripted `SimDriver`
+  and the canned stdio MCP server mean a missing API key is never the reason a
   behavior went untested.
 - **The smoke test.** Run the affected flow. `cargo run -p agentyk --example
   hello` for framework changes; the example binary for anything under
   `examples/`; a live-provider run for the `http` drivers, since their wire
   format is the one thing `SimDriver` cannot prove.
+
+For a fix, first reproduce the failure and retain before/after evidence in the
+PR. Prefer a regression test plus the artifact that makes the failure easiest
+to review: output, logs, screenshots, or VHS for terminal or timing-sensitive
+behavior. If the regression test is the complete reproduction, say why another
+artifact adds nothing.
 
 Before pushing, reread the diff for duplication and accidental complexity you
 introduced, and fix it.
@@ -39,6 +46,19 @@ introduced, and fix it.
 Stop and report only for blockers you cannot resolve alone: a merge conflict you
 cannot judge, missing credentials, ambiguous intent, a CI failure you cannot
 reproduce.
+
+## Impact, API, security, and performance
+
+Perform the reviews in [`knowledge/shipping.md`](../../../knowledge/shipping.md)
+before pushing. Record affected callers and operational paths, every changed
+public contract and its compatibility or migration consequence, security
+boundaries reviewed, and performance risks or measurements. An inapplicable
+result needs a specific reason; do not record a bare checkbox.
+
+Update rustdoc for changed public APIs, with a runnable example when usage is
+not obvious. Assess the public README and whether an example, demo, screenshot,
+or recording would materially help users evaluate the behavior. Record what
+changed or why each artifact was unnecessary.
 
 ## Contract review
 
@@ -62,9 +82,8 @@ Record the result in the PR body. Docs-, comment-, or test-only changes may say
 Write the body around functional change and impact — what changed, why, how it
 was validated, what it risks — using
 [`.github/pull_request_template.md`](../../../.github/pull_request_template.md).
-Two sections are never omitted: the contract review above, and **Follow-ups**
-(everything deferred, one line of rationale each, or "No follow-ups."). Default
-to doing in-scope work rather than deferring it.
+Impact/public API, security, performance, contract review, and **Follow-ups**
+are never omitted. Default to doing in-scope work rather than deferring it.
 
 Say explicitly whether knowledge changed: either which concept you updated in
 `knowledge/` (plus its [`index.md`](../../../knowledge/index.md) entry), or
@@ -76,7 +95,10 @@ Answer every review comment inline on its own thread and resolve it — nits,
 low-confidence suggestions, and bot comments included, and a written reply is
 required even when the fix was a pure code change.
 
-Merge squash-only once CI is green and a final comment sweep is clean, giving
-async reviewer bots a couple of minutes after CI turns green. Do not enable
-auto-merge — bots can post after the last push. Then watch main's CI for the
-merge commit, and fix or revert promptly if it fails.
+Before merge, fetch `origin/main`, confirm the branch contains it, and inspect
+the latest main workflow: a pending, red, cancelled, or unexpectedly skipped
+main build blocks the merge. Merge squash-only once every PR check has completed
+successfully and a final comment sweep is clean, giving async reviewer bots a
+couple of minutes after CI turns green. Do not enable auto-merge — bots can post
+after the last push. Then watch main's CI for the merge commit, and fix or
+revert promptly if it fails.
