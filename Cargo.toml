@@ -5,6 +5,7 @@ members = [
     "crates/agentyk-engine",
     "crates/agentyk",
     "examples/codenko",
+    "examples/osbb",
     "poc/agentyk-everruns-poc",
 ]
 

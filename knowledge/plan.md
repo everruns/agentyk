@@ -85,6 +85,7 @@ everruns concept must be expressible on top of the agentyk primitive.
 | `llmsim` (`SimTurn`, scripted turns) | `SimDriver` / `SimTurn` | same idea; also records requests for test assertions |
 | `Harness` → `Agent` → `Session` hierarchy | `Agent` → `Session` | harness collapsed into the agent; reintroduced in Phase 2 as an agent-template layer if needed |
 | `InProcessRuntime::run_turn(session_id, input)` | `Session::run(input)` | the session holds its own id |
+| session participants + addressed turns | `Session::run_with_agent` + host-owned `Event.metadata` | the host owns membership/roles and resolves a participant to an `Agent` value; the engine overlays its definition on the host harness and shared session timeline |
 | `TurnResult` | `TurnResult` | same |
 | `TurnStateMachine` + `RuntimeTurnState` (host-persisted phase state) | `turn::TurnState` (one serializable value: machine + bookkeeping) | **sans-IO**: transitions are pure and return the events to record as data, instead of atoms doing their own load/store/emit |
 | context assembly (compaction, memory, trimming) | `context::ContextAssembler` on `AgentBuilder` | default passthrough (today's behavior); sits between replay and `atoms::reason`, transforms what's sent without touching the log; no compaction/memory implementation ships |
@@ -107,6 +108,7 @@ everruns concept must be expressible on top of the agentyk primitive.
 | `ToolContext` service bag (workspace/file/storage/image/credential/utility-LLM) | `extensions::Extensions` (`ToolContext.extensions`) | axum-style `TypeId`-keyed bag instead of enumerated `Option<Arc<dyn …>>` fields; `AgentBuilder::extension(value)` populates it once per agent |
 | `SessionFileSystem` + `RealDiskFileStore`/`InMemorySessionFileStore`/`WriteBlocklistFileStore`, `FileSystemCapability` (7 tools) | `filesystem::{FileSystem, RealDiskFileSystem, InMemoryFileSystem, WriteBlocklistFileSystem}`, `FileSystemCapability` (4 tools) | no `session_id`/`workspace_id` param — one store is one workspace; `edit_file`/`grep_files`/`stat_file`, symlink rejection, and `MountFs` not ported |
 | `Message.thinking` / `thinking_signature` (extended thinking round-trip) | same field names on `message::Message` | typed (universal reasoning, must round-trip to the provider); Anthropic parses, streams, and replays signed thinking blocks |
+| `Message.external_actor` | same field on `message::Message` | external user identity survives replay; provider-facing context labels the speaker without rewriting durable content |
 | `MessageId` on `output.message.*` (streaming lifecycle correlation) | `id::MessageId` on `OutputMessage{Started,Delta,Completed}`, held on `TurnState::current_message_id` | typed; allocated in `on_reason_started`, `#[serde(default)]` so pre-0.1.1 logs still load |
 | `ToolHints`, capability `status`/`category`/`icon`, `Message.phase`, narration hints | generic `metadata` hatches: `ToolDefinition.metadata`, `Capability::metadata()`, `Message.metadata` | everruns-flavored richness rides an opaque `serde_json::Value` (the data analogue of `EventData::Custom`); the adopting host owns the schema — see [`extensibility.md`](extensibility.md) |
 | guardrail mutation / approval / capability-contributed hooks | `middleware::TurnMiddleware` (`Rewrite`/`Deny`), attached on the builder | mutation and approval no longer need a forked act loop |
@@ -125,6 +127,12 @@ server):
 
 - `Agent` / `AgentBuilder` — by-value composition; model required, everything
   else optional; `agent.run()` one-shot and `agent.session()` conversations.
+- Multi-actor sessions — the host agent remains the default; addressed turns
+  may run another by-value `Agent` on the same history via
+  `Session::run_with_agent`. External user identity is typed on `Message`, and
+  host-owned participant provenance rides on `Event.metadata`. Membership and
+  authorization stay in the embedding host. See
+  [`multi-actor-sessions.md`](multi-actor-sessions.md).
 - Turn loop — everruns `input → reason → act` contract: input event, model
   completion, tool execution, repeat until text (or `max_iterations`).
 - Event protocol + logs — `InMemoryEventLog`, `JsonlEventLog` (shared files,

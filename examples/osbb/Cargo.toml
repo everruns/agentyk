@@ -1,0 +1,18 @@
+[package]
+name = "osbb"
+description = "A shared terminal conversation for named people and an agentyk agent."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+publish = false
+
+[dependencies]
+agentyk = { path = "../../crates/agentyk", default-features = false, features = ["http"] }
+async-trait = { workspace = true }
+clap = { version = "4", features = ["derive"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+
+[dev-dependencies]
+tempfile = { workspace = true }

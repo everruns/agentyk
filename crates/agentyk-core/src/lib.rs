@@ -91,7 +91,9 @@ pub use hook::{
 };
 pub use id::{EventId, MessageId, SessionId, TurnId};
 pub use input::InputQueue;
-pub use message::{ContentPart, ImageContentPart, Message, Role, TextContentPart, ToolCall};
+pub use message::{
+    ContentPart, ExternalActor, ImageContentPart, Message, Role, TextContentPart, ToolCall,
+};
 pub use middleware::{
     ToolCallDecision, ToolChainOutcome, ToolInvocation, TurnMiddleware, after_tool_chain,
     before_tool_chain,

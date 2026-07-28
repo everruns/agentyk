@@ -16,6 +16,8 @@ okf_version: "0.2"
   composition semantics, and executor boundary.
 - [Session timelines](session-timelines.md) — Defines immutable history, branching, snapshots, and
   context assembly for long-lived sessions.
+- [Multi-actor sessions](multi-actor-sessions.md) — Defines the engine and host boundary for shared
+  sessions with multiple users and agents.
 
 ## Adoption
 

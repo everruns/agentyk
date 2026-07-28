@@ -310,6 +310,18 @@ expensive to change the longer we wait.
       risk hints in `ToolDefinition.metadata`. See
       [`yolop-adoption.md`](yolop-adoption.md) gap 5.
 
+16. ✅ **Multi-actor session engine boundary.** Everruns' participant rows,
+    principals, host/member roles, join/leave state, invite handoff, and
+    addressed-participant authorization remain host-side records and policy.
+    Agentyk supplies the reusable execution and protocol pieces:
+    `Session::run_with_agent` overlays a resolved guest `Agent` definition on
+    the host's harness and shared history; `Message.external_actor` preserves
+    and labels external user speakers; `Event.metadata` carries host-owned
+    participant provenance.
+    Recovery has an explicit `resume_pending_with_agent` form because sensitive
+    agent configuration is deliberately absent from the event log. See
+    [`multi-actor-sessions.md`](multi-actor-sessions.md).
+
 ## Tier 4 — host-side by design (non-gaps)
 
 Confirmed everruns surface that should **not** move into agentyk; Phase 2
@@ -326,9 +338,9 @@ implements these as layers over the seams:
 
 ## Notable design differences to hold (not gaps)
 
-- **No `MessageId`.** In agentyk the input message *is* an event; turn
-  correlation uses `TurnId` + event ids. Everruns' `input_message_id`
-  maps to the `input.message` event id.
+- **No input `MessageId`.** Agentyk has a `MessageId` for streaming output
+  lifecycle correlation, but an input message *is* an event. Everruns'
+  `input_message_id` maps to the `input.message` event id.
 - **History = fold over the log.** Everruns loads messages from stores;
   agentyk derives them (`replay`). The compaction seam (gap 11) is where the
   "don't replay everything forever" story lands — not a message store trait.

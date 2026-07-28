@@ -23,7 +23,7 @@ use crate::capability::{Capability, SystemPromptContext};
 use crate::driver::{ChatDriver, ChatRequest, ChatResponse, DeltaSink, ModelSpec};
 use crate::error::Result;
 use crate::id::SessionId;
-use crate::message::{Message, ToolCall};
+use crate::message::{ContentPart, Message, Role, ToolCall};
 use crate::tool::{Tool, ToolContext, ToolDefinition, ToolOutput};
 
 /// The resolved per-turn environment: what the model sees and what the host
@@ -98,8 +98,25 @@ pub async fn assemble(
 pub fn chat_request(
     model: &ModelSpec,
     assembled: &AssembledTurn,
-    messages: Vec<Message>,
+    mut messages: Vec<Message>,
 ) -> ChatRequest {
+    for message in &mut messages {
+        let Some(actor) = message.external_actor.as_ref() else {
+            continue;
+        };
+        if message.role != Role::User {
+            continue;
+        }
+        let prefix = format!("[{}] ", actor.display_label());
+        match message
+            .content
+            .iter_mut()
+            .find(|part| matches!(part, ContentPart::Text(_)))
+        {
+            Some(ContentPart::Text(part)) => part.text.insert_str(0, &prefix),
+            _ => message.content.insert(0, ContentPart::text(prefix)),
+        }
+    }
     ChatRequest {
         model: model.clone(),
         system_prompt: assembled.system_prompt.clone(),
@@ -234,5 +251,22 @@ mod tests {
         // Still callable directly, e.g. by a future discovery mechanism.
         assert!(assembled.tool("hidden").is_some());
         assert!(assembled.tool("visible").is_some());
+    }
+
+    #[test]
+    fn chat_request_labels_external_user_without_mutating_history() {
+        let assembled = AssembledTurn {
+            system_prompt: None,
+            tool_definitions: Vec::new(),
+            tools: HashMap::new(),
+        };
+        let original = Message::user("hello")
+            .with_external_actor(crate::message::ExternalActor::new("slack", "U123").name("Alice"));
+
+        let request = chat_request(&ModelSpec::llmsim(), &assembled, vec![original.clone()]);
+
+        assert_eq!(request.messages[0].text(), "[Alice] hello");
+        assert_eq!(original.text(), "hello");
+        assert_eq!(request.messages[0].external_actor, original.external_actor);
     }
 }

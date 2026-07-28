@@ -253,6 +253,28 @@ impl Session {
         &mut self,
         options: RunOptions,
     ) -> Result<Option<TurnResult>> {
+        let agent = self.agent.clone();
+        self.resume_pending_with_agent_and_options(&agent, options)
+            .await
+    }
+
+    /// Continue an incomplete turn using the agent that originally answered
+    /// it in a multi-agent session.
+    ///
+    /// The event log records turn state, not sensitive agent configuration.
+    /// A host therefore supplies the same by-value agent again when recovering
+    /// an addressed guest turn.
+    pub async fn resume_pending_with_agent(&mut self, agent: &Agent) -> Result<Option<TurnResult>> {
+        self.resume_pending_with_agent_and_options(agent, RunOptions::default())
+            .await
+    }
+
+    /// Continue an incomplete guest-agent turn with explicit run options.
+    pub async fn resume_pending_with_agent_and_options(
+        &mut self,
+        agent: &Agent,
+        options: RunOptions,
+    ) -> Result<Option<TurnResult>> {
         let events = self.log.read(self.id).await?;
         let Some(turn_id) = events.iter().rev().find_map(|event| {
             matches!(event.data, EventData::TurnStarted { .. })
@@ -266,7 +288,7 @@ impl Session {
             return Ok(None);
         }
 
-        let definition = self.agent.definition();
+        let definition = agent.definition();
         let effective_model = options.controls.resolve(&definition.model);
         let mut host = TurnHost::new(
             self.id,
@@ -366,6 +388,36 @@ impl Session {
         input: impl Into<Message>,
         options: RunOptions,
     ) -> Result<TurnResult> {
+        let agent = self.agent.clone();
+        self.run_with_agent_and_options(&agent, input, options)
+            .await
+    }
+
+    /// Run an addressed turn with another by-value agent definition while
+    /// retaining this session's shared history and host environment.
+    ///
+    /// This is the engine seam behind multi-agent session routing. The
+    /// embedding host owns membership, roles, and authorization, resolves the
+    /// addressed participant to an [`Agent`], then passes that value here. The
+    /// guest contributes behavior and model defaults; the session host keeps
+    /// supplying drivers, listeners, and extensions. Plain [`Self::run`]
+    /// continues to route to the session's host agent.
+    pub async fn run_with_agent(
+        &mut self,
+        agent: &Agent,
+        input: impl Into<Message>,
+    ) -> Result<TurnResult> {
+        self.run_with_agent_and_options(agent, input, RunOptions::default())
+            .await
+    }
+
+    /// Run an addressed agent turn with cancellation and model overrides.
+    pub async fn run_with_agent_and_options(
+        &mut self,
+        agent: &Agent,
+        input: impl Into<Message>,
+        options: RunOptions,
+    ) -> Result<TurnResult> {
         if self.closed {
             return Err(agentyk_core::error::Error::Other(
                 "session is closed".into(),
@@ -382,7 +434,7 @@ impl Session {
             self.record_session_events(warnings).await?;
             self.started = true;
         }
-        let definition = self.agent.definition();
+        let definition = agent.definition();
         let effective_model = options.controls.resolve(&definition.model);
         let mut host = TurnHost::new(
             self.id,

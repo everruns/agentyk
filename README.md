@@ -64,6 +64,10 @@ println!("{}", turn.response);
   `session_end`) compose as ordinary `Hook` values. Prompt/tool hooks can
   mutate or block; end hooks are advisory. The optional `hooks` feature adds
   trusted local `ShellHook`s using the same structured decision contract.
+- **Multi-actor sessions** — route an addressed turn to another by-value
+  `Agent` with `Session::run_with_agent` while retaining the shared replayable
+  history. `ExternalActor` distinguishes users from external channels, and
+  event metadata carries host-owned participant provenance.
 - **Concurrent tools** — a batch the model asked for in parallel runs in
   parallel, with results still recorded in the order it asked.
 - **Multi-provider drivers** — `ChatDriver` implementations routed by
@@ -71,6 +75,18 @@ println!("{}", turn.response);
   scripted `SimDriver` for deterministic offline tests and examples. The
   Anthropic driver places prompt-cache breakpoints by default, so a long
   session does not pay full price to re-send its own transcript.
+
+## Multi-actor demo
+
+[`examples/osbb`](examples/osbb) is one shared bulletin board where Ada and
+Grace take turns talking with Archivist on the same session. Each input keeps
+its named `ExternalActor`, and the model sees speaker labels without those
+labels rewriting durable history.
+
+<img src="examples/osbb/docs/demo.gif" width="880" alt="Ada and Grace taking turns in one OSBB session while Archivist tracks each named speaker and helps them agree on a launch day.">
+
+<sup>Real `openai/gpt-5.6-terra` run. See the example README for the offline
+tests and recording recipe.</sup>
 
 ## Packaging
 
