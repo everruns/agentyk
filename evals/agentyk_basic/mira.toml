@@ -1,0 +1,57 @@
+# Mira host config for the agentyk_basic study.
+#
+# The `mira` CLI finds this by walking up from the working directory; run it
+# from evals/agentyk_basic/ so saved runs land in ./results. The study is a
+# Rust binary (mira-eval SDK), so the launcher compiles it on first use — no
+# other setup.
+default_launcher = "study"
+
+[launchers.study]
+bin = "agentyk_basic"
+
+[results]
+dir = "./results"
+
+[environment.labels]
+benchmark = "agentyk_basic"
+
+# Named selection presets (`mira run --preset NAME`; explicit flags override).
+
+# OFFLINE — the scripted `sim` model: no key, no network, no cost. This is the
+# preset CI runs on every change.
+#   mira run --preset offline
+[presets.offline]
+evals = ["offline_contract"]
+
+# SMOKE — one cheap live model over the `smoke`-tagged cases, streaming only.
+#   doppler run -- mira run --preset smoke
+[presets.smoke]
+tag = "smoke"
+targets = ["anthropic/claude-sonnet-5"]
+axes = { mode = ["stream"] }
+
+# CACHE — the prompt-cache proof: multi-turn sessions where later turns should
+# be served largely from the provider's cache.
+#   doppler run -- mira run --preset cache
+[presets.cache]
+evals = ["session_efficiency"]
+targets = ["anthropic/claude-sonnet-5", "openai/gpt-5.5"]
+
+# POLICY — tool choice and the approval gate, where model differences show up
+# most.
+#   doppler run -- mira run --preset policy
+[presets.policy]
+evals = ["tool_policy"]
+targets = ["anthropic/claude-sonnet-5"]
+
+# STREAM-PARITY — the same coding cases through the driver's streaming and
+# non-streaming paths. Group by mode to compare.
+#   doppler run -- mira run --preset stream-parity --group-by mode
+[presets.stream-parity]
+evals = ["coding"]
+targets = ["anthropic/claude-sonnet-5"]
+
+# MODELS — the whole model matrix on the streaming path.
+#   doppler run -- mira run --preset models --group-by target
+[presets.models]
+axes = { mode = ["stream"] }

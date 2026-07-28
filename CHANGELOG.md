@@ -11,6 +11,13 @@ release — every release bumps the patch component (`0.1.z`). See
 
 ### Fixed
 
+- **Cached prompt tokens are no longer dropped on the streaming path.** The
+  Anthropic driver places `cache_control` breakpoints, but the streaming
+  accumulator read only `input_tokens` from `message_start` and ignored the two
+  cache fields beside it — and the engine always streams, so in practice every
+  cache hit under-counted the prompt while the non-streaming path summed it.
+  Found by the `session_efficiency` eval, which could not see a cache hit at
+  all.
 - **The HTTP drivers now trust the machine's CA store**, not only the bundled
   public roots. Any environment that terminates TLS with a private CA — a
   corporate network, a CI sandbox, an inspecting egress proxy — was previously
@@ -21,6 +28,19 @@ release — every release bumps the patch component (`0.1.z`). See
 
 ### Added
 
+- **Token usage carries a breakdown.** `driver::Usage` gains
+  `cache_read_input_tokens`, `cache_creation_input_tokens`, and
+  `reasoning_tokens` — subsets of the input/output totals, populated by both
+  HTTP drivers (OpenAI's `prompt_tokens_details` / `completion_tokens_details`
+  were previously discarded). A cache hit and a cache miss are the same number
+  of tokens at very different prices, so without the split a host can neither
+  price a request nor tell whether prompt caching is working.
+- **Evaluation studies** in [`evals/`](evals/README.md): a Mira study that
+  drives an in-process `agentyk` session across models and grades tool use,
+  tool choice, approval-gate compliance, and per-session cost — tokens, prompt
+  cache, tool calls, latency — plus an offline eval on the scripted `SimDriver`
+  that CI runs with no credentials. See
+  [`knowledge/evals.md`](knowledge/evals.md).
 - **Multi-actor sessions.** `Session::run_with_agent` overlays an addressed
   by-value agent's behavior on the host harness and one replayable history;
   `Message.external_actor` preserves external user identity and labels

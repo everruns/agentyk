@@ -3,3 +3,7 @@
 # Python
 __pycache__/
 *.pyc
+
+# Eval studies keep their own target dir and saved runs.
+/evals/*/target
+/evals/*/results

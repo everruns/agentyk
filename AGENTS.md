@@ -92,6 +92,21 @@ cargo run -p agentyk --example hello
 python3 scripts/check_reexports.py
 ```
 
+## Evals
+
+[`evals/`](evals/README.md) holds the model-driven studies — what the library
+does when a real model drives it (tool use, tool choice, approval-gate
+compliance, tokens, prompt-cache reuse, latency). They are
+[Mira](https://github.com/everruns/mira) studies, live outside the Cargo
+workspace, and depend on the crates by path. The offline eval runs on the
+scripted `SimDriver` with no key and is part of CI; the paid presets are run by
+hand. Bar and rationale: [`knowledge/evals.md`](knowledge/evals.md).
+
+```sh
+cd evals/agentyk_basic && cargo test        # the offline eval
+cd evals/agentyk_basic && mira run --preset smoke   # needs a provider key
+```
+
 ## Git and commits
 
 - Conventional Commits: `type(scope): description`.
