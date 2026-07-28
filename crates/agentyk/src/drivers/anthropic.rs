@@ -259,19 +259,23 @@ struct WireUsage {
 }
 
 impl From<WireUsage> for Usage {
-    /// Cached tokens are counted as input tokens.
+    /// Cached tokens are counted as input tokens, and kept visible.
     ///
     /// Anthropic reports them in separate fields (they are billed at
     /// different rates), and `input_tokens` excludes them. Summing keeps
     /// `Usage.input_tokens` meaning "tokens this request sent", so enabling
     /// caching does not make a session look like it suddenly stopped sending
-    /// context. Cost, which does differ per field, is a host concern — a host
-    /// that needs the split reads it from its own accounting, not from a
-    /// provider-neutral `Usage`.
+    /// context; carrying the split on the breakdown fields is what lets a host
+    /// price the request and see whether the `cache_control` breakpoints this
+    /// driver places actually hit.
     fn from(usage: WireUsage) -> Self {
         Usage::new(
             usage.input_tokens + usage.cache_creation_input_tokens + usage.cache_read_input_tokens,
             usage.output_tokens,
+        )
+        .with_cache(
+            usage.cache_read_input_tokens,
+            usage.cache_creation_input_tokens,
         )
     }
 }
@@ -409,7 +413,12 @@ impl StreamAccumulator for AnthropicStream {
         let event: StreamEvent = decode("anthropic", data)?;
         Ok(match event {
             StreamEvent::MessageStart { message } => {
-                self.usage.input_tokens = message.usage.input_tokens;
+                // Through the shared `WireUsage` conversion, not field by
+                // field: `message_start` reports cached prompt tokens in
+                // their own fields, and reading only `input_tokens` here
+                // under-counted every cache hit — the streaming path is the
+                // one the engine takes, so that was the number hosts saw.
+                self.usage = message.usage.into();
                 None
             }
             StreamEvent::ContentBlockStart {
@@ -706,6 +715,10 @@ mod tests {
         .into();
         assert_eq!(usage.input_tokens, 1110);
         assert_eq!(usage.output_tokens, 5);
+        // …and stay visible as their own breakdown, which is the only proof a
+        // host has that the cache breakpoints hit.
+        assert_eq!(usage.cache_read_input_tokens, 1000);
+        assert_eq!(usage.cache_creation_input_tokens, 100);
     }
 
     #[test]
@@ -931,6 +944,29 @@ mod tests {
         assert_eq!(response.message.text(), "Hi!");
         assert_eq!(response.usage, Usage::new(7, 2));
         assert!(response.message.tool_calls.is_empty());
+    }
+
+    /// The engine always takes the streaming path, so a cache hit that is only
+    /// visible on the non-streaming one is invisible in practice: `input_tokens`
+    /// must include the cached tokens here too, with the split preserved.
+    #[tokio::test]
+    async fn streaming_counts_cached_prompt_tokens() {
+        let mut sink = RecordingSink::default();
+        let response = drive_stream::<AnthropicStream>(
+            &[
+                "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":7,\"cache_creation_input_tokens\":100,\"cache_read_input_tokens\":1000}}}\n",
+                "data: {\"type\":\"message_delta\",\"usage\":{\"output_tokens\":2}}\n",
+                "data: {\"type\":\"message_stop\"}\n",
+            ],
+            &mut sink,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(response.usage.input_tokens, 1107);
+        assert_eq!(response.usage.cache_read_input_tokens, 1000);
+        assert_eq!(response.usage.cache_creation_input_tokens, 100);
+        assert_eq!(response.usage.output_tokens, 2);
     }
 
     #[tokio::test]
