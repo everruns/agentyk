@@ -50,9 +50,10 @@ println!("{}", turn.response);
   and image `parts` for the model, alongside the text both read.
 - **MCP** — `McpCapability` connects to Model Context Protocol servers over
   stdio or HTTP and exposes their tools to the model. HTTP defaults to
-  `McpProtocolMode::Auto`: it tries the stateless `2026-07-28` release
-  candidate first, then negotiates the server-reported legacy/stable version
-  and session when a server requires the initialize handshake.
+  `McpProtocolMode::Auto`: it tries the stateless `2026-07-28` protocol
+  first — carrying the protocol version, client capabilities, and identity in
+  each request's `_meta` — then negotiates the server-reported version and
+  session when a server requires the initialize handshake.
   `McpAuthProvider` supplies credentials per request. Feature `mcp-oauth` adds
   OAuth 2.1 discovery, dynamic client registration, PKCE browser login, and
   automatic token refresh; the application opens the returned URL and

@@ -153,9 +153,11 @@ server):
   `tools/list`, `tools/call`), lazy connection, tools exposed as ordinary
   `Tool`s. HTTP defaults to multi-era `Auto`: optimistically send a stateless
   `2026-07-28` request with per-request client metadata and routable headers,
-  then fall back once to the stateful `2025-06-18` handshake when the server
+  then fall back once to the stateful `2025-11-25` handshake when the server
   explicitly requires it. The returned protocol version and session id become
-  the connection's cached verdict; `Rc`/`Stable`/`Legacy` pin an era.
+  the connection's cached verdict; `Latest`/`Stateful`/`Legacy` pin an era.
+  A result whose `resultType` is `input_required` — the multi round-trip
+  request pattern — is refused rather than read as an empty success.
   Optional OAuth 2.1 support discovers protected-resource and
   authorization-server metadata, dynamically registers a public client,
   prepares a PKCE loopback login, and refreshes tokens. Browser opening and

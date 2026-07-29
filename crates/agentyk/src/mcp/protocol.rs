@@ -1,19 +1,20 @@
 //! MCP protocol-era selection and request metadata.
 //!
-//! HTTP servers in the `2025-03-26` and `2025-06-18` eras use an
-//! `initialize` handshake and may bind later requests to an
-//! `Mcp-Session-Id`. The `2026-07-28` release candidate is stateless:
+//! Servers up to `2025-11-25` use an `initialize` handshake and may bind
+//! later requests to an `Mcp-Session-Id`. `2026-07-28` is stateless:
 //! protocol and client metadata travel with every operation instead.
 
 #[cfg(feature = "http")]
 use serde_json::{Map, Value, json};
 
-/// Legacy stateful MCP protocol version.
+/// Oldest MCP protocol version still offered during a handshake.
 pub const MCP_PROTOCOL_VERSION_LEGACY: &str = "2025-03-26";
-/// Current stable stateful MCP protocol version.
-pub const MCP_PROTOCOL_VERSION_STABLE: &str = "2025-06-18";
-/// Stateless MCP release-candidate protocol version.
-pub const MCP_PROTOCOL_VERSION_RC: &str = "2026-07-28";
+/// Newest stateful MCP protocol version — the handshake fallback. Servers
+/// speaking an older revision negotiate down from it in their `initialize`
+/// result, so the intermediate versions need no mode of their own.
+pub const MCP_PROTOCOL_VERSION_STATEFUL: &str = "2025-11-25";
+/// Newest MCP protocol version, and the first stateless one.
+pub const MCP_PROTOCOL_VERSION_LATEST: &str = "2026-07-28";
 
 #[cfg(feature = "http")]
 pub(super) const HEADER_METHOD: &str = "Mcp-Method";
@@ -26,20 +27,25 @@ pub(super) const HEADER_SESSION_ID: &str = "Mcp-Session-Id";
 
 #[cfg(feature = "http")]
 const CLIENT_INFO_META_KEY: &str = "io.modelcontextprotocol/clientInfo";
+#[cfg(feature = "http")]
+const PROTOCOL_VERSION_META_KEY: &str = "io.modelcontextprotocol/protocolVersion";
+#[cfg(feature = "http")]
+const CLIENT_CAPABILITIES_META_KEY: &str = "io.modelcontextprotocol/clientCapabilities";
 
 /// Policy for selecting the MCP protocol era used by an HTTP server.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum McpProtocolMode {
-    /// Probe the stateless release candidate, then fall back to a stateful
-    /// handshake when the server explicitly requires it.
+    /// Probe the stateless protocol, then fall back to a stateful handshake
+    /// when the server explicitly requires it.
     #[default]
     Auto,
-    /// Pin the legacy `2025-03-26` stateful handshake.
+    /// Pin the `2025-03-26` handshake, for servers that reject any protocol
+    /// version they do not recognise instead of negotiating down.
     Legacy,
-    /// Pin the stable `2025-06-18` stateful handshake.
-    Stable,
-    /// Pin the stateless `2026-07-28` release candidate.
-    Rc,
+    /// Pin the stateful handshake, offering [`MCP_PROTOCOL_VERSION_STATEFUL`].
+    Stateful,
+    /// Pin the stateless [`MCP_PROTOCOL_VERSION_LATEST`] protocol.
+    Latest,
 }
 
 impl McpProtocolMode {
@@ -47,17 +53,17 @@ impl McpProtocolMode {
     pub(super) fn initial(self) -> Option<Negotiated> {
         match self {
             Self::Auto => None,
-            Self::Rc => Some(Negotiated::stateless(MCP_PROTOCOL_VERSION_RC)),
-            Self::Stable => Some(Negotiated::stateful(MCP_PROTOCOL_VERSION_STABLE)),
+            Self::Latest => Some(Negotiated::stateless(MCP_PROTOCOL_VERSION_LATEST)),
+            Self::Stateful => Some(Negotiated::stateful(MCP_PROTOCOL_VERSION_STATEFUL)),
             Self::Legacy => Some(Negotiated::stateful(MCP_PROTOCOL_VERSION_LEGACY)),
         }
     }
 
     pub(super) fn handshake_version(self) -> Option<&'static str> {
         match self {
-            Self::Stable => Some(MCP_PROTOCOL_VERSION_STABLE),
+            Self::Stateful => Some(MCP_PROTOCOL_VERSION_STATEFUL),
             Self::Legacy => Some(MCP_PROTOCOL_VERSION_LEGACY),
-            Self::Auto | Self::Rc => None,
+            Self::Auto | Self::Latest => None,
         }
     }
 }
@@ -89,9 +95,21 @@ impl Negotiated {
     }
 }
 
+/// The `_meta` every request carries.
+///
+/// `2026-07-28` dropped the handshake, so the protocol version and the
+/// client's capabilities have to travel with each request instead. We
+/// implement neither roots, sampling, nor elicitation, so the capabilities
+/// are empty — that is what lets a server tell up front that it cannot ask
+/// us for input mid-call.
 #[cfg(feature = "http")]
-pub(super) fn request_meta() -> Value {
+pub(super) fn request_meta(version: &str) -> Value {
     let mut meta = Map::new();
+    meta.insert(
+        PROTOCOL_VERSION_META_KEY.to_string(),
+        Value::String(version.to_string()),
+    );
+    meta.insert(CLIENT_CAPABILITIES_META_KEY.to_string(), json!({}));
     meta.insert(
         CLIENT_INFO_META_KEY.to_string(),
         json!({
@@ -103,11 +121,24 @@ pub(super) fn request_meta() -> Value {
 }
 
 #[cfg(feature = "http")]
-pub(super) fn with_request_meta(mut params: Value) -> Value {
+pub(super) fn with_request_meta(mut params: Value, version: &str) -> Value {
     let Value::Object(ref mut object) = params else {
         return params;
     };
-    object.insert("_meta".to_string(), request_meta());
+    // Merge rather than replace: a caller-supplied `_meta` (trace context,
+    // say) has no reason to lose to ours.
+    match object.get_mut("_meta") {
+        Some(Value::Object(existing)) => {
+            if let Value::Object(ours) = request_meta(version) {
+                for (key, value) in ours {
+                    existing.entry(key).or_insert(value);
+                }
+            }
+        }
+        _ => {
+            object.insert("_meta".to_string(), request_meta(version));
+        }
+    }
     params
 }
 
@@ -161,11 +192,35 @@ mod tests {
     use super::*;
 
     #[test]
-    fn request_metadata_carries_client_identity() {
-        let params = with_request_meta(json!({"name": "search"}));
+    fn request_metadata_carries_the_fields_a_stateless_server_needs() {
+        let params = with_request_meta(json!({"name": "search"}), MCP_PROTOCOL_VERSION_LATEST);
         assert_eq!(
             params["_meta"][CLIENT_INFO_META_KEY]["name"],
             json!("agentyk")
+        );
+        assert_eq!(
+            params["_meta"][PROTOCOL_VERSION_META_KEY],
+            json!(MCP_PROTOCOL_VERSION_LATEST),
+            "no handshake means the version rides on every request"
+        );
+        assert_eq!(
+            params["_meta"][CLIENT_CAPABILITIES_META_KEY],
+            json!({}),
+            "we support no roots, sampling, or elicitation"
+        );
+        assert_eq!(params["name"], json!("search"), "arguments are untouched");
+    }
+
+    #[test]
+    fn caller_supplied_metadata_survives() {
+        let params = with_request_meta(
+            json!({"_meta": {"traceparent": "00-abc-def-01"}}),
+            MCP_PROTOCOL_VERSION_LATEST,
+        );
+        assert_eq!(params["_meta"]["traceparent"], json!("00-abc-def-01"));
+        assert_eq!(
+            params["_meta"][PROTOCOL_VERSION_META_KEY],
+            json!(MCP_PROTOCOL_VERSION_LATEST)
         );
     }
 
@@ -189,12 +244,13 @@ mod tests {
 
     #[test]
     fn pinned_modes_select_their_protocol_era() {
-        let rc = McpProtocolMode::Rc.initial().unwrap();
-        assert_eq!(rc.version, MCP_PROTOCOL_VERSION_RC);
-        assert!(!rc.stateful);
+        let latest = McpProtocolMode::Latest.initial().unwrap();
+        assert_eq!(latest.version, MCP_PROTOCOL_VERSION_LATEST);
+        assert!(!latest.stateful);
+        assert_eq!(McpProtocolMode::Latest.handshake_version(), None);
 
         for (mode, version) in [
-            (McpProtocolMode::Stable, MCP_PROTOCOL_VERSION_STABLE),
+            (McpProtocolMode::Stateful, MCP_PROTOCOL_VERSION_STATEFUL),
             (McpProtocolMode::Legacy, MCP_PROTOCOL_VERSION_LEGACY),
         ] {
             let negotiated = mode.initial().unwrap();

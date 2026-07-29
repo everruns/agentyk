@@ -189,10 +189,10 @@ Real, worked around, but each one costs an adopter something.
    authorization URL and serializable tokens; opening a browser and choosing
    a credential store belong to the host.
    HTTP protocol handling now has the same multi-era policy as
-   `everruns-mcp`: `Auto` probes the stateless `2026-07-28` release candidate
-   and falls back to the server-negotiated stateful era only on an explicit
-   handshake-required signal. Pinned `Rc`/`Stable`/`Legacy` modes skip the
-   probe. Because one `McpClient` owns one logical connection, its negotiation
+   `everruns-mcp`: `Auto` probes the stateless `2026-07-28` protocol and falls
+   back to the server-negotiated stateful era only on an explicit
+   handshake-required signal. Pinned `Latest`/`Stateful`/`Legacy` modes skip
+   the probe. Because one `McpClient` owns one logical connection, its negotiation
    verdict lives with that client rather than in everruns' shared,
    credential-keyed transport cache.
    Needs the `http` feature alongside `mcp`; without it, connecting says so.

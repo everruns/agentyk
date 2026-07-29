@@ -9,7 +9,29 @@ release — every release bumps the patch component (`0.1.z`). See
 
 ## [Unreleased]
 
+### Changed
+
+- **MCP protocol eras are named for what they are, and the stateful fallback
+  moved to `2025-11-25`.** `2026-07-28` is a final release, not a candidate,
+  so `McpProtocolMode::Rc` is now `Latest` and `MCP_PROTOCOL_VERSION_RC` is
+  `MCP_PROTOCOL_VERSION_LATEST`. The handshake fallback had been pinned to
+  `2025-06-18`, skipping the `2025-11-25` revision that many servers now
+  speak; `McpProtocolMode::Stable` is therefore `Stateful` and offers
+  `2025-11-25`. Servers on an older revision negotiate down from it in their
+  `initialize` result, so the intermediate versions need no mode of their
+  own, and `Legacy` still pins `2025-03-26` for servers that reject an
+  unrecognised version outright.
+
 ### Fixed
+
+- **A tool call the MCP server cannot finish alone no longer looks like an
+  empty success.** MCP `2026-07-28` gives every result a `resultType`;
+  `input_required` means the server wants roots, sampling, or elicitation
+  answered mid-call — the multi round-trip request pattern — and carries no
+  `content`. Reading it as an ordinary result handed the model a tool output
+  of `""` with `isError: false`. It is now an error naming the unsupported
+  pattern. An absent `resultType`, which is what every earlier revision
+  sends, still reads as complete, per the spec.
 
 - **Cached prompt tokens are no longer dropped on the streaming path.** The
   Anthropic driver places `cache_control` breakpoints, but the streaming
@@ -18,6 +40,7 @@ release — every release bumps the patch component (`0.1.z`). See
   cache hit under-counted the prompt while the non-streaming path summed it.
   Found by the `session_efficiency` eval, which could not see a cache hit at
   all.
+
 - **The HTTP drivers now trust the machine's CA store**, not only the bundled
   public roots. Any environment that terminates TLS with a private CA — a
   corporate network, a CI sandbox, an inspecting egress proxy — was previously
@@ -27,6 +50,16 @@ release — every release bumps the patch component (`0.1.z`). See
   readable trust store still works on the bundled ones.
 
 ### Added
+
+- **MCP requests carry the metadata a stateless server requires.** Having
+  dropped the handshake, `2026-07-28` expects the protocol version and the
+  client's capabilities on every request. Each request's `_meta` now sends
+  `io.modelcontextprotocol/protocolVersion` and
+  `io.modelcontextprotocol/clientCapabilities` alongside the client identity
+  already there. Our capabilities are empty — we implement no roots,
+  sampling, or elicitation — which is what lets a server tell up front that
+  it cannot ask us for input mid-call. A caller-supplied `_meta`, trace
+  context say, is merged rather than overwritten.
 
 - **Token usage carries a breakdown.** `driver::Usage` gains
   `cache_read_input_tokens`, `cache_creation_input_tokens`, and
@@ -41,6 +74,7 @@ release — every release bumps the patch component (`0.1.z`). See
   cache, tool calls, latency — plus an offline eval on the scripted `SimDriver`
   that CI runs with no credentials. See
   [`knowledge/evals.md`](knowledge/evals.md).
+
 - **Multi-actor sessions.** `Session::run_with_agent` overlays an addressed
   by-value agent's behavior on the host harness and one replayable history;
   `Message.external_actor` preserves external user identity and labels
