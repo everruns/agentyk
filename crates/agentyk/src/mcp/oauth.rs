@@ -2,20 +2,30 @@
 //!
 //! This module adopts yolop's MCP authorization flow while keeping
 //! application concerns outside the library. It discovers authorization
-//! metadata, dynamically registers a public client when needed, prepares a
-//! PKCE browser login, receives the loopback callback, exchanges the code,
-//! and refreshes tokens. The caller decides how to open the authorization URL
-//! and where to persist the resulting token set.
+//! metadata, identifies the client, prepares a PKCE browser login, receives
+//! the loopback callback, exchanges the code, and refreshes tokens. The
+//! caller decides how to open the authorization URL and where to persist the
+//! resulting token set.
+//!
+//! Client identity follows the spec's priority order — see
+//! [`McpOAuthLoginOptions`]. Persisted credentials belong to one
+//! authorization server: store them keyed by
+//! [`McpOAuthTokenSet::issuer`], and check
+//! [`McpOAuthTokenSet::issued_by`] before reusing them.
 //!
 //! ```no_run
 //! use std::sync::Arc;
 //! use agentyk::{
-//!     McpCapability, McpOAuthTokenProvider, McpServer, Result,
+//!     McpCapability, McpOAuthLoginOptions, McpOAuthTokenProvider, McpServer, Result,
 //!     prepare_mcp_oauth_login,
 //! };
 //!
 //! # async fn connect() -> Result<McpCapability> {
-//! let login = prepare_mcp_oauth_login("https://mcp.example.com/mcp", None, None).await?;
+//! let login = prepare_mcp_oauth_login(
+//!     "https://mcp.example.com/mcp",
+//!     McpOAuthLoginOptions::new(),
+//! )
+//! .await?;
 //! println!("Open {}", login.authorize_url());
 //! let tokens = login.complete().await?;
 //! let provider = Arc::new(McpOAuthTokenProvider::new(tokens));
@@ -67,6 +77,12 @@ pub struct McpOAuthTokenSet {
     pub scope: Option<String>,
     /// Token endpoint discovered during login.
     pub token_endpoint: String,
+    /// Issuer identifier of the authorization server these credentials
+    /// belong to. A host that persists this set **must** key it by this
+    /// value: `client_id` and `client_secret` are meaningless — and must not
+    /// be sent — to any other authorization server.
+    #[serde(default)]
+    pub issuer: String,
     /// OAuth client id used during login.
     pub client_id: String,
     /// Dynamic-registration client secret, when the server issued one.
@@ -77,6 +93,16 @@ impl McpOAuthTokenSet {
     /// Whether the access token has expired at `now`.
     pub fn is_expired(&self, now: DateTime<Utc>) -> bool {
         self.expires_at.is_some_and(|expires_at| expires_at <= now)
+    }
+
+    /// Whether these credentials belong to `issuer`.
+    ///
+    /// Check this before reusing a persisted set against a server whose
+    /// protected-resource metadata may have moved to a different
+    /// authorization server; a `false` means register again rather than
+    /// send an identifier the new server never issued.
+    pub fn issued_by(&self, issuer: &str) -> bool {
+        self.issuer == issuer
     }
 }
 
@@ -93,6 +119,7 @@ impl std::fmt::Debug for McpOAuthTokenSet {
             .field("expires_at", &self.expires_at)
             .field("scope", &self.scope)
             .field("token_endpoint", &self.token_endpoint)
+            .field("issuer", &self.issuer)
             .field("client_id", &self.client_id)
             .field(
                 "client_secret",
@@ -142,10 +169,19 @@ impl McpAuthProvider for McpOAuthTokenProvider {
 
 #[derive(Debug, Clone)]
 struct OAuthEndpoints {
+    /// The authorization server's issuer identifier. Client credentials are
+    /// bound to it, and it is what an `iss` in the callback must equal.
+    issuer: String,
     authorization_endpoint: String,
     token_endpoint: String,
     registration_endpoint: Option<String>,
     scopes_supported: Option<Vec<String>>,
+    /// Whether the server accepts a Client ID Metadata Document URL in place
+    /// of a registered client id.
+    cimd_supported: bool,
+    /// Whether the server promises an `iss` on every authorization response.
+    /// When it does, one that arrives without `iss` is a mix-up attempt.
+    iss_parameter_required: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -162,12 +198,18 @@ struct ProtectedResourceMetadata {
 
 #[derive(Deserialize)]
 struct AuthorizationServerMetadata {
+    #[serde(default)]
+    issuer: Option<String>,
     authorization_endpoint: String,
     token_endpoint: String,
     #[serde(default)]
     registration_endpoint: Option<String>,
     #[serde(default)]
     scopes_supported: Option<Vec<String>>,
+    #[serde(default)]
+    client_id_metadata_document_supported: bool,
+    #[serde(default)]
+    authorization_response_iss_parameter_supported: bool,
 }
 
 #[derive(Deserialize)]
@@ -211,9 +253,22 @@ impl PreparedMcpOAuthLogin {
         &self.authorize_url
     }
 
+    /// The authorization server's issuer identifier. Persist it alongside
+    /// the tokens: client credentials are only valid for the server that
+    /// issued them.
+    pub fn issuer(&self) -> &str {
+        &self.endpoints.issuer
+    }
+
     /// Wait for the loopback callback and exchange the code for tokens.
     pub async fn complete(self) -> Result<McpOAuthTokenSet> {
-        let code = wait_for_callback(self.listener, &self.state).await?;
+        let code = wait_for_callback(
+            self.listener,
+            &self.state,
+            &self.endpoints.issuer,
+            self.endpoints.iss_parameter_required,
+        )
+        .await?;
         exchange_code(
             &http_client()?,
             &self.endpoints,
@@ -227,16 +282,69 @@ impl PreparedMcpOAuthLogin {
     }
 }
 
+/// How an MCP client identifies itself to an authorization server.
+///
+/// The spec's priority order is pre-registration, then a Client ID Metadata
+/// Document, then Dynamic Client Registration — which is deprecated but still
+/// what most servers offer. [`prepare_mcp_oauth_login`] walks that order over
+/// whatever this carries, and reports what it would have needed if none of it
+/// applies.
+#[derive(Debug, Clone, Default)]
+#[non_exhaustive]
+pub struct McpOAuthLoginOptions {
+    client_id: Option<String>,
+    client_issuer: Option<String>,
+    client_id_metadata_url: Option<String>,
+    scope: Option<String>,
+}
+
+impl McpOAuthLoginOptions {
+    /// Nothing pre-arranged: register dynamically and ask for every scope
+    /// the server advertises.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Use a client id already registered with `issuer`.
+    ///
+    /// Client credentials belong to the authorization server that issued
+    /// them. Naming the issuer here is what lets the login refuse to send
+    /// them somewhere else when a server changes authorization servers,
+    /// rather than leaking an identifier and failing obscurely.
+    pub fn client_id(mut self, client_id: impl Into<String>, issuer: impl Into<String>) -> Self {
+        self.client_id = Some(client_id.into());
+        self.client_issuer = Some(issuer.into());
+        self
+    }
+
+    /// Identify with a Client ID Metadata Document your application hosts at
+    /// this HTTPS URL — the mechanism that replaces dynamic registration.
+    ///
+    /// The document is yours to serve: it must be reachable by the
+    /// authorization server, its `client_id` must equal this URL exactly,
+    /// and its `redirect_uris` must include the loopback callback
+    /// (`http://127.0.0.1:<port>/callback`, on an ephemeral port — so list
+    /// a range or use a fixed one you control). Used only when the server
+    /// advertises `client_id_metadata_document_supported`.
+    pub fn client_id_metadata_url(mut self, url: impl Into<String>) -> Self {
+        self.client_id_metadata_url = Some(url.into());
+        self
+    }
+
+    /// Request these scopes instead of everything the server advertises.
+    pub fn scope(mut self, scope: impl Into<String>) -> Self {
+        self.scope = Some(scope.into());
+        self
+    }
+}
+
 /// Discover an MCP server's OAuth endpoints and prepare a PKCE browser login.
 ///
-/// When `client_id` is absent, the authorization server must advertise RFC
-/// 7591 dynamic client registration. When `scope` is absent, all advertised
-/// scopes are requested. This binds an ephemeral loopback callback before
-/// returning so the exact redirect URI can be registered.
+/// This binds an ephemeral loopback callback before returning so the exact
+/// redirect URI can be registered.
 pub async fn prepare_mcp_oauth_login(
     mcp_url: &str,
-    client_id: Option<&str>,
-    scope: Option<&str>,
+    options: McpOAuthLoginOptions,
 ) -> Result<PreparedMcpOAuthLogin> {
     let http = http_client()?;
     let endpoints = discover_endpoints(&http, mcp_url).await?;
@@ -248,17 +356,11 @@ pub async fn prepare_mcp_oauth_login(
         .map_err(|error| oauth_error(format!("resolve OAuth callback port: {error}")))?
         .port();
     let redirect_uri = format!("http://127.0.0.1:{port}{CALLBACK_PATH}");
-    let client = match client_id {
-        Some(client_id) => OAuthClient {
-            client_id: client_id.to_string(),
-            client_secret: None,
-        },
-        None => register_client(&http, &endpoints, &redirect_uri).await?,
-    };
+    let client = identify_client(&http, &endpoints, &options, &redirect_uri).await?;
     let verifier = random_pkce_verifier();
     let challenge = pkce_challenge(&verifier);
     let state = random_token(32);
-    let scope = scope.map(str::to_string).or_else(|| {
+    let scope = options.scope.clone().or_else(|| {
         endpoints
             .scopes_supported
             .as_ref()
@@ -304,6 +406,7 @@ pub async fn refresh_mcp_oauth_tokens(tokens: &McpOAuthTokenSet) -> Result<McpOA
     Ok(token_set(
         response,
         &tokens.token_endpoint,
+        &tokens.issuer,
         &OAuthClient {
             client_id: tokens.client_id.clone(),
             client_secret: tokens.client_secret.clone(),
@@ -363,16 +466,83 @@ async fn discover_endpoints(client: &reqwest::Client, mcp_url: &str) -> Result<O
                 require_secure(endpoint, "registration endpoint")?;
             }
             return Ok(OAuthEndpoints {
+                // RFC 8414 has the metadata carry the canonical issuer id;
+                // where it does not, the URL we discovered it at is it.
+                issuer: metadata.issuer.unwrap_or(issuer_origin),
                 authorization_endpoint: metadata.authorization_endpoint,
                 token_endpoint: metadata.token_endpoint,
                 registration_endpoint: metadata.registration_endpoint,
                 scopes_supported: metadata.scopes_supported,
+                cimd_supported: metadata.client_id_metadata_document_supported,
+                iss_parameter_required: metadata.authorization_response_iss_parameter_supported,
             });
         }
     }
     Err(oauth_error(format!(
         "no authorization-server metadata found for {issuer_origin}"
     )))
+}
+
+/// Settle on a client id, in the order the spec prefers.
+async fn identify_client(
+    http: &reqwest::Client,
+    endpoints: &OAuthEndpoints,
+    options: &McpOAuthLoginOptions,
+    redirect_uri: &str,
+) -> Result<OAuthClient> {
+    if let Some(client_id) = options.client_id.as_deref() {
+        // Credentials are keyed by issuer. Sending them to a different
+        // authorization server than the one that issued them is exactly what
+        // the binding rule exists to stop.
+        if let Some(registered_with) = options.client_issuer.as_deref()
+            && registered_with != endpoints.issuer
+        {
+            return Err(oauth_error(format!(
+                "client id was registered with `{registered_with}` but this server now uses \
+                 `{}`; register again with the new authorization server",
+                endpoints.issuer
+            )));
+        }
+        return Ok(OAuthClient {
+            client_id: client_id.to_string(),
+            client_secret: None,
+        });
+    }
+
+    if let Some(url) = options.client_id_metadata_url.as_deref() {
+        if endpoints.cimd_supported {
+            return Ok(OAuthClient {
+                client_id: client_id_metadata_url(url)?,
+                client_secret: None,
+            });
+        }
+        tracing::debug!(
+            target: "agentyk::mcp",
+            issuer = %endpoints.issuer,
+            "authorization server does not support client id metadata documents; \
+             falling back to dynamic registration"
+        );
+    }
+
+    register_client(http, endpoints, redirect_uri).await
+}
+
+/// A Client ID Metadata Document URL is itself the client id, so it has to
+/// satisfy what an authorization server will check: HTTPS, with a path.
+fn client_id_metadata_url(url: &str) -> Result<String> {
+    let parsed = Url::parse(url)
+        .map_err(|error| oauth_error(format!("parse client id metadata URL `{url}`: {error}")))?;
+    if parsed.scheme() != "https" {
+        return Err(oauth_error(format!(
+            "client id metadata URL must use https: {url}"
+        )));
+    }
+    if parsed.path().is_empty() || parsed.path() == "/" {
+        return Err(oauth_error(format!(
+            "client id metadata URL must have a path component: {url}"
+        )));
+    }
+    Ok(parsed.to_string())
 }
 
 async fn register_client(
@@ -382,7 +552,8 @@ async fn register_client(
 ) -> Result<OAuthClient> {
     let endpoint = endpoints.registration_endpoint.as_deref().ok_or_else(|| {
         oauth_error(
-            "server does not support dynamic client registration; provide an OAuth client id",
+            "server supports neither client id metadata documents nor dynamic client \
+             registration; provide an OAuth client id",
         )
     })?;
     let response = client
@@ -393,6 +564,9 @@ async fn register_client(
             "grant_types": ["authorization_code", "refresh_token"],
             "response_types": ["code"],
             "token_endpoint_auth_method": "none",
+            // Our redirect is a loopback address. Omitted, OIDC servers
+            // default to "web" and reject it.
+            "application_type": "native",
         }))
         .send()
         .await
@@ -460,6 +634,7 @@ async fn exchange_code(
     Ok(token_set(
         response,
         &endpoints.token_endpoint,
+        &endpoints.issuer,
         oauth_client,
         None,
         scope,
@@ -493,6 +668,7 @@ async fn post_token(
 fn token_set(
     response: TokenResponse,
     token_endpoint: &str,
+    issuer: &str,
     client: &OAuthClient,
     fallback_refresh: Option<String>,
     fallback_scope: Option<&str>,
@@ -509,6 +685,7 @@ fn token_set(
             .scope
             .or_else(|| fallback_scope.map(str::to_string)),
         token_endpoint: token_endpoint.to_string(),
+        issuer: issuer.to_string(),
         client_id: client.client_id.clone(),
         client_secret: client.client_secret.clone(),
     }
@@ -557,7 +734,20 @@ async fn fetch_json<T: for<'de> Deserialize<'de>>(
         .map_err(|error| oauth_error(format!("parse JSON from {url}: {error}")))
 }
 
-async fn wait_for_callback(listener: TcpListener, expected_state: &str) -> Result<String> {
+/// Wait for the browser to come back, and check that it came back from the
+/// server we sent it to.
+///
+/// `state` proves the response answers *our* request. RFC 9207's `iss`
+/// proves which authorization server answered it — the defence against a
+/// mix-up attack, where a code minted by an attacker-controlled server is
+/// redeemed at the honest one. We must validate an `iss` that arrives, and
+/// demand one when the server said it always sends one.
+async fn wait_for_callback(
+    listener: TcpListener,
+    expected_state: &str,
+    expected_issuer: &str,
+    iss_required: bool,
+) -> Result<String> {
     loop {
         let (mut socket, _) = listener
             .accept()
@@ -584,6 +774,31 @@ async fn wait_for_callback(listener: TcpListener, expected_state: &str) -> Resul
             )
             .await?;
             return Err(oauth_error("callback state mismatch"));
+        }
+        match params.get("iss").map(String::as_str) {
+            Some(issuer) if issuer != expected_issuer => {
+                write_response(
+                    &mut socket,
+                    "400 Bad Request",
+                    "Login rejected: the response came from a different authorization server.",
+                )
+                .await?;
+                return Err(oauth_error(format!(
+                    "callback issuer `{issuer}` is not the `{expected_issuer}` we authorized with"
+                )));
+            }
+            None if iss_required => {
+                write_response(
+                    &mut socket,
+                    "400 Bad Request",
+                    "Login rejected: the response did not identify its authorization server.",
+                )
+                .await?;
+                return Err(oauth_error(
+                    "callback has no `iss`, which this authorization server promised to send",
+                ));
+            }
+            _ => {}
         }
         if let Some(error) = params.get("error") {
             write_response(
@@ -674,25 +889,43 @@ fn html_escape(value: &str) -> String {
 mod tests {
     use super::*;
 
+    use std::sync::{Arc, Mutex as StdMutex};
+
     struct MockOAuthServer {
         base_url: String,
+        seen: Arc<StdMutex<Vec<String>>>,
+    }
+
+    /// What the mock authorization server advertises about itself.
+    #[derive(Clone, Copy, Default)]
+    struct MockCapabilities {
+        cimd: bool,
+        iss: bool,
     }
 
     impl MockOAuthServer {
         async fn start() -> Self {
+            Self::advertising(MockCapabilities::default()).await
+        }
+
+        async fn advertising(capabilities: MockCapabilities) -> Self {
             let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
             let base_url = format!("http://{}", listener.local_addr().unwrap());
             let task_base_url = base_url.clone();
+            let seen: Arc<StdMutex<Vec<String>>> = Arc::new(StdMutex::new(Vec::new()));
+            let recorder = seen.clone();
             tokio::spawn(async move {
                 loop {
                     let Ok((mut socket, _)) = listener.accept().await else {
                         return;
                     };
                     let base_url = task_base_url.clone();
+                    let recorder = recorder.clone();
                     tokio::spawn(async move {
                         let mut bytes = vec![0; 8192];
                         let read = socket.read(&mut bytes).await.unwrap();
                         let request = String::from_utf8_lossy(&bytes[..read]);
+                        recorder.lock().unwrap().push(request.to_string());
                         let first_line = request.lines().next().unwrap_or_default();
                         let mut parts = first_line.split_whitespace();
                         let method = parts.next().unwrap_or_default();
@@ -703,7 +936,8 @@ mod tests {
                                 format!(r#"{{"authorization_servers":["{base_url}"]}}"#)
                             }
                             ("GET", "/.well-known/oauth-authorization-server") => format!(
-                                r#"{{"authorization_endpoint":"{base_url}/authorize","token_endpoint":"{base_url}/token","registration_endpoint":"{base_url}/register","scopes_supported":["read"]}}"#
+                                r#"{{"issuer":"{base_url}","authorization_endpoint":"{base_url}/authorize","token_endpoint":"{base_url}/token","registration_endpoint":"{base_url}/register","scopes_supported":["read"],"client_id_metadata_document_supported":{},"authorization_response_iss_parameter_supported":{}}}"#,
+                                capabilities.cimd, capabilities.iss
                             ),
                             ("POST", "/register") => r#"{"client_id":"registered-client"}"#.into(),
                             ("POST", "/token")
@@ -724,8 +958,196 @@ mod tests {
                     });
                 }
             });
-            Self { base_url }
+            Self { base_url, seen }
         }
+
+        fn requests(&self) -> Vec<String> {
+            self.seen.lock().unwrap().clone()
+        }
+    }
+
+    /// Drive a login to completion against the mock, redirecting with the
+    /// given extra callback parameters.
+    async fn login_with(
+        server: &MockOAuthServer,
+        options: McpOAuthLoginOptions,
+        extra_callback_params: &str,
+    ) -> Result<McpOAuthTokenSet> {
+        let prepared =
+            prepare_mcp_oauth_login(&format!("{}/mcp", server.base_url), options).await?;
+        let authorize_url = Url::parse(prepared.authorize_url()).unwrap();
+        let parameters: HashMap<_, _> = authorize_url.query_pairs().into_owned().collect();
+        let redirect_uri = parameters["redirect_uri"].clone();
+        let state = parameters["state"].clone();
+        let completing = tokio::spawn(prepared.complete());
+        let _ = reqwest::get(format!(
+            "{redirect_uri}?code=the-code&state={state}{extra_callback_params}"
+        ))
+        .await;
+        completing.await.unwrap()
+    }
+
+    #[tokio::test]
+    async fn dynamic_registration_declares_a_native_application() {
+        let server = MockOAuthServer::start().await;
+        login_with(&server, McpOAuthLoginOptions::new(), "")
+            .await
+            .unwrap();
+
+        let registration = server
+            .requests()
+            .into_iter()
+            .find(|request| request.starts_with("POST /register"))
+            .expect("registered");
+        assert!(
+            registration.contains(r#""application_type":"native""#),
+            "our redirect is loopback; OIDC servers default to `web` and reject it: \
+             {registration}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_callback_from_another_issuer_is_refused() {
+        let server = MockOAuthServer::advertising(MockCapabilities {
+            iss: true,
+            ..Default::default()
+        })
+        .await;
+        let error = login_with(
+            &server,
+            McpOAuthLoginOptions::new(),
+            "&iss=https://attacker.example",
+        )
+        .await
+        .expect_err("RFC 9207 mix-up defence");
+        assert!(error.to_string().contains("attacker.example"), "{error}");
+    }
+
+    #[tokio::test]
+    async fn a_matching_issuer_is_accepted_and_recorded() {
+        let server = MockOAuthServer::advertising(MockCapabilities {
+            iss: true,
+            ..Default::default()
+        })
+        .await;
+        let issuer = server.base_url.clone();
+        let tokens = login_with(
+            &server,
+            McpOAuthLoginOptions::new(),
+            &format!("&iss={issuer}"),
+        )
+        .await
+        .expect("the issuer matches");
+        assert_eq!(tokens.access_token, "access-1");
+        assert!(tokens.issued_by(&issuer), "credentials are bound to it");
+    }
+
+    #[tokio::test]
+    async fn a_promised_issuer_that_never_arrives_is_refused() {
+        let server = MockOAuthServer::advertising(MockCapabilities {
+            iss: true,
+            ..Default::default()
+        })
+        .await;
+        let error = login_with(&server, McpOAuthLoginOptions::new(), "")
+            .await
+            .expect_err("the server said it always sends `iss`");
+        assert!(error.to_string().contains("no `iss`"), "{error}");
+    }
+
+    #[tokio::test]
+    async fn a_server_without_the_iss_promise_does_not_require_one() {
+        let server = MockOAuthServer::start().await;
+        let tokens = login_with(&server, McpOAuthLoginOptions::new(), "")
+            .await
+            .expect("nothing promised, nothing required");
+        assert_eq!(tokens.access_token, "access-1");
+    }
+
+    #[tokio::test]
+    async fn a_metadata_document_url_is_used_as_the_client_id_when_supported() {
+        let server = MockOAuthServer::advertising(MockCapabilities {
+            cimd: true,
+            ..Default::default()
+        })
+        .await;
+        let tokens = login_with(
+            &server,
+            McpOAuthLoginOptions::new()
+                .client_id_metadata_url("https://app.example/oauth/client.json"),
+            "",
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(tokens.client_id, "https://app.example/oauth/client.json");
+        assert!(
+            !server
+                .requests()
+                .iter()
+                .any(|request| request.starts_with("POST /register")),
+            "a metadata document replaces registration entirely"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_metadata_document_url_falls_back_when_unsupported() {
+        let server = MockOAuthServer::start().await;
+        let tokens = login_with(
+            &server,
+            McpOAuthLoginOptions::new()
+                .client_id_metadata_url("https://app.example/oauth/client.json"),
+            "",
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            tokens.client_id, "registered-client",
+            "dynamic registration is deprecated, not gone"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_client_id_from_a_different_issuer_is_refused() {
+        let server = MockOAuthServer::start().await;
+        let message = prepare_mcp_oauth_login(
+            &format!("{}/mcp", server.base_url),
+            McpOAuthLoginOptions::new().client_id("old-client", "https://previous.example"),
+        )
+        .await
+        .err()
+        .expect("credentials are bound to their issuer")
+        .to_string();
+        assert!(message.contains("previous.example"), "{message}");
+        assert!(message.contains("register again"), "{message}");
+    }
+
+    #[tokio::test]
+    async fn a_client_id_from_the_same_issuer_is_used_as_is() {
+        let server = MockOAuthServer::start().await;
+        let issuer = server.base_url.clone();
+        let tokens = login_with(
+            &server,
+            McpOAuthLoginOptions::new().client_id("known-client", &issuer),
+            "",
+        )
+        .await
+        .unwrap();
+        assert_eq!(tokens.client_id, "known-client");
+    }
+
+    #[test]
+    fn a_metadata_document_url_must_be_addressable_by_an_authorization_server() {
+        assert!(client_id_metadata_url("https://app.example/client.json").is_ok());
+        assert!(
+            client_id_metadata_url("http://app.example/client.json").is_err(),
+            "https only"
+        );
+        assert!(
+            client_id_metadata_url("https://app.example").is_err(),
+            "a path component is required"
+        );
+        assert!(client_id_metadata_url("https://app.example/").is_err());
     }
 
     #[test]
@@ -745,6 +1167,7 @@ mod tests {
             expires_at: None,
             scope: None,
             token_endpoint: "https://auth.example/token".into(),
+            issuer: "https://auth.example".into(),
             client_id: "client".into(),
             client_secret: Some("client-secret".into()),
         };
@@ -764,10 +1187,13 @@ mod tests {
     #[test]
     fn authorize_url_contains_pkce_state_and_scope() {
         let endpoints = OAuthEndpoints {
+            issuer: "https://auth.example".into(),
             authorization_endpoint: "https://auth.example/authorize".into(),
             token_endpoint: "https://auth.example/token".into(),
             registration_endpoint: None,
             scopes_supported: None,
+            cimd_supported: false,
+            iss_parameter_required: false,
         };
         let url = authorize_url(
             &endpoints,
@@ -793,6 +1219,7 @@ mod tests {
             expires_at: Some(Utc::now() + Duration::seconds(10)),
             scope: None,
             token_endpoint: "https://auth.example/token".into(),
+            issuer: "https://auth.example".into(),
             client_id: "client".into(),
             client_secret: None,
         };
@@ -804,9 +1231,12 @@ mod tests {
     #[tokio::test]
     async fn login_discovers_registers_receives_callback_and_exchanges() {
         let server = MockOAuthServer::start().await;
-        let prepared = prepare_mcp_oauth_login(&format!("{}/mcp", server.base_url), None, None)
-            .await
-            .unwrap();
+        let prepared = prepare_mcp_oauth_login(
+            &format!("{}/mcp", server.base_url),
+            McpOAuthLoginOptions::new(),
+        )
+        .await
+        .unwrap();
         let authorize_url = Url::parse(prepared.authorize_url()).unwrap();
         let parameters: HashMap<_, _> = authorize_url.query_pairs().into_owned().collect();
         assert_eq!(parameters["client_id"], "registered-client");
@@ -835,6 +1265,7 @@ mod tests {
             expires_at: Some(Utc::now() - Duration::seconds(1)),
             scope: Some("read".into()),
             token_endpoint: format!("{}/token", server.base_url),
+            issuer: server.base_url.clone(),
             client_id: "registered-client".into(),
             client_secret: None,
         });

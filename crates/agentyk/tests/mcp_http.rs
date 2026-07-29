@@ -178,7 +178,7 @@ async fn a_remote_server_contributes_its_tools_to_a_turn() -> Result<()> {
             SimTurn::text("3 open issues"),
         ]))
         .capability(McpCapability::new(
-            McpServer::http("github", &server.url).protocol_mode(McpProtocolMode::Stable),
+            McpServer::http("github", &server.url).protocol_mode(McpProtocolMode::Stateful),
         ))
         .build()?;
 
@@ -206,7 +206,7 @@ async fn the_session_id_from_initialize_is_sent_on_later_requests() -> Result<()
         .model(ModelSpec::llmsim())
         .driver(SimDriver::new([SimTurn::text("done")]))
         .capability(McpCapability::new(
-            McpServer::http("github", &server.url).protocol_mode(McpProtocolMode::Stable),
+            McpServer::http("github", &server.url).protocol_mode(McpProtocolMode::Stateful),
         ))
         .build()?;
     agent.session().run("list the tools").await?;
@@ -247,7 +247,7 @@ async fn an_auth_provider_is_asked_for_every_request() -> Result<()> {
         .driver(SimDriver::new([SimTurn::text("done")]))
         .capability(
             McpCapability::new(
-                McpServer::http("github", &server.url).protocol_mode(McpProtocolMode::Stable),
+                McpServer::http("github", &server.url).protocol_mode(McpProtocolMode::Stateful),
             )
             .auth(Rotating(std::sync::atomic::AtomicUsize::new(0))),
         )
@@ -276,7 +276,7 @@ async fn a_static_bearer_covers_the_simple_case() -> Result<()> {
         .driver(SimDriver::new([SimTurn::text("done")]))
         .capability(
             McpCapability::new(
-                McpServer::http("github", &server.url).protocol_mode(McpProtocolMode::Stable),
+                McpServer::http("github", &server.url).protocol_mode(McpProtocolMode::Stateful),
             )
             .auth(StaticBearer::new("ghp_secret")),
         )
@@ -295,7 +295,7 @@ async fn extra_headers_are_sent_and_credentials_are_not_required() -> Result<()>
         .driver(SimDriver::new([SimTurn::text("done")]))
         .capability(McpCapability::new(
             McpServer::http("github", &server.url)
-                .protocol_mode(McpProtocolMode::Stable)
+                .protocol_mode(McpProtocolMode::Stateful)
                 .header("X-Tenant", "acme"),
         ))
         .build()?;
@@ -308,7 +308,7 @@ async fn extra_headers_are_sent_and_credentials_are_not_required() -> Result<()>
 }
 
 #[tokio::test]
-async fn auto_uses_stateless_rc_without_a_handshake_and_caches_the_verdict() -> Result<()> {
+async fn auto_uses_the_stateless_protocol_and_caches_the_verdict() -> Result<()> {
     let server = FakeMcpServer::serving(vec![
         FakeReply::ok(
             "application/json",
@@ -334,7 +334,7 @@ async fn auto_uses_stateless_rc_without_a_handshake_and_caches_the_verdict() -> 
     ])
     .await;
     let client = McpClient::connect_with_auth(
-        &McpServer::http("rc", &server.url),
+        &McpServer::http("stateless", &server.url),
         Some(Arc::new(StaticBearer::new("oauth-token"))),
     )
     .await?;
@@ -357,6 +357,14 @@ async fn auto_uses_stateless_rc_without_a_handshake_and_caches_the_verdict() -> 
         assert!(!request.contains(r#""method":"initialize""#));
         assert!(request.contains("io.modelcontextprotocol/clientInfo"));
         assert!(request.contains(r#""name":"agentyk""#));
+        assert!(
+            request.contains(r#""io.modelcontextprotocol/protocolVersion":"2026-07-28""#),
+            "without a handshake the version rides on every request: {request}"
+        );
+        assert!(
+            request.contains(r#""io.modelcontextprotocol/clientCapabilities":{}"#),
+            "we advertise no roots, sampling, or elicitation: {request}"
+        );
         assert!(lower.contains("authorization: bearer oauth-token"));
     }
     assert!(
@@ -423,25 +431,211 @@ async fn auto_falls_back_to_stateful_and_uses_the_server_version_and_session() -
 }
 
 #[tokio::test]
-async fn pinned_rc_surfaces_rejection_without_falling_back() -> Result<()> {
+async fn pinning_the_latest_protocol_surfaces_rejection_without_falling_back() -> Result<()> {
     let server = FakeMcpServer::serving(vec![FakeReply::error(
         "400 Bad Request",
         r#"{"error":{"message":"Unsupported protocol version"}}"#,
     )])
     .await;
     let client = McpClient::connect(
-        &McpServer::http("rc-only", &server.url).protocol_mode(McpProtocolMode::Rc),
+        &McpServer::http("latest-only", &server.url).protocol_mode(McpProtocolMode::Latest),
     )
     .await?;
 
-    let error = client.list_tools().await.expect_err("RC is pinned");
+    let error = client
+        .list_tools()
+        .await
+        .expect_err("the latest protocol is pinned");
     assert!(error.to_string().contains("400 Bad Request"), "{error}");
     let requests = server.requests().await;
-    assert_eq!(requests.len(), 1, "pinned RC must not initialize");
+    assert_eq!(
+        requests.len(),
+        1,
+        "a pinned stateless mode must not initialize"
+    );
     assert!(
         requests[0]
             .to_lowercase()
             .contains("mcp-protocol-version: 2026-07-28")
     );
+    Ok(())
+}
+
+/// A `2026-07-28` server that will not speak `2026-07-28` names what it does
+/// speak in an `UnsupportedProtocolVersionError`. That code is allocated to
+/// the spec, so only a modern server emits it — the client must retry on the
+/// offered version rather than read the 400 as "wants a handshake".
+#[tokio::test]
+async fn a_version_error_retries_at_an_offered_version_without_a_handshake() -> Result<()> {
+    let server = FakeMcpServer::serving(vec![
+        FakeReply::error(
+            "400 Bad Request",
+            serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "error": {
+                    "code": -32022,
+                    "message": "Unsupported protocol version",
+                    "data": {"supported": ["2026-07-28"], "requested": "2026-07-28"},
+                },
+            })
+            .to_string(),
+        ),
+        FakeReply::ok(
+            "application/json",
+            envelope(1, serde_json::json!({"tools": [{"name": "search"}]})),
+        ),
+    ])
+    .await;
+    let client = McpClient::connect(&McpServer::http("modern", &server.url)).await?;
+
+    assert_eq!(client.list_tools().await?[0].name, "search");
+    let requests = server.requests().await;
+    assert_eq!(requests.len(), 2, "probe then retry, no handshake");
+    assert!(
+        !requests
+            .iter()
+            .any(|request| request.contains(r#""method":"initialize""#)),
+        "a spec-allocated code proves the server is modern"
+    );
+    Ok(())
+}
+
+/// The same code with nothing we can speak has to fail, not fall back into a
+/// handshake the server would also refuse.
+#[tokio::test]
+async fn a_version_error_with_no_common_version_is_reported() -> Result<()> {
+    let server = FakeMcpServer::serving(vec![FakeReply::error(
+        "400 Bad Request",
+        serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "error": {
+                "code": -32022,
+                "message": "Unsupported protocol version",
+                "data": {"supported": ["3000-01-01"]},
+            },
+        })
+        .to_string(),
+    )])
+    .await;
+    let client = McpClient::connect(&McpServer::http("future", &server.url)).await?;
+
+    let error = client.list_tools().await.expect_err("nothing in common");
+    assert!(error.to_string().contains("3000-01-01"), "{error}");
+    assert_eq!(server.requests().await.len(), 1, "no pointless handshake");
+    Ok(())
+}
+
+/// `ttlMs` is required on `tools/list` from `2026-07-28`. A capability
+/// resolves its tools every turn, so honouring it is the difference between
+/// one round trip and one per turn.
+#[tokio::test]
+async fn a_fresh_tool_list_is_served_from_the_cache() -> Result<()> {
+    let server = FakeMcpServer::serving(vec![
+        FakeReply::ok(
+            "application/json",
+            envelope(
+                1,
+                serde_json::json!({
+                    "resultType": "complete",
+                    "tools": [{"name": "search"}],
+                    "ttlMs": 3_600_000u64,
+                    "cacheScope": "public",
+                }),
+            ),
+        ),
+        FakeReply::ok(
+            "application/json",
+            envelope(
+                2,
+                serde_json::json!({"tools": [{"name": "should-not-be-asked"}]}),
+            ),
+        ),
+    ])
+    .await;
+    let client = McpClient::connect(
+        &McpServer::http("cached", &server.url).protocol_mode(McpProtocolMode::Latest),
+    )
+    .await?;
+
+    assert_eq!(client.list_tools().await?[0].name, "search");
+    assert_eq!(
+        client.list_tools().await?[0].name,
+        "search",
+        "the second call is answered from memory"
+    );
+    assert_eq!(server.requests().await.len(), 1, "one round trip, not two");
+    Ok(())
+}
+
+/// Without a hint there is nothing to cache on, and re-listing every turn is
+/// the only correct behaviour.
+#[tokio::test]
+async fn a_tool_list_with_no_freshness_hint_is_not_cached() -> Result<()> {
+    let server = FakeMcpServer::serving(vec![
+        FakeReply::ok(
+            "application/json",
+            envelope(1, serde_json::json!({"tools": [{"name": "search"}]})),
+        ),
+        FakeReply::ok(
+            "application/json",
+            envelope(2, serde_json::json!({"tools": [{"name": "search"}]})),
+        ),
+    ])
+    .await;
+    let client = McpClient::connect(
+        &McpServer::http("uncached", &server.url).protocol_mode(McpProtocolMode::Latest),
+    )
+    .await?;
+
+    client.list_tools().await?;
+    client.list_tools().await?;
+    assert_eq!(server.requests().await.len(), 2);
+    Ok(())
+}
+
+/// A server that wants elicitation answered mid-call returns a result with no
+/// `content` at all. Reading it as an ordinary result would tell the model the
+/// tool succeeded and returned nothing.
+#[tokio::test]
+async fn a_tool_call_needing_input_fails_instead_of_returning_nothing() -> Result<()> {
+    let server = FakeMcpServer::serving(vec![
+        FakeReply::ok(
+            "application/json",
+            envelope(
+                1,
+                serde_json::json!({
+                    "resultType": "complete",
+                    "tools": [{"name": "deploy", "description": "Deploy."}],
+                }),
+            ),
+        ),
+        FakeReply::ok(
+            "application/json",
+            envelope(
+                2,
+                serde_json::json!({
+                    "resultType": "input_required",
+                    "inputRequests": [{
+                        "method": "elicitation/create",
+                        "params": {"message": "Which environment?"},
+                    }],
+                }),
+            ),
+        ),
+    ])
+    .await;
+    let client = McpClient::connect(
+        &McpServer::http("deployer", &server.url).protocol_mode(McpProtocolMode::Latest),
+    )
+    .await?;
+
+    assert_eq!(client.list_tools().await?[0].name, "deploy");
+    let error = client
+        .call_tool("deploy", serde_json::json!({}))
+        .await
+        .expect_err("MRTR is not supported");
+    assert!(error.to_string().contains("multi round-trip"), "{error}");
     Ok(())
 }

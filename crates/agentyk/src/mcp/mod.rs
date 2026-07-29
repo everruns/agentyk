@@ -7,9 +7,9 @@
 //!   Credentials go in its environment.
 //! - **HTTP** (also needs feature `http`) — the Streamable HTTP transport, for
 //!   servers you do not run yourself. [`McpProtocolMode::Auto`] tries the
-//!   stateless `2026-07-28` era first and falls back to a stateful handshake
-//!   when required. Hosted servers use [`McpAuthProvider`] per request, so an
-//!   expiring token can be refreshed without reconnecting.
+//!   stateless `2026-07-28` protocol first and falls back to a stateful
+//!   handshake when required. Hosted servers use [`McpAuthProvider`] per
+//!   request, so an expiring token can be refreshed without reconnecting.
 //!
 //! Attach it like any other capability:
 //!
@@ -33,7 +33,7 @@ use std::collections::HashMap;
 use std::process::Stdio;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicI64, Ordering};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use serde_json::{Value, json};
@@ -46,6 +46,11 @@ use agentyk_core::error::{Error, Result};
 use agentyk_core::tool::{Tool, ToolContext, ToolDefinition, ToolOutput};
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
+/// How long the stdio era probe waits before concluding the server is not
+/// answering `server/discover`. Short on purpose: it is paid once per
+/// connect, and only a server that ignores unknown methods outright — rather
+/// than erroring on them — makes us wait it out.
+const DISCOVER_PROBE_TIMEOUT: Duration = Duration::from_secs(5);
 #[cfg(feature = "mcp-oauth")]
 #[cfg_attr(docsrs, doc(cfg(feature = "mcp-oauth")))]
 pub mod oauth;
@@ -53,6 +58,7 @@ pub mod oauth;
 pub mod protocol;
 
 pub use protocol::McpProtocolMode;
+use protocol::{MCP_PROTOCOL_VERSION_LATEST, Negotiated};
 
 /// How to reach an MCP server.
 #[derive(Debug, Clone)]
@@ -86,7 +92,8 @@ pub struct McpServer {
     pub name: String,
     /// How to reach it.
     pub transport: McpTransport,
-    /// Protocol-era policy for HTTP. Stdio always uses the stable handshake.
+    /// Which protocol era to speak. Both transports honour it; they differ
+    /// only in how [`McpProtocolMode::Auto`] probes for the answer.
     pub protocol_mode: McpProtocolMode,
 }
 
@@ -100,7 +107,7 @@ impl McpServer {
                 args: Vec::new(),
                 env: Vec::new(),
             },
-            protocol_mode: McpProtocolMode::Stable,
+            protocol_mode: McpProtocolMode::Auto,
         }
     }
 
@@ -155,7 +162,8 @@ impl McpServer {
         self
     }
 
-    /// Select the HTTP protocol era. Ignored for stdio.
+    /// Select the protocol era, skipping the probe [`McpProtocolMode::Auto`]
+    /// would otherwise make.
     pub fn protocol_mode(mut self, mode: McpProtocolMode) -> Self {
         self.protocol_mode = mode;
         self
@@ -222,14 +230,43 @@ trait Transport: Send + Sync {
     async fn request(&self, id: i64, method: &str, params: Value) -> Result<Value>;
     /// Send a notification (no id, no response).
     async fn notify(&self, method: &str, params: Value) -> Result<()>;
+    /// Record the era the client settled on. Only a transport that has to
+    /// vary its framing by era needs to act on this; HTTP negotiates for
+    /// itself and ignores it.
+    async fn adopt(&self, _negotiated: &Negotiated) {}
 }
 
-/// Minimal MCP client: initialize handshake, `tools/list`, `tools/call`,
-/// over whichever transport the server is configured for.
+/// A `tools/list` response held for as long as the server said it stays
+/// fresh — the `ttlMs` hint `2026-07-28` requires on cacheable results.
+struct CachedTools {
+    tools: Vec<ToolDefinition>,
+    expires_at: Instant,
+}
+
+/// What a server reports from `server/discover`.
+///
+/// `serverInfo` is self-reported and unverified: display it, log it, but do
+/// not make security decisions with it.
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct McpServerDiscovery {
+    /// Protocol versions the server will accept.
+    pub supported_versions: Vec<String>,
+    /// The server's advertised capabilities, verbatim.
+    pub capabilities: Value,
+    /// The server's self-reported name and version, when it sent them.
+    pub server_info: Option<Value>,
+    /// Natural-language guidance on using this server, when offered.
+    pub instructions: Option<String>,
+}
+
+/// Minimal MCP client: era negotiation, `tools/list`, `tools/call`, over
+/// whichever transport the server is configured for.
 pub struct McpClient {
     server_name: String,
     next_id: AtomicI64,
     transport: Box<dyn Transport>,
+    tools_cache: Mutex<Option<CachedTools>>,
 }
 
 /// The stdio transport: newline-delimited JSON-RPC over a child process.
@@ -237,6 +274,10 @@ struct StdioTransport {
     server_name: String,
     pending: PendingMap,
     stdin: Mutex<ChildStdin>,
+    /// Set once the client settles on a stateless era, after which every
+    /// request carries `_meta`. `None` while probing, and for the lifetime
+    /// of a server that turned out to want an `initialize` handshake.
+    stateless_version: Mutex<Option<String>>,
     _child: Child,
 }
 
@@ -297,6 +338,7 @@ impl StdioTransport {
             server_name: name.to_string(),
             pending,
             stdin: Mutex::new(stdin),
+            stateless_version: Mutex::new(None),
             _child: child,
         })
     }
@@ -323,6 +365,10 @@ impl StdioTransport {
 #[async_trait]
 impl Transport for StdioTransport {
     async fn request(&self, id: i64, method: &str, params: Value) -> Result<Value> {
+        let params = match self.stateless_version.lock().await.as_deref() {
+            Some(version) => protocol::with_request_meta(params, version),
+            None => params,
+        };
         let (sender, receiver) = oneshot::channel();
         self.pending.lock().await.insert(id, sender);
 
@@ -353,6 +399,12 @@ impl Transport for StdioTransport {
         }))
         .await
     }
+
+    async fn adopt(&self, negotiated: &Negotiated) {
+        if !negotiated.stateful {
+            *self.stateless_version.lock().await = Some(negotiated.version.clone());
+        }
+    }
 }
 
 /// The Streamable HTTP transport.
@@ -364,7 +416,7 @@ impl Transport for StdioTransport {
 #[cfg(feature = "http")]
 mod http {
     use super::*;
-    use protocol::{MCP_PROTOCOL_VERSION_STABLE, Negotiated};
+    use protocol::{MCP_PROTOCOL_VERSION_STATEFUL, Negotiated};
 
     struct RawResponse {
         status: reqwest::StatusCode,
@@ -554,7 +606,7 @@ mod http {
                         "jsonrpc": "2.0",
                         "id": id,
                         "method": method,
-                        "params": protocol::with_request_meta(params),
+                        "params": protocol::with_request_meta(params, &negotiated.version),
                     }),
                     negotiated,
                     method,
@@ -567,13 +619,22 @@ mod http {
             self.extract(id, &response.content_type, &response.body)
         }
 
+        /// Settle the server's era on the first operation, then send it.
+        ///
+        /// HTTP has status codes to read, so the spec's backward-compatibility
+        /// probe is the real request rather than a `server/discover` round
+        /// trip: optimistically speak the stateless protocol and inspect what
+        /// comes back. A spec-allocated error code proves a modern server
+        /// however the request failed, and is answered on its own terms;
+        /// anything else that complains about sessions or versions is a
+        /// server still waiting for `initialize`.
         async fn negotiate_and_send(&self, id: i64, method: &str, params: Value) -> Result<Value> {
             let _gate = self.negotiation_gate.lock().await;
             if let Some(negotiated) = self.negotiated.lock().await.clone() {
                 return self.send_operation(id, method, params, &negotiated).await;
             }
 
-            let stateless = Negotiated::stateless(protocol::MCP_PROTOCOL_VERSION_RC);
+            let stateless = Negotiated::stateless(protocol::MCP_PROTOCOL_VERSION_LATEST);
             let tool_name = (method == "tools/call")
                 .then(|| params["name"].as_str().map(str::to_string))
                 .flatten();
@@ -581,22 +642,19 @@ mod http {
                 "jsonrpc": "2.0",
                 "id": id,
                 "method": method,
-                "params": protocol::with_request_meta(params.clone()),
+                "params": protocol::with_request_meta(params.clone(), &stateless.version),
             });
             let probe = self
                 .send_raw(payload, &stateless, method, tool_name.as_deref())
                 .await?;
 
+            if let Some(error) = self.spec_error_in(&probe) {
+                return self.retry_as_modern(id, method, params, error).await;
+            }
             if protocol::looks_like_handshake_required(probe.status.as_u16(), &probe.body) {
-                self.handshake(MCP_PROTOCOL_VERSION_STABLE, 0).await?;
-                let _ = self.notify("notifications/initialized", json!({})).await;
-                let negotiated = self
-                    .negotiated
-                    .lock()
-                    .await
-                    .clone()
-                    .expect("handshake stores negotiation");
-                return self.send_operation(id, method, params, &negotiated).await;
+                return self
+                    .handshake_then_send(id, method, params, MCP_PROTOCOL_VERSION_STATEFUL)
+                    .await;
             }
             if !probe.status.is_success() {
                 return Err(self.status_error(&probe));
@@ -604,6 +662,79 @@ mod http {
             let envelope = self.extract(id, &probe.content_type, &probe.body)?;
             *self.negotiated.lock().await = Some(stateless);
             Ok(envelope)
+        }
+
+        /// A spec-allocated error in a probe's body, whatever its status.
+        ///
+        /// The body may be JSON or a one-message SSE stream, and on a 4xx it
+        /// is often neither; none of that is worth an error here, because a
+        /// body we cannot read simply is not a modern error.
+        fn spec_error_in(&self, probe: &RawResponse) -> Option<protocol::SpecError> {
+            let envelope = if probe.content_type.starts_with("text/event-stream") {
+                probe
+                    .body
+                    .lines()
+                    .filter_map(|line| line.strip_prefix("data:"))
+                    .find_map(|data| serde_json::from_str::<Value>(data.trim()).ok())?
+            } else {
+                serde_json::from_str::<Value>(&probe.body).ok()?
+            };
+            protocol::spec_error(&envelope)
+        }
+
+        /// Answer a modern server that refused our opening request.
+        async fn retry_as_modern(
+            &self,
+            id: i64,
+            method: &str,
+            params: Value,
+            error: protocol::SpecError,
+        ) -> Result<Value> {
+            if error.code != protocol::ERROR_UNSUPPORTED_PROTOCOL_VERSION {
+                return Err(Error::Mcp(format!(
+                    "mcp `{}` rejected `{method}` with code {}: {}",
+                    self.server_name, error.code, error.message
+                )));
+            }
+            let negotiated =
+                protocol::negotiated_from_supported(&error.supported).ok_or_else(|| {
+                    Error::Mcp(format!(
+                        "mcp `{}` supports no protocol version agentyk speaks (it offers {})",
+                        self.server_name,
+                        if error.supported.is_empty() {
+                            "none".to_string()
+                        } else {
+                            error.supported.join(", ")
+                        }
+                    ))
+                })?;
+            if negotiated.stateful {
+                let version = negotiated.version.clone();
+                return self.handshake_then_send(id, method, params, &version).await;
+            }
+            let result = self.send_operation(id, method, params, &negotiated).await?;
+            *self.negotiated.lock().await = Some(negotiated);
+            Ok(result)
+        }
+
+        /// Fall back to the `initialize` handshake, then send the operation
+        /// the probe was carrying.
+        async fn handshake_then_send(
+            &self,
+            id: i64,
+            method: &str,
+            params: Value,
+            version: &str,
+        ) -> Result<Value> {
+            self.handshake(version, 0).await?;
+            let _ = self.notify("notifications/initialized", json!({})).await;
+            let negotiated = self
+                .negotiated
+                .lock()
+                .await
+                .clone()
+                .expect("handshake stores negotiation");
+            self.send_operation(id, method, params, &negotiated).await
         }
     }
 
@@ -613,7 +744,7 @@ mod http {
             if method == "initialize" {
                 let preferred = params["protocolVersion"]
                     .as_str()
-                    .unwrap_or(MCP_PROTOCOL_VERSION_STABLE);
+                    .unwrap_or(MCP_PROTOCOL_VERSION_STATEFUL);
                 return self.handshake(preferred, id).await;
             }
             if self.mode == McpProtocolMode::Auto && self.negotiated.lock().await.is_none() {
@@ -720,9 +851,10 @@ impl std::fmt::Display for ServerLabel<'_> {
 impl McpClient {
     /// Connect to the server.
     ///
-    /// Stdio and pinned stateful HTTP modes initialize immediately. Auto and
-    /// RC HTTP modes defer protocol selection until the first operation. A
-    /// stdio server's child process is killed when the client is dropped.
+    /// Stdio and pinned stateful HTTP modes initialize immediately. The
+    /// `Auto` and `Latest` HTTP modes defer protocol selection until the
+    /// first operation. A stdio server's child process is killed when the
+    /// client is dropped.
     pub async fn connect(server: &McpServer) -> Result<Self> {
         Self::connect_with_auth(server, None).await
     }
@@ -761,31 +893,116 @@ impl McpClient {
             server_name: server.name.clone(),
             next_id: AtomicI64::new(1),
             transport,
+            tools_cache: Mutex::new(None),
         };
+
         let handshake_version = match &server.transport {
-            McpTransport::Stdio { .. } => Some(protocol::MCP_PROTOCOL_VERSION_STABLE),
+            McpTransport::Stdio { .. } => client.negotiate_stdio(server.protocol_mode).await?,
             McpTransport::Http { .. } => server.protocol_mode.handshake_version(),
         };
         if let Some(protocol_version) = handshake_version {
-            client
-                .request(
-                    "initialize",
-                    json!({
-                        "protocolVersion": protocol_version,
-                        "capabilities": {},
-                        "clientInfo": {
-                            "name": "agentyk",
-                            "version": env!("CARGO_PKG_VERSION"),
-                        },
-                    }),
-                )
-                .await?;
-            client
-                .transport
-                .notify("notifications/initialized", json!({}))
-                .await?;
+            client.handshake(protocol_version).await?;
         }
         Ok(client)
+    }
+
+    /// Decide which era a stdio server speaks, returning the version to
+    /// handshake at — or `None` when the server is stateless and there is no
+    /// handshake to do.
+    ///
+    /// stdio has no status codes to drive a fallback, so the spec's probe is
+    /// `server/discover`, which every `2026-07-28` server must implement.
+    /// Answering it (or refusing with a spec-allocated code) marks a modern
+    /// server; an unknown-method error, an unreadable reply, or silence
+    /// marks one that still wants `initialize`. The probe gets a short
+    /// deadline of its own: a legacy server that simply ignores the method
+    /// must not cost a full request timeout on every connect.
+    async fn negotiate_stdio(&self, mode: McpProtocolMode) -> Result<Option<&'static str>> {
+        if mode != McpProtocolMode::Auto {
+            let negotiated = match mode {
+                McpProtocolMode::Latest => Negotiated::stateless(MCP_PROTOCOL_VERSION_LATEST),
+                _ => Negotiated::stateful(
+                    mode.handshake_version()
+                        .unwrap_or(protocol::MCP_PROTOCOL_VERSION_STATEFUL),
+                ),
+            };
+            self.transport.adopt(&negotiated).await;
+            return Ok(mode.handshake_version());
+        }
+
+        let probe = tokio::time::timeout(
+            DISCOVER_PROBE_TIMEOUT,
+            self.transport.request(
+                self.next_id.fetch_add(1, Ordering::Relaxed),
+                protocol::METHOD_DISCOVER,
+                protocol::with_request_meta(json!({}), MCP_PROTOCOL_VERSION_LATEST),
+            ),
+        )
+        .await;
+
+        let negotiated = match &probe {
+            Ok(Ok(envelope)) => match protocol::spec_error(envelope) {
+                // A modern server that will not speak our opening version
+                // still told us which ones it will.
+                Some(error) => protocol::negotiated_from_supported(&error.supported),
+                None if envelope.get("error").is_some() => None,
+                // A `DiscoverResult` names the versions on offer; an older
+                // reply we cannot read that way is not a modern server.
+                None => protocol::negotiated_from_supported(
+                    &discovery_from(&envelope["result"]).supported_versions,
+                ),
+            },
+            _ => None,
+        };
+        let Some(negotiated) = negotiated else {
+            tracing::debug!(
+                target: "agentyk::mcp",
+                server = %self.server_name,
+                "stdio server did not answer server/discover; falling back to initialize"
+            );
+            let fallback = Negotiated::stateful(protocol::MCP_PROTOCOL_VERSION_STATEFUL);
+            self.transport.adopt(&fallback).await;
+            return Ok(Some(protocol::MCP_PROTOCOL_VERSION_STATEFUL));
+        };
+
+        self.transport.adopt(&negotiated).await;
+        if !negotiated.stateful {
+            return Ok(None);
+        }
+        // A modern-looking server that only offers stateful versions still
+        // needs the handshake, at a version we know we share with it.
+        Ok(protocol::KNOWN_STATEFUL_VERSIONS
+            .into_iter()
+            .find(|version| *version == negotiated.version))
+    }
+
+    /// Run the `initialize` handshake and confirm it.
+    async fn handshake(&self, protocol_version: &str) -> Result<()> {
+        self.request(
+            "initialize",
+            json!({
+                "protocolVersion": protocol_version,
+                "capabilities": {},
+                "clientInfo": {
+                    "name": "agentyk",
+                    "version": env!("CARGO_PKG_VERSION"),
+                },
+            }),
+        )
+        .await?;
+        self.transport
+            .notify("notifications/initialized", json!({}))
+            .await
+    }
+
+    /// Ask the server to describe itself: supported protocol versions,
+    /// capabilities, identity, and any usage guidance.
+    ///
+    /// Every `2026-07-28` server implements this; one from an earlier
+    /// revision will refuse it as an unknown method.
+    pub async fn discover(&self) -> Result<McpServerDiscovery> {
+        let result = self.request(protocol::METHOD_DISCOVER, json!({})).await?;
+        Ok(discovery_from(&result))
     }
 
     /// Send one request and unwrap its result, turning a JSON-RPC `error`
@@ -799,13 +1016,38 @@ impl McpClient {
                 self.server_name
             )));
         }
-        Ok(response.get("result").cloned().unwrap_or(Value::Null))
+        let result = response.get("result").cloned().unwrap_or(Value::Null);
+        check_result_type(&self.server_name, method, &result)?;
+        Ok(result)
     }
 
     /// Ask the server what tools it offers.
+    ///
+    /// `2026-07-28` requires a `ttlMs` freshness hint on this result, so a
+    /// repeat call within that window is answered from memory rather than
+    /// over the wire. That matters more than it sounds: a capability
+    /// resolves its tools on every turn, and a stable list keeps the
+    /// model's prompt cache intact as well as saving the round trip. A
+    /// server that sends no hint is never cached.
     pub async fn list_tools(&self) -> Result<Vec<ToolDefinition>> {
+        if let Some(cached) = self.cached_tools().await {
+            return Ok(cached);
+        }
         let result = self.request("tools/list", json!({})).await?;
-        Ok(parse_tool_list(&result))
+        let tools = parse_tool_list(&result);
+        if let Some(ttl) = protocol::cache_ttl(&result) {
+            *self.tools_cache.lock().await = Some(CachedTools {
+                tools: tools.clone(),
+                expires_at: Instant::now() + ttl,
+            });
+        }
+        Ok(tools)
+    }
+
+    async fn cached_tools(&self) -> Option<Vec<ToolDefinition>> {
+        let cache = self.tools_cache.lock().await;
+        let cached = cache.as_ref()?;
+        (cached.expires_at > Instant::now()).then(|| cached.tools.clone())
     }
 
     /// Invoke one of the server's tools. Only text content blocks are read
@@ -815,6 +1057,52 @@ impl McpClient {
             .request("tools/call", json!({"name": name, "arguments": arguments}))
             .await?;
         Ok(parse_tool_result(&result))
+    }
+}
+
+/// Reject any result we would otherwise misread.
+///
+/// From `2026-07-28` every result carries a `resultType`. `"complete"` is the
+/// ordinary one; `"input_required"` means the server wants roots, sampling,
+/// or elicitation answered before it can finish — the Multi Round-Trip
+/// Request pattern, which we do not implement. Such a result has no
+/// `content`, so accepting it would hand the model an empty tool output as
+/// though the call had succeeded. An absent field means a server from an
+/// earlier revision, which the spec says to read as `"complete"`.
+pub(crate) fn check_result_type(server_name: &str, method: &str, result: &Value) -> Result<()> {
+    let Some(result_type) = result.get("resultType").and_then(Value::as_str) else {
+        return Ok(());
+    };
+    match result_type {
+        "complete" => Ok(()),
+        "input_required" => Err(Error::Mcp(format!(
+            "mcp `{server_name}` `{method}` needs input mid-call (multi round-trip \
+             requests), which agentyk does not support"
+        ))),
+        other => Err(Error::Mcp(format!(
+            "mcp `{server_name}` `{method}` returned unknown resultType `{other}`"
+        ))),
+    }
+}
+
+pub(crate) fn discovery_from(result: &Value) -> McpServerDiscovery {
+    McpServerDiscovery {
+        supported_versions: result["supportedVersions"]
+            .as_array()
+            .map(|versions| {
+                versions
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_string)
+                    .collect()
+            })
+            .unwrap_or_default(),
+        capabilities: result
+            .get("capabilities")
+            .cloned()
+            .unwrap_or_else(|| json!({})),
+        server_info: result["_meta"].get(protocol::SERVER_INFO_META_KEY).cloned(),
+        instructions: result["instructions"].as_str().map(str::to_string),
     }
 }
 
@@ -970,6 +1258,38 @@ mod tests {
         assert_eq!(tools.len(), 2);
         assert_eq!(tools[0].name, "search");
         assert_eq!(tools[1].parameters, json!({"type": "object"}));
+    }
+
+    #[test]
+    fn a_complete_or_absent_result_type_passes() {
+        assert!(
+            check_result_type("demo", "tools/call", &json!({"content": []})).is_ok(),
+            "a pre-2026-07-28 server omits the field; the spec reads that as complete"
+        );
+        assert!(
+            check_result_type("demo", "tools/call", &json!({"resultType": "complete"})).is_ok()
+        );
+    }
+
+    #[test]
+    fn an_input_required_result_is_an_error_not_an_empty_output() {
+        let error = check_result_type(
+            "demo",
+            "tools/call",
+            &json!({
+                "resultType": "input_required",
+                "inputRequests": [{"method": "elicitation/create"}],
+            }),
+        )
+        .expect_err("MRTR is unsupported");
+        assert!(error.to_string().contains("multi round-trip"), "{error}");
+    }
+
+    #[test]
+    fn an_unknown_result_type_fails_loudly() {
+        let error = check_result_type("demo", "tools/list", &json!({"resultType": "partial"}))
+            .expect_err("unknown result types are not silently read as complete");
+        assert!(error.to_string().contains("partial"), "{error}");
     }
 
     #[test]

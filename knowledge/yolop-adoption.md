@@ -184,17 +184,22 @@ Real, worked around, but each one costs an adopter something.
    `McpAuthProvider` supplies the `Authorization` header **per request**, not
    per connection, so an expiring token only has to return a fresh value.
    The optional `mcp-oauth` feature adopts yolop's protocol layer: RFC 9728 /
-   RFC 8414 discovery, dynamic client registration, PKCE loopback login, code
-   exchange, and serialized token refresh. The reusable library stops at the
-   authorization URL and serializable tokens; opening a browser and choosing
-   a credential store belong to the host.
-   HTTP protocol handling now has the same multi-era policy as
-   `everruns-mcp`: `Auto` probes the stateless `2026-07-28` release candidate
-   and falls back to the server-negotiated stateful era only on an explicit
-   handshake-required signal. Pinned `Rc`/`Stable`/`Legacy` modes skip the
-   probe. Because one `McpClient` owns one logical connection, its negotiation
-   verdict lives with that client rather than in everruns' shared,
-   credential-keyed transport cache.
+   RFC 8414 discovery, client identification (pre-registration, then a Client
+   ID Metadata Document, then the deprecated dynamic registration), PKCE
+   loopback login with RFC 9207 `iss` validation, code exchange, and
+   serialized token refresh. The reusable library stops at the authorization
+   URL and serializable tokens; opening a browser, hosting a metadata
+   document, and choosing an issuer-keyed credential store belong to the host.
+   Protocol handling now has the same multi-era policy as `everruns-mcp`, on
+   both transports: `Auto` reaches for the stateless `2026-07-28` protocol and
+   falls back to the server-negotiated stateful era only on an explicit
+   signal — a `-32022` naming versions we can speak, or, failing that, a body
+   that complains about sessions. HTTP learns this from the first real
+   request; stdio, which has no status codes, probes with `server/discover`.
+   Pinned `Latest`/`Stateful`/`Legacy` modes skip the probe. Because one
+   `McpClient` owns one logical connection, its negotiation verdict — and its
+   `ttlMs`-bounded `tools/list` cache — live with that client rather than in
+   everruns' shared, credential-keyed transport cache.
    Needs the `http` feature alongside `mcp`; without it, connecting says so.
    Capabilities contributing servers (gap 13) is still open.
 9. ✅ **Reasoning effort is unvalidated — fixed.**

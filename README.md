@@ -49,14 +49,18 @@ println!("{}", turn.response);
   events while it works. Results can carry structured `metadata` for the host
   and image `parts` for the model, alongside the text both read.
 - **MCP** — `McpCapability` connects to Model Context Protocol servers over
-  stdio or HTTP and exposes their tools to the model. HTTP defaults to
-  `McpProtocolMode::Auto`: it tries the stateless `2026-07-28` release
-  candidate first, then negotiates the server-reported legacy/stable version
-  and session when a server requires the initialize handshake.
-  `McpAuthProvider` supplies credentials per request. Feature `mcp-oauth` adds
-  OAuth 2.1 discovery, dynamic client registration, PKCE browser login, and
-  automatic token refresh; the application opens the returned URL and
-  persists tokens.
+  stdio or HTTP and exposes their tools to the model. Both transports default
+  to `McpProtocolMode::Auto` and speak the stateless `2026-07-28` protocol
+  where they can — carrying the protocol version, client capabilities, and
+  identity in each request's `_meta` — falling back to the initialize
+  handshake for a server from an earlier revision. HTTP finds out from the
+  first request; stdio, which has no status codes to read, probes with
+  `server/discover`. `tools/list` is cached for the `ttlMs` the server
+  reports. `McpAuthProvider` supplies credentials per request. Feature
+  `mcp-oauth` adds OAuth 2.1 discovery, client identification (pre-registered,
+  Client ID Metadata Document, or dynamic registration), PKCE browser login
+  with RFC 9207 issuer validation, and automatic token refresh; the
+  application opens the returned URL and persists tokens.
 - **Steering** — `Session::input()` hands out a queue a UI can push to while a
   turn is running; messages join the conversation at its next reasoning step.
 - **User hooks** — the six Everruns lifecycle points (`session_start`,
