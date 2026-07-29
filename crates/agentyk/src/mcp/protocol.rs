@@ -4,7 +4,8 @@
 //! later requests to an `Mcp-Session-Id`. `2026-07-28` is stateless:
 //! protocol and client metadata travel with every operation instead.
 
-#[cfg(feature = "http")]
+use std::time::Duration;
+
 use serde_json::{Map, Value, json};
 
 /// Oldest MCP protocol version still offered during a handshake.
@@ -16,6 +17,27 @@ pub const MCP_PROTOCOL_VERSION_STATEFUL: &str = "2025-11-25";
 /// Newest MCP protocol version, and the first stateless one.
 pub const MCP_PROTOCOL_VERSION_LATEST: &str = "2026-07-28";
 
+/// Every stateful version we can speak, newest first. Wider than the set
+/// [`McpProtocolMode`] can pin, because a server naming one of these in a
+/// `supported` list is telling us it will accept it.
+pub(super) const KNOWN_STATEFUL_VERSIONS: [&str; 3] = [
+    MCP_PROTOCOL_VERSION_STATEFUL,
+    "2025-06-18",
+    MCP_PROTOCOL_VERSION_LEGACY,
+];
+
+/// `HeaderMismatchError` — routing headers disagree with the JSON body.
+pub const ERROR_HEADER_MISMATCH: i64 = -32020;
+/// `MissingRequiredClientCapabilityError` — the server needs a capability we
+/// did not advertise.
+pub const ERROR_MISSING_REQUIRED_CLIENT_CAPABILITY: i64 = -32021;
+/// `UnsupportedProtocolVersionError` — carries the versions the server does
+/// support in `data.supported`.
+pub const ERROR_UNSUPPORTED_PROTOCOL_VERSION: i64 = -32022;
+
+/// The `server/discover` RPC every `2026-07-28` server must implement.
+pub(super) const METHOD_DISCOVER: &str = "server/discover";
+
 #[cfg(feature = "http")]
 pub(super) const HEADER_METHOD: &str = "Mcp-Method";
 #[cfg(feature = "http")]
@@ -25,12 +47,10 @@ pub(super) const HEADER_PROTOCOL_VERSION: &str = "MCP-Protocol-Version";
 #[cfg(feature = "http")]
 pub(super) const HEADER_SESSION_ID: &str = "Mcp-Session-Id";
 
-#[cfg(feature = "http")]
 const CLIENT_INFO_META_KEY: &str = "io.modelcontextprotocol/clientInfo";
-#[cfg(feature = "http")]
 const PROTOCOL_VERSION_META_KEY: &str = "io.modelcontextprotocol/protocolVersion";
-#[cfg(feature = "http")]
 const CLIENT_CAPABILITIES_META_KEY: &str = "io.modelcontextprotocol/clientCapabilities";
+pub(super) const SERVER_INFO_META_KEY: &str = "io.modelcontextprotocol/serverInfo";
 
 /// Policy for selecting the MCP protocol era used by an HTTP server.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -68,7 +88,6 @@ impl McpProtocolMode {
     }
 }
 
-#[cfg(feature = "http")]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct Negotiated {
     pub version: String,
@@ -76,7 +95,6 @@ pub(super) struct Negotiated {
     pub session_id: Option<String>,
 }
 
-#[cfg(feature = "http")]
 impl Negotiated {
     pub fn stateless(version: impl Into<String>) -> Self {
         Self {
@@ -102,7 +120,6 @@ impl Negotiated {
 /// implement neither roots, sampling, nor elicitation, so the capabilities
 /// are empty — that is what lets a server tell up front that it cannot ask
 /// us for input mid-call.
-#[cfg(feature = "http")]
 pub(super) fn request_meta(version: &str) -> Value {
     let mut meta = Map::new();
     meta.insert(
@@ -120,7 +137,6 @@ pub(super) fn request_meta(version: &str) -> Value {
     Value::Object(meta)
 }
 
-#[cfg(feature = "http")]
 pub(super) fn with_request_meta(mut params: Value, version: &str) -> Value {
     let Value::Object(ref mut object) = params else {
         return params;
@@ -161,6 +177,72 @@ pub(super) fn routable_headers(
     headers
 }
 
+/// A JSON-RPC error the spec allocates to MCP itself.
+///
+/// Seeing one identifies a *modern* server however the request failed: only
+/// a `2026-07-28` implementation emits these codes, so the right response is
+/// to retry on its terms rather than fall back to a handshake.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct SpecError {
+    pub code: i64,
+    pub message: String,
+    /// Versions offered by an [`ERROR_UNSUPPORTED_PROTOCOL_VERSION`].
+    pub supported: Vec<String>,
+}
+
+/// Read a spec-allocated error out of a JSON-RPC envelope, if there is one.
+pub(super) fn spec_error(envelope: &Value) -> Option<SpecError> {
+    let error = envelope.get("error")?;
+    let code = error.get("code").and_then(Value::as_i64)?;
+    if !matches!(
+        code,
+        ERROR_HEADER_MISMATCH
+            | ERROR_MISSING_REQUIRED_CLIENT_CAPABILITY
+            | ERROR_UNSUPPORTED_PROTOCOL_VERSION
+    ) {
+        return None;
+    }
+    Some(SpecError {
+        code,
+        message: error
+            .get("message")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+        supported: error["data"]["supported"]
+            .as_array()
+            .map(|versions| {
+                versions
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_string)
+                    .collect()
+            })
+            .unwrap_or_default(),
+    })
+}
+
+/// Pick the best era we share with a server that listed what it supports.
+///
+/// Stateless wins when offered — it is the only version with no handshake to
+/// pay for. Otherwise take the newest stateful version in common.
+pub(super) fn negotiated_from_supported(supported: &[String]) -> Option<Negotiated> {
+    let offers = |version: &str| supported.iter().any(|candidate| candidate == version);
+    if offers(MCP_PROTOCOL_VERSION_LATEST) {
+        return Some(Negotiated::stateless(MCP_PROTOCOL_VERSION_LATEST));
+    }
+    KNOWN_STATEFUL_VERSIONS
+        .into_iter()
+        .find(|version| offers(version))
+        .map(Negotiated::stateful)
+}
+
+/// The freshness hint on a cacheable result, if the server gave a usable one.
+pub(super) fn cache_ttl(result: &Value) -> Option<Duration> {
+    let ttl_ms = result.get("ttlMs")?.as_u64()?;
+    (ttl_ms > 0).then(|| Duration::from_millis(ttl_ms))
+}
+
 #[cfg(feature = "http")]
 pub(super) fn looks_like_handshake_required(status: u16, body: &str) -> bool {
     let lower = body.to_ascii_lowercase();
@@ -185,6 +267,70 @@ pub(super) fn looks_like_handshake_required(status: u16, body: &str) -> bool {
         || lower.contains("session required")
         || lower.contains("missing session")
         || lower.contains("not initialized")
+}
+
+#[cfg(test)]
+mod era_tests {
+    use super::*;
+
+    #[test]
+    fn a_spec_allocated_code_identifies_a_modern_server() {
+        let envelope = json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "error": {
+                "code": ERROR_UNSUPPORTED_PROTOCOL_VERSION,
+                "message": "Unsupported protocol version",
+                "data": {"supported": ["2026-07-28", "2025-11-25"], "requested": "1900-01-01"},
+            },
+        });
+        let error = spec_error(&envelope).expect("a spec error");
+        assert_eq!(error.code, ERROR_UNSUPPORTED_PROTOCOL_VERSION);
+        assert_eq!(error.supported, ["2026-07-28", "2025-11-25"]);
+    }
+
+    #[test]
+    fn an_implementation_defined_code_is_not_a_spec_error() {
+        // -32000..=-32019 stays with the implementation, and -32601 is plain
+        // JSON-RPC. Neither says anything about the server's era.
+        for code in [-32000, -32019, -32601, -32603] {
+            let envelope = json!({"error": {"code": code, "message": "nope"}});
+            assert!(spec_error(&envelope).is_none(), "code {code}");
+        }
+        assert!(spec_error(&json!({"result": {}})).is_none());
+    }
+
+    #[test]
+    fn stateless_wins_when_a_server_offers_it() {
+        let negotiated =
+            negotiated_from_supported(&["2025-11-25".into(), "2026-07-28".into()]).unwrap();
+        assert_eq!(negotiated.version, MCP_PROTOCOL_VERSION_LATEST);
+        assert!(!negotiated.stateful);
+    }
+
+    #[test]
+    fn the_newest_shared_stateful_version_is_taken_otherwise() {
+        let negotiated =
+            negotiated_from_supported(&["2025-03-26".into(), "2025-06-18".into()]).unwrap();
+        assert_eq!(
+            negotiated.version, "2025-06-18",
+            "a version with no mode of its own is still one we can speak"
+        );
+        assert!(negotiated.stateful);
+        assert_eq!(negotiated_from_supported(&["1900-01-01".into()]), None);
+        assert_eq!(negotiated_from_supported(&[]), None);
+    }
+
+    #[test]
+    fn a_cache_hint_is_read_only_when_it_is_usable() {
+        assert_eq!(
+            cache_ttl(&json!({"ttlMs": 3_600_000u64})),
+            Some(Duration::from_secs(3600))
+        );
+        assert_eq!(cache_ttl(&json!({"ttlMs": 0})), None, "expires immediately");
+        assert_eq!(cache_ttl(&json!({"ttlMs": -5})), None, "not a duration");
+        assert_eq!(cache_ttl(&json!({})), None, "an older server sends none");
+    }
 }
 
 #[cfg(all(test, feature = "http"))]

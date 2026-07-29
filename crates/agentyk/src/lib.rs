@@ -137,14 +137,14 @@ pub use jsonl_log::JsonlEventLog;
 #[cfg(feature = "mcp-oauth")]
 #[cfg_attr(docsrs, doc(cfg(feature = "mcp-oauth")))]
 pub use mcp::oauth::{
-    McpOAuthTokenProvider, McpOAuthTokenSet, PreparedMcpOAuthLogin, prepare_mcp_oauth_login,
-    refresh_mcp_oauth_tokens,
+    McpOAuthLoginOptions, McpOAuthTokenProvider, McpOAuthTokenSet, PreparedMcpOAuthLogin,
+    prepare_mcp_oauth_login, refresh_mcp_oauth_tokens,
 };
 #[cfg(feature = "mcp")]
 #[cfg_attr(docsrs, doc(cfg(feature = "mcp")))]
 pub use mcp::{
-    McpAuthProvider, McpCapability, McpClient, McpProtocolMode, McpServer, McpTransport,
-    StaticBearer,
+    McpAuthProvider, McpCapability, McpClient, McpProtocolMode, McpServer, McpServerDiscovery,
+    McpTransport, StaticBearer,
 };
 
 #[cfg(feature = "http")]

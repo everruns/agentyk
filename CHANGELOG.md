@@ -22,6 +22,21 @@ release — every release bumps the patch component (`0.1.z`). See
   own, and `Legacy` still pins `2025-03-26` for servers that reject an
   unrecognised version outright.
 
+- **stdio MCP servers negotiate their era instead of assuming a handshake.**
+  `McpServer::stdio` defaulted to a stateful handshake, so a `2026-07-28`
+  server on stdio could never be reached. It now defaults to
+  `McpProtocolMode::Auto` like HTTP. stdio has no status codes to drive a
+  fallback, so the probe is the spec's: `server/discover`, which every
+  `2026-07-28` server must implement. Answering it means the connection goes
+  stateless with no handshake at all; refusing it, or not answering within
+  five seconds, means `initialize` as before. Pin a mode to skip the probe.
+
+- **MCP OAuth login takes an options value.** `prepare_mcp_oauth_login`'s
+  `client_id` and `scope` parameters became `McpOAuthLoginOptions`, which also
+  carries the issuer a pre-registered client id belongs to and an optional
+  Client ID Metadata Document URL. One value rather than a growing parameter
+  list, and it is what makes the issuer-binding check below possible.
+
 ### Fixed
 
 - **A tool call the MCP server cannot finish alone no longer looks like an
@@ -32,6 +47,28 @@ release — every release bumps the patch component (`0.1.z`). See
   of `""` with `isError: false`. It is now an error naming the unsupported
   pattern. An absent `resultType`, which is what every earlier revision
   sends, still reads as complete, per the spec.
+
+- **A modern MCP server that refuses our protocol version is no longer
+  mistaken for a legacy one.** The HTTP fallback decided what a server was by
+  looking for words like "session" in the response body. `2026-07-28`
+  allocates itself the error range `-32020`..`-32099`, so an
+  `UnsupportedProtocolVersionError` (`-32022`) now identifies a modern server
+  outright, whatever its status code, and the client retries at a version
+  from the error's `supported` list rather than falling into an `initialize`
+  the server would also refuse. A version list with nothing in common is
+  reported as such. `HeaderMismatchError` and
+  `MissingRequiredClientCapabilityError` are surfaced with their codes
+  instead of being read as handshake requests. The body heuristic remains for
+  genuinely legacy servers, which have no error code to offer.
+
+- **MCP OAuth validates who answered the browser login.** Per RFC 9207, an
+  `iss` in the authorization callback is now checked against the issuer we
+  sent the user to, and a callback that omits `iss` is rejected when the
+  server's metadata promised to send one. Without this, a code minted by an
+  attacker-controlled authorization server could be redeemed at the honest
+  one. Dynamic client registration also now declares
+  `application_type: "native"`; omitted, it defaults to `"web"` under OIDC,
+  which conflicts with the loopback redirect the login actually uses.
 
 - **Cached prompt tokens are no longer dropped on the streaming path.** The
   Anthropic driver places `cache_control` breakpoints, but the streaming
@@ -74,6 +111,35 @@ release — every release bumps the patch component (`0.1.z`). See
   cache, tool calls, latency — plus an offline eval on the scripted `SimDriver`
   that CI runs with no credentials. See
   [`knowledge/evals.md`](knowledge/evals.md).
+
+- **`McpClient::discover`** asks a server to describe itself in one request —
+  supported protocol versions, capabilities, identity, and any usage
+  instructions — returning an `McpServerDiscovery`. `serverInfo` is
+  self-reported and unverified, so it is for display and logging, not
+  security decisions.
+
+- **`tools/list` is cached for as long as the server says it stays fresh.**
+  `2026-07-28` requires a `ttlMs` hint on cacheable results. A capability
+  resolves its tools on every turn that uses them, so honouring the hint
+  turns a per-turn round trip into one per TTL, and keeps the tool list — and
+  with it the model's prompt cache — stable in between. A server that sends
+  no hint is never cached.
+
+- **MCP OAuth can identify with a Client ID Metadata Document.** Dynamic
+  client registration is deprecated in favour of CIMD, where the client id is
+  an HTTPS URL the application hosts. Give
+  `McpOAuthLoginOptions::client_id_metadata_url` that URL and it is used
+  whenever the authorization server advertises
+  `client_id_metadata_document_supported`, falling back to dynamic
+  registration when it does not. Hosting the document stays with the
+  application, which is the only place that can serve it.
+
+- **MCP OAuth credentials record their issuer.** `McpOAuthTokenSet` gained an
+  `issuer` field and an `issued_by` check, and `McpOAuthLoginOptions`
+  refuses to send a pre-registered client id to an authorization server other
+  than the one that issued it. A host persisting a token set must key it by
+  `issuer`: when a server's protected-resource metadata points somewhere new,
+  the old client id is not valid there and re-registration is required.
 
 - **Multi-actor sessions.** `Session::run_with_agent` overlays an addressed
   by-value agent's behavior on the host harness and one replayable history;

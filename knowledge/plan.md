@@ -149,19 +149,27 @@ server):
   (Chat Completions; any OpenAI-compatible endpoint via `base_url`) and
   `AnthropicDriver` (Messages API) behind the `http` feature. Both stream
   real incremental SSE deltas.
-- MCP — stdio and Streamable HTTP JSON-RPC clients (initialize handshake,
-  `tools/list`, `tools/call`), lazy connection, tools exposed as ordinary
-  `Tool`s. HTTP defaults to multi-era `Auto`: optimistically send a stateless
-  `2026-07-28` request with per-request client metadata and routable headers,
-  then fall back once to the stateful `2025-11-25` handshake when the server
-  explicitly requires it. The returned protocol version and session id become
-  the connection's cached verdict; `Latest`/`Stateful`/`Legacy` pin an era.
-  A result whose `resultType` is `input_required` — the multi round-trip
-  request pattern — is refused rather than read as an empty success.
-  Optional OAuth 2.1 support discovers protected-resource and
-  authorization-server metadata, dynamically registers a public client,
-  prepares a PKCE loopback login, and refreshes tokens. Browser opening and
-  token persistence remain host concerns.
+- MCP — stdio and Streamable HTTP JSON-RPC clients (`server/discover`,
+  `tools/list`, `tools/call`, and the `initialize` handshake for servers that
+  still want it), lazy connection, tools exposed as ordinary `Tool`s. Both
+  transports default to multi-era `Auto`. HTTP optimistically sends a
+  stateless `2026-07-28` request with per-request client metadata and
+  routable headers; stdio, having no status codes to read, probes with
+  `server/discover` under a short deadline. A spec-allocated error code
+  (`-32020`..`-32022`) identifies a modern server whatever the status, and
+  `UnsupportedProtocolVersionError` is answered by retrying at a version from
+  its `supported` list; anything else that complains about sessions or
+  versions falls back once to a stateful handshake. The resulting era, its
+  protocol version, and any session id become the connection's cached
+  verdict; `Latest`/`Stateful`/`Legacy` pin one instead. `tools/list` is held
+  for the `ttlMs` the server reports. A result whose `resultType` is
+  `input_required` — the multi round-trip request pattern — is refused rather
+  than read as an empty success. Optional OAuth 2.1 support discovers
+  protected-resource and authorization-server metadata, identifies the client
+  by pre-registration, Client ID Metadata Document, or dynamic registration
+  (in that order), prepares a PKCE loopback login validating RFC 9207 `iss`,
+  and refreshes tokens. Browser opening, metadata-document hosting, and
+  issuer-keyed token persistence remain host concerns.
 - Execution abstraction — `TurnEngine` prepares one provider-neutral model
   operation or tool batch and applies its result. `InProcessExecutor` is a thin
   immediate host. `durable_host_replays_state_between_every_engine_step`

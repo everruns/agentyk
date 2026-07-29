@@ -461,6 +461,140 @@ async fn pinning_the_latest_protocol_surfaces_rejection_without_falling_back() -
     Ok(())
 }
 
+/// A `2026-07-28` server that will not speak `2026-07-28` names what it does
+/// speak in an `UnsupportedProtocolVersionError`. That code is allocated to
+/// the spec, so only a modern server emits it — the client must retry on the
+/// offered version rather than read the 400 as "wants a handshake".
+#[tokio::test]
+async fn a_version_error_retries_at_an_offered_version_without_a_handshake() -> Result<()> {
+    let server = FakeMcpServer::serving(vec![
+        FakeReply::error(
+            "400 Bad Request",
+            serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "error": {
+                    "code": -32022,
+                    "message": "Unsupported protocol version",
+                    "data": {"supported": ["2026-07-28"], "requested": "2026-07-28"},
+                },
+            })
+            .to_string(),
+        ),
+        FakeReply::ok(
+            "application/json",
+            envelope(1, serde_json::json!({"tools": [{"name": "search"}]})),
+        ),
+    ])
+    .await;
+    let client = McpClient::connect(&McpServer::http("modern", &server.url)).await?;
+
+    assert_eq!(client.list_tools().await?[0].name, "search");
+    let requests = server.requests().await;
+    assert_eq!(requests.len(), 2, "probe then retry, no handshake");
+    assert!(
+        !requests
+            .iter()
+            .any(|request| request.contains(r#""method":"initialize""#)),
+        "a spec-allocated code proves the server is modern"
+    );
+    Ok(())
+}
+
+/// The same code with nothing we can speak has to fail, not fall back into a
+/// handshake the server would also refuse.
+#[tokio::test]
+async fn a_version_error_with_no_common_version_is_reported() -> Result<()> {
+    let server = FakeMcpServer::serving(vec![FakeReply::error(
+        "400 Bad Request",
+        serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "error": {
+                "code": -32022,
+                "message": "Unsupported protocol version",
+                "data": {"supported": ["3000-01-01"]},
+            },
+        })
+        .to_string(),
+    )])
+    .await;
+    let client = McpClient::connect(&McpServer::http("future", &server.url)).await?;
+
+    let error = client.list_tools().await.expect_err("nothing in common");
+    assert!(error.to_string().contains("3000-01-01"), "{error}");
+    assert_eq!(server.requests().await.len(), 1, "no pointless handshake");
+    Ok(())
+}
+
+/// `ttlMs` is required on `tools/list` from `2026-07-28`. A capability
+/// resolves its tools every turn, so honouring it is the difference between
+/// one round trip and one per turn.
+#[tokio::test]
+async fn a_fresh_tool_list_is_served_from_the_cache() -> Result<()> {
+    let server = FakeMcpServer::serving(vec![
+        FakeReply::ok(
+            "application/json",
+            envelope(
+                1,
+                serde_json::json!({
+                    "resultType": "complete",
+                    "tools": [{"name": "search"}],
+                    "ttlMs": 3_600_000u64,
+                    "cacheScope": "public",
+                }),
+            ),
+        ),
+        FakeReply::ok(
+            "application/json",
+            envelope(
+                2,
+                serde_json::json!({"tools": [{"name": "should-not-be-asked"}]}),
+            ),
+        ),
+    ])
+    .await;
+    let client = McpClient::connect(
+        &McpServer::http("cached", &server.url).protocol_mode(McpProtocolMode::Latest),
+    )
+    .await?;
+
+    assert_eq!(client.list_tools().await?[0].name, "search");
+    assert_eq!(
+        client.list_tools().await?[0].name,
+        "search",
+        "the second call is answered from memory"
+    );
+    assert_eq!(server.requests().await.len(), 1, "one round trip, not two");
+    Ok(())
+}
+
+/// Without a hint there is nothing to cache on, and re-listing every turn is
+/// the only correct behaviour.
+#[tokio::test]
+async fn a_tool_list_with_no_freshness_hint_is_not_cached() -> Result<()> {
+    let server = FakeMcpServer::serving(vec![
+        FakeReply::ok(
+            "application/json",
+            envelope(1, serde_json::json!({"tools": [{"name": "search"}]})),
+        ),
+        FakeReply::ok(
+            "application/json",
+            envelope(2, serde_json::json!({"tools": [{"name": "search"}]})),
+        ),
+    ])
+    .await;
+    let client = McpClient::connect(
+        &McpServer::http("uncached", &server.url).protocol_mode(McpProtocolMode::Latest),
+    )
+    .await?;
+
+    client.list_tools().await?;
+    client.list_tools().await?;
+    assert_eq!(server.requests().await.len(), 2);
+    Ok(())
+}
+
 /// A server that wants elicitation answered mid-call returns a result with no
 /// `content` at all. Reading it as an ordinary result would tell the model the
 /// tool succeeded and returned nothing.
