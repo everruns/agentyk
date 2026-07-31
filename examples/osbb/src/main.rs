@@ -1,4 +1,5 @@
-//! OSBB — run one shared terminal conversation.
+//! OSBB — run one shared terminal conversation between a building's co-owners
+//! and the association that answers them.
 //!
 //! ```sh
 //! OPENAI_API_KEY=... cargo run -p osbb
@@ -29,13 +30,19 @@ async fn run(args: Args) -> Result<(), String> {
         Some(path) => Arc::new(JsonlEventLog::new(path).map_err(|error| error.to_string())?),
         None => Arc::new(InMemoryEventLog::new()),
     };
-    let agent = build_agent(config.model, &config.agent_name, &config.people)
-        .map_err(|error| error.to_string())?;
+    let agent = build_agent(
+        config.model,
+        &config.agent_name,
+        &config.building,
+        &config.people,
+    )
+    .map_err(|error| error.to_string())?;
     let mut session = agent.session_with_log(log);
     let mut room = Room::new(config.people, &config.actor)?;
 
     println!(
-        "\x1b[1mOSBB\x1b[0m · openai/{} · people: {} · agent: {}",
+        "\x1b[1mOSBB {}\x1b[0m · openai/{} · co-owners: {} · answering: {}",
+        config.building,
         agent.model().model,
         room.roster(),
         config.agent_name
@@ -67,6 +74,6 @@ async fn run(args: Args) -> Result<(), String> {
     }
 
     session.close().await.map_err(|error| error.to_string())?;
-    println!("\nBoard closed.");
+    println!("\nConversation closed.");
     Ok(())
 }

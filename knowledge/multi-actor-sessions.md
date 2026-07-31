@@ -62,7 +62,9 @@ After resolution, it passes the selected agent value to the canonical engine;
 it does not need a separate multi-actor turn loop.
 
 The user-facing [`examples/osbb`](../examples/osbb) application is the
-acceptance example for multiple named external users sharing one session. Its
-offline `SimDriver` test proves raw-versus-provider context behavior, while its
-recorded live-provider flow exercises the same contract against
-`gpt-5.6-terra`.
+acceptance example for multiple named external users sharing one session: five
+co-owners of an apartment building and the agent answering for their
+association, two of them raising the same noise complaint from different
+apartments. Its offline `SimDriver` test proves raw-versus-provider context
+behavior, while its recorded live-provider flow exercises the same contract
+against `gpt-5.6-terra`.

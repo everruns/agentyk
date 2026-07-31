@@ -11,6 +11,18 @@ release — every release bumps the patch component (`0.1.z`). See
 
 ### Changed
 
+- **`examples/osbb` is an actual OSBB.** The multi-actor example was a generic
+  bulletin board where two people picked a launch day; the name promised a
+  condominium co-owners' association and delivered a chat room. It now models
+  one: five co-owners of a building share the session, the agent speaks for the
+  association under house rules it must cite (quiet hours, warning before
+  escalation, general-meeting-only decisions), and the default scenario is two
+  co-owners reporting the same night noise from different apartments. Same
+  contract under test — one shared history, `ExternalActor` per message,
+  speaker labels only in provider context — now exercised where crossed
+  accounts are the point. New `--building` flag; the stale demo GIF was dropped
+  pending a re-recording of the new tape.
+
 - **MCP protocol eras are named for what they are, and the stateful fallback
   moved to `2025-11-25`.** `2026-07-28` is a final release, not a candidate,
   so `McpProtocolMode::Rc` is now `Latest` and `MCP_PROTOCOL_VERSION_RC` is
