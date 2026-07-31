@@ -92,6 +92,19 @@ labels rewriting durable history.
 <sup>Real `openai/gpt-5.6-terra` run. See the example README for the offline
 tests and recording recipe.</sup>
 
+## Background hosting examples
+
+These examples keep task lifecycle in the application, matching the boundary
+used by Everruns and Yolop, while Agentyk runs the parent and child turns:
+
+- [`github_monitor.rs`](crates/agentyk/examples/github_monitor.rs) detaches
+  `gh pr checks --watch`, ends the foreground turn, and wakes the same session
+  when the command finishes. It needs an authenticated `gh` CLI:
+  `cargo run -p agentyk --example github_monitor -- OWNER/REPO PR_NUMBER`.
+- [`subagents.rs`](crates/agentyk/examples/subagents.rs) starts five independent
+  child-agent sessions, returns their task ids, and has the parent wait for all
+  five: `cargo run -p agentyk --example subagents`.
+
 ## Packaging
 
 Three crates separate portable contracts, canonical turn semantics, and
