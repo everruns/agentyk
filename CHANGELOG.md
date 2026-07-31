@@ -88,6 +88,12 @@ release — every release bumps the patch component (`0.1.z`). See
 
 ### Added
 
+- **Background-hosting examples for the two adopter patterns.**
+  `github_monitor` detaches `gh pr checks --watch` and wakes the parent session
+  on completion; `subagents` starts five independent child-agent sessions,
+  returns task ids, and waits for every result. Both keep lifecycle and
+  scheduling in the application host, matching the Everruns/Yolop boundary.
+
 - **MCP requests carry the metadata a stateless server requires.** Having
   dropped the handshake, `2026-07-28` expects the protocol version and the
   client's capabilities on every request. Each request's `_meta` now sends
