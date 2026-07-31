@@ -4,6 +4,8 @@
 #   PATH="$PWD/target/release:$PATH" OPENAI_API_KEY=... vhs examples/osbb/demo.tape
 #   gifsicle -O3 --lossy=60 --colors 64 -b examples/osbb/docs/demo.gif
 #
+# Five co-owners share the conversation; two of them report the same night
+# noise from different apartments and the association answers both.
 # This is a real gpt-5.6-terra run. Sleeps allow for provider variance.
 
 Output examples/osbb/docs/demo.gif
@@ -19,25 +21,25 @@ Set Theme "TokyoNight"
 Set Framerate 24
 Set TypingSpeed 42ms
 
-Type "osbb --people Ada,Grace --actor Ada --agent-name Archivist --model gpt-5.6-terra --reasoning-effort none"
+Type "osbb --people Olena,Petro,Iryna,Mykola,Sofia --actor Olena --building 'Sadova 12' --agent-name Manager --model gpt-5.6-terra --reasoning-effort none"
 Enter
 Sleep 2500ms
 
-Type "Grace and I need to pick a launch day. I prefer Tuesday because marketing is ready."
+Type "Apartment 41 has been playing music past midnight all week. I am in 37, directly below, and nobody can sleep."
 Enter
 Sleep 18s
 
-Type "/as Grace"
+Type "/as Petro"
 Enter
 Sleep 1s
-Type "Ada, Wednesday is safer because support is fully staffed. Archivist, summarize the tradeoff."
+Type "The same noise reaches 45 across the landing - Tuesday and Thursday, around 00:30. Olena is not imagining it."
 Enter
 Sleep 18s
 
-Type "/as Ada"
+Type "/as Iryna"
 Enter
 Sleep 1s
-Type "That support coverage decides it for me. Record that we agree on Wednesday."
+Type "Manager, what happens now, and does the rest of the house have to vote on anything?"
 Enter
 Sleep 18s
 

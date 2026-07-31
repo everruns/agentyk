@@ -82,12 +82,14 @@ println!("{}", turn.response);
 
 ## Multi-actor demo
 
-[`examples/osbb`](examples/osbb) is one shared bulletin board where Ada and
-Grace take turns talking with Archivist on the same session. Each input keeps
-its named `ExternalActor`, and the model sees speaker labels without those
-labels rewriting durable history.
+[`examples/osbb`](examples/osbb) seats five co-owners of an apartment building
+in one conversation with the agent that answers for their association: two of
+them report the same night noise from different apartments, and the association
+answers both on the same session. Each input keeps its named `ExternalActor`,
+and the model sees speaker labels without those labels rewriting durable
+history.
 
-<img src="examples/osbb/docs/demo.gif" width="880" alt="Ada and Grace taking turns in one OSBB session while Archivist tracks each named speaker and helps them agree on a launch day.">
+<img src="examples/osbb/docs/demo.gif" width="880" alt="Olena reports night music from apartment 41, Petro confirms it from another apartment, and the Manager logs the two reports separately, cites quiet hours, and puts the matter on the board agenda.">
 
 <sup>Real `openai/gpt-5.6-terra` run. See the example README for the offline
 tests and recording recipe.</sup>
