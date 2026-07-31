@@ -20,8 +20,8 @@ release — every release bumps the patch component (`0.1.z`). See
   co-owners reporting the same night noise from different apartments. Same
   contract under test — one shared history, `ExternalActor` per message,
   speaker labels only in provider context — now exercised where crossed
-  accounts are the point. New `--building` flag; the stale demo GIF was dropped
-  pending a re-recording of the new tape.
+  accounts are the point. New `--building` flag, and the demo GIF is a fresh
+  `gpt-5.6-terra` recording of the noise complaint.
 
 - **MCP protocol eras are named for what they are, and the stateful fallback
   moved to `2025-11-25`.** `2026-07-28` is a final release, not a candidate,

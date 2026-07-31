@@ -89,8 +89,10 @@ answers both on the same session. Each input keeps its named `ExternalActor`,
 and the model sees speaker labels without those labels rewriting durable
 history.
 
-<sup>Runs against `openai/gpt-5.6-terra`. See the example README for the
-offline tests and recording recipe.</sup>
+<img src="examples/osbb/docs/demo.gif" width="880" alt="Olena reports night music from apartment 41, Petro confirms it from another apartment, and the Manager logs the two reports separately, cites quiet hours, and puts the matter on the board agenda.">
+
+<sup>Real `openai/gpt-5.6-terra` run. See the example README for the offline
+tests and recording recipe.</sup>
 
 ## Background hosting examples
 
