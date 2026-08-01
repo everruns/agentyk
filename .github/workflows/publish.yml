@@ -37,7 +37,7 @@ jobs:
       # reports that and exits non-zero, which is not a failure of this change.
       - name: Check published crates against crates.io
         run: |
-          for crate in agentyk-core agentyk-engine agentyk; do
+          for crate in agentyk-core agentyk-engine agentyk-macros agentyk; do
             if ! curl -sSf "https://crates.io/api/v1/crates/$crate" -o /dev/null; then
               echo "$crate is not published yet — no baseline to compare against, skipping"
               continue
@@ -119,11 +119,28 @@ jobs:
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
-  # Publish the facade after both internal dependencies reach the index.
+  # Publish the proc-macro implementation before the facade that re-exports it.
+  publish-macros:
+    name: Publish agentyk-macros
+    runs-on: ubuntu-latest
+    needs: publish-engine
+    environment: release
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Publish agentyk-macros to crates.io
+        run: cargo publish -p agentyk-macros
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+  # Publish the facade after all internal dependencies reach the index.
   publish-agentyk:
     name: Publish agentyk
     runs-on: ubuntu-latest
-    needs: publish-engine
+    needs: publish-macros
     environment: release
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -139,11 +156,11 @@ jobs:
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
-  # Verify all crates are visible at the expected version.
+  # Verify all four crates are visible at the expected version.
   verify-publish:
     name: Verify published versions
     runs-on: ubuntu-latest
-    needs: [publish-core, publish-engine, publish-agentyk]
+    needs: [publish-core, publish-engine, publish-macros, publish-agentyk]
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
@@ -154,4 +171,4 @@ jobs:
         run: |
           EXPECTED=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
           echo "Expected version: $EXPECTED"
-          python3 scripts/verify_crates_publish.py --expected "$EXPECTED" agentyk-core agentyk-engine agentyk
+          python3 scripts/verify_crates_publish.py --expected "$EXPECTED" agentyk-core agentyk-engine agentyk-macros agentyk

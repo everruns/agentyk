@@ -79,7 +79,7 @@ everruns concept must be expressible on top of the agentyk primitive.
 | `EventListener` / `CompositeEventListener` | `EventListener` / `CompositeEventListener` | same filtering, ordered fan-out, and panic-isolation semantics; agent sessions use the same dispatcher |
 | `Capability` (id, system_prompt_contribution, tools) | `Capability` | same trait shape; **attached by object, not registered + referenced by string id**; `tools()` is async so MCP fits |
 | `CapabilityRegistry` + `AgentCapabilityConfig { ref, config }` | — (builder holds objects) | the registry/config indirection becomes a Phase-2 host concern for config-driven wiring |
-| `Tool` / `ToolDefinition` / `ToolCall` | `tool::{Tool, ToolDefinition}`, `message::ToolCall` | same; plus `FnTool` closure helper |
+| `Tool` / `ToolDefinition` / `ToolCall` | `tool::{Tool, ToolDefinition}`, `message::ToolCall` | same; plus `FnTool` closure helper and `#[agentyk::tool]` for typed async functions |
 | `ChatDriver` / `DriverRegistry` / `DriverId` | same names | `DriverId` is an open string, not a closed enum |
 | `ResolvedModel` | `ModelSpec` | same by-value shape (model, driver, api_key, base_url) |
 | `llmsim` (`SimTurn`, scripted turns) | `SimDriver` / `SimTurn` | same idea; also records requests for test assertions |
@@ -145,8 +145,9 @@ server):
   efficient heads in bundled stores, and optional schema-versioned projection
   snapshots. See [`session-timelines.md`](session-timelines.md).
 - Capabilities — trait with prompt contributions and async tool discovery.
-- Tools — `Tool`, `FnTool`; unknown-tool calls surface as error results the
-  model can recover from.
+- Tools — `Tool`, `FnTool`, and `#[agentyk::tool]` for typed async functions;
+  unknown-tool calls and invalid macro-generated arguments surface as error
+  results the model can recover from.
 - Drivers — `SimDriver` (scripted, request-recording); `OpenAiDriver`
   (Chat Completions; any OpenAI-compatible endpoint via `base_url`) and
   `AnthropicDriver` (Messages API) behind the `http` feature. Both stream
@@ -252,8 +253,9 @@ Remaining for Phase 1 completion:
 - ✅ CI workflow — `.github/workflows/ci.yml` (fmt, clippy all-features +
   no-default-features, doc, `cargo test --workspace --all-features`).
 - ✅ CI-driven release/publish — `.github/workflows/{release,publish}.yml`
-  publish `agentyk-core` → `agentyk-engine` → `agentyk` to crates.io on a
-  `chore(release): prepare vX.Y.Z` merge; see [`release.md`](release.md).
+  publish `agentyk-core` → `agentyk-engine` → `agentyk-macros` → `agentyk` to
+  crates.io on a `chore(release): prepare vX.Y.Z` merge; see
+  [`release.md`](release.md).
   Remaining one-time setup: add `CARGO_REGISTRY_TOKEN` to Actions secrets and
   create the `release` environment.
 - Crate docs polish (rustdoc landing pages, README examples).
@@ -261,8 +263,8 @@ Remaining for Phase 1 completion:
 ## Packaging
 
 The architecture is defined in [`architecture.md`](architecture.md).
-It separates portable contracts, canonical turn semantics, and bundled
-implementations into three layers:
+It separates portable contracts, canonical turn semantics, proc macros, and
+bundled implementations into four crates across three architectural layers:
 
 - **`agentyk-core`** — the contract crate: what you *implement against*.
   Portable values, extension traits, events, the event-store contract, and
@@ -272,6 +274,9 @@ implementations into three layers:
   `Session`, assembly, policy, the step protocol, and the in-process runner.
   Everruns durable execution is a host of this engine, not another engine or
   a copied turn loop.
+- **`agentyk-macros`** — proc-macro implementation required by Rust's crate
+  model and re-exported by the facade. Generated code uses the public facade;
+  it introduces no runtime layer or alternate contract.
 - **`agentyk`** — the application facade. Re-exports core and engine and owns
   bundled feature-gated modules: provider drivers, event stores, MCP, and
   filesystem support.
