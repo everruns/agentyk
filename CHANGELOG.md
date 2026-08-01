@@ -5,7 +5,7 @@ on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 Versioning: agentyk is pre-1.0 and stays strictly on `0.1.x` until a public
 release — every release bumps the patch component (`0.1.z`). See
-[`knowledge/release.md`](knowledge/release.md).
+[`knowledge/operations/release.md`](knowledge/operations/release.md).
 
 ## [Unreleased]
 
@@ -165,7 +165,7 @@ release — every release bumps the patch component (`0.1.z`). See
   tool choice, approval-gate compliance, and per-session cost — tokens, prompt
   cache, tool calls, latency — plus an offline eval on the scripted `SimDriver`
   that CI runs with no credentials. See
-  [`knowledge/evals.md`](knowledge/evals.md).
+  [`knowledge/operations/evals.md`](knowledge/operations/evals.md).
 
 - **`McpClient::discover`** asks a server to describe itself in one request —
   supported protocol versions, capabilities, identity, and any usage
@@ -236,7 +236,7 @@ release — every release bumps the patch component (`0.1.z`). See
 
 ### Added — the rest of the yolop-adoption findings
 
-The five items [`knowledge/yolop-adoption.md`](knowledge/yolop-adoption.md)
+The five items [`knowledge/roadmap/yolop-adoption.md`](knowledge/roadmap/yolop-adoption.md)
 listed as open. Same source as the batch below: gaps found by building a real
 coding agent on these seams, not by reading them.
 
@@ -275,7 +275,7 @@ coding agent on these seams, not by reading them.
 
 Driven by building one: yolop's execution story was ported onto agentyk's
 seams, and these are the gaps that port hit. See
-[`knowledge/yolop-adoption.md`](knowledge/yolop-adoption.md).
+[`knowledge/roadmap/yolop-adoption.md`](knowledge/roadmap/yolop-adoption.md).
 
 - **Cancellation reaches inside a tool call.**
   `CancellationToken::run_until_cancelled` races any future against the signal
@@ -589,7 +589,7 @@ seams, and these are the gaps that port hit. See
 All fields are additive and serde-optional, so plain messages/tools/events
 serialize as before and pre-0.1.1 logs still load. Behavior (mutating/approval
 hooks, parallel dispatch) is deliberately left to a satellite `TurnExecutor` —
-see [`knowledge/extensibility.md`](knowledge/extensibility.md).
+see [`knowledge/extensibility/extensibility.md`](knowledge/extensibility/extensibility.md).
 
 - **`codenko` example** (`examples/codenko`, `publish = false`): a terminal
   coding agent built on the public contract — `FileSystemCapability` plus a

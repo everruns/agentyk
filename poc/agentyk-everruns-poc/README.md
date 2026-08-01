@@ -3,7 +3,7 @@
 A proof that Everruns-flavored policy and metadata compose with Agentyk's
 canonical engine. Not a shipped crate (`publish = false`); it exists to
 validate the strategy in
-[`knowledge/extensibility.md`](../../knowledge/extensibility.md).
+[`knowledge/extensibility/extensibility.md`](../../knowledge/extensibility/extensibility.md).
 
 The library depends on `agentyk-core` **only** — no framework, no tokio, no
 HTTP. The framework (`agentyk`) appears only as a dev-dependency: the test and
@@ -65,7 +65,7 @@ lines.
 > capabilities + drivers + metadata conventions. The shared engine owns turn
 > semantics.
 
-See [`knowledge/extensibility.md`](../../knowledge/extensibility.md) for the full rule:
+See [`knowledge/extensibility/extensibility.md`](../../knowledge/extensibility/extensibility.md) for the full rule:
 first-class typed fields only for universal, correctness-load-bearing protocol
 data; generic `metadata` hatches for everruns-flavored richness; behavior in
 satellites.

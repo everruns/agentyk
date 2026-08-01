@@ -5,7 +5,7 @@ running them (turn loop, event log, capabilities, MCP, multi-provider
 drivers). It reuses the domain language of
 [`everruns`](https://github.com/everruns/everruns) but is built from scratch;
 the long-term plan is to rebuild everruns-core/runtime on top of it. Read
-[`knowledge/plan.md`](knowledge/plan.md) before changing architecture.
+[`knowledge/foundations/plan.md`](knowledge/foundations/plan.md) before changing architecture.
 
 ## Workflow
 
@@ -57,7 +57,7 @@ engine.
 - Traits stay host-neutral: nothing in core presumes a database, server,
   or tenant.
 - Heavy integrations go behind features (`http`, `mcp`) or arrive as capabilities.
-- Keep the everruns vocabulary (see the mapping table in `knowledge/plan.md`).
+- Keep the everruns vocabulary (see the mapping table in `knowledge/foundations/plan.md`).
 
 ## Knowledge and docs
 
@@ -71,16 +71,16 @@ engine.
 - Public, task-oriented documentation for users lives in the top-level
   `README.md`. Do not put internal design intent, roadmaps, or gap analyses
   there — those are specifications expressed as knowledge concepts.
-- New or changed technical diagrams follow [`knowledge/diagrams.md`](knowledge/diagrams.md):
+- New or changed technical diagrams follow [`knowledge/foundations/diagrams.md`](knowledge/foundations/diagrams.md):
   co-located Mermaid source plus hand-authored SVG, embedded via the SVG, and
   rasterized for visual review before shipping.
-- Follow [`knowledge/maintenance.md`](knowledge/maintenance.md) for the
+- Follow [`knowledge/operations/maintenance.md`](knowledge/operations/maintenance.md) for the
   definition of done and knowledge-maintenance rules. Validate the bundle after
   editing it with the canonical linter:
   `okf-lint lint knowledge && okf-lint fmt --check knowledge`. Install it with
   `cargo install okf-lint --version 0.1.1 --locked`.
 - `.claude/skills/` holds workflows requestable by name: `/ship` lands a change
-  (bar in [`knowledge/shipping.md`](knowledge/shipping.md), workflow in the skill).
+  (bar in [`knowledge/operations/shipping.md`](knowledge/operations/shipping.md), workflow in the skill).
 
 ## Local dev and tests
 
@@ -103,7 +103,7 @@ compliance, tokens, prompt-cache reuse, latency). They are
 [Mira](https://github.com/everruns/mira) studies, live outside the Cargo
 workspace, and depend on the crates by path. The offline eval runs on the
 scripted `SimDriver` with no key and is part of CI; the paid presets are run by
-hand. Bar and rationale: [`knowledge/evals.md`](knowledge/evals.md).
+hand. Bar and rationale: [`knowledge/operations/evals.md`](knowledge/operations/evals.md).
 
 ```sh
 cd evals/agentyk_basic && cargo test        # the offline eval

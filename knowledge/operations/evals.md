@@ -72,5 +72,5 @@ always takes.
 
 ## See also
 
-- [`evals/README.md`](../evals/README.md) — the studies and how to run them.
+- [`evals/README.md`](../../evals/README.md) — the studies and how to run them.
 - [Shipping process](shipping.md) — the evidence bar a change must clear.

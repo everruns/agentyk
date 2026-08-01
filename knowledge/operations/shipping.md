@@ -24,7 +24,7 @@ protocol compatibility — not a host's disk and shell. And everything here runs
 **offline** on the scripted `SimDriver` and a canned stdio MCP server, so a test
 is always possible and "it needs a key" is never a reason to skip one.
 
-The agent workflow lives in [`.claude/skills/ship/SKILL.md`](../.claude/skills/ship/SKILL.md),
+The agent workflow lives in [`.claude/skills/ship/SKILL.md`](../../.claude/skills/ship/SKILL.md),
 which is invocable as `/ship`.
 
 ## Design goals
@@ -178,7 +178,7 @@ changes" with a one-line justification.
 
 ## Validation depth
 
-Start from the four checks in [`AGENTS.md`](../AGENTS.md), then add what the
+Start from the four checks in [`AGENTS.md`](../../AGENTS.md), then add what the
 changed surface demands. Two CI steps are wider than the local defaults and are
 worth running before pushing, because both fail the build:
 
@@ -200,7 +200,7 @@ positive, negative, boundary, regression, and integration paths.
 
 ## Related
 
-- [`.claude/skills/ship/SKILL.md`](../.claude/skills/ship/SKILL.md) — the workflow.
+- [`.claude/skills/ship/SKILL.md`](../../.claude/skills/ship/SKILL.md) — the workflow.
 - [`release.md`](release.md) — what happens after merge, when a release ships.
-- [`extensibility.md`](extensibility.md) — the rule the protocol-compatibility
+- [`extensibility.md`](../extensibility/extensibility.md) — the rule the protocol-compatibility
   review leans on.

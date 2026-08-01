@@ -7,7 +7,7 @@ description: Goal-oriented workflow for landing a change to agentyk safely. Use 
 
 Goal: land the requested change with evidence, and merge only after CI is green.
 
-Read [`knowledge/shipping.md`](../../../knowledge/shipping.md) § Required outcomes first —
+Read [`knowledge/operations/shipping.md`](../../../knowledge/operations/shipping.md) § Required outcomes first —
 it owns the bar. This skill owns how to reach it.
 
 "Fix and ship" means implement first, then switch into shipping mode.
@@ -49,7 +49,7 @@ reproduce.
 
 ## Impact, API, security, and performance
 
-Perform the reviews in [`knowledge/shipping.md`](../../../knowledge/shipping.md)
+Perform the reviews in [`knowledge/operations/shipping.md`](../../../knowledge/operations/shipping.md)
 before pushing. Record affected callers and operational paths, every changed
 public contract and its compatibility or migration consequence, security
 boundaries reviewed, and performance risks or measurements. An inapplicable
@@ -64,7 +64,7 @@ changed or why each artifact was unnecessary.
 
 Mandatory for every change touching code, manifests, or CI — a change looking
 low-risk does not excuse it. The categories and their checks are in
-[`knowledge/shipping.md`](../../../knowledge/shipping.md) § Contract review: core purity,
+[`knowledge/operations/shipping.md`](../../../knowledge/operations/shipping.md) § Contract review: core purity,
 feature gates, protocol compatibility, host neutrality, secrets, dependency
 risk. Run the two CI steps that are wider than the local defaults before you
 push, because both fail the build:
@@ -88,7 +88,7 @@ are never omitted. Default to doing in-scope work rather than deferring it.
 Say explicitly whether knowledge changed: either which concept you updated in
 `knowledge/` (plus its [`index.md`](../../../knowledge/index.md) entry), or
 that no knowledge update was required and why. Follow
-[`knowledge/maintenance.md`](../../../knowledge/maintenance.md): integrate durable
+[`knowledge/operations/maintenance.md`](../../../knowledge/operations/maintenance.md): integrate durable
 decisions and stale-claim cleanup in the same change.
 
 Answer every review comment inline on its own thread and resolve it — nits,
