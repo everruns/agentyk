@@ -1,24 +1,62 @@
 # agentyk
 
+[![Crates.io](https://img.shields.io/crates/v/agentyk.svg)](https://crates.io/crates/agentyk)
+[![Documentation](https://docs.rs/agentyk/badge.svg)](https://docs.rs/agentyk)
+[![License](https://img.shields.io/crates/l/agentyk.svg)](LICENSE)
+
 Compose agents from values and run them.
 
-`agentyk` is a Rust library for building agents by **composing objects** — a
-system prompt, a model, capabilities, tools — and running them. There is no
-entity lifecycle: nothing to create in a store, nothing to register, no ids to
-thread. Ids exist only as internal correlation handles on sessions and events.
+`agentyk` is a Rust library for building agents from a system prompt, model,
+tools, and capabilities. There is no entity lifecycle: nothing to create in a
+store, nothing to register, and no ids to thread through your application.
+Sessions produce a typed, replayable event log that can be persisted, resumed,
+inspected, and forked.
+
+- [API documentation](https://docs.rs/agentyk)
+- [Crate on crates.io](https://crates.io/crates/agentyk)
+- [Examples](crates/agentyk/examples)
+
+## Quick start
+
+Add the facade crate; its default feature set stays offline and lightweight:
+
+```sh
+cargo add agentyk
+```
+
+Build and run an agent by value. `SimDriver` makes this example deterministic
+and requires no API key or network access:
 
 ```rust
-use agentyk::{Agent, ModelSpec};
+use agentyk::{Agent, ModelSpec, SimDriver, SimTurn};
 
+# async fn example() -> agentyk::Result<()> {
 let agent = Agent::builder()
-    .system_prompt("You are a coding agent.")
-    .model(ModelSpec::anthropic("claude-sonnet-4-5").api_key(key))
-    .capability(my_capability)
+    .name("hello")
+    .system_prompt("You are terse.")
+    .model(ModelSpec::llmsim())
+    .driver(SimDriver::new([SimTurn::text("Hello from agentyk.")]))
     .build()?;
 
 let mut session = agent.session();
-let turn = session.run("list the files").await?;
-println!("{}", turn.response);
+let turn = session.run("say hello").await?;
+assert_eq!(turn.response, "Hello from agentyk.");
+# Ok(())
+# }
+```
+
+For provider-backed agents, enable `http`; add `fs`, `mcp`, or `hooks` only
+when needed:
+
+```toml
+[dependencies]
+agentyk = { version = "0.1", features = ["http", "fs"] }
+```
+
+Run the complete offline example from a source checkout:
+
+```sh
+cargo run -p agentyk --example hello
 ```
 
 Ordinary async functions can be attached directly as typed tools. The macro

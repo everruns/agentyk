@@ -11,6 +11,11 @@ release — every release bumps the patch component (`0.1.z`). See
 
 ### Changed
 
+- **The crate landing page now provides a copy-ready quick start.** The README
+  links directly to crates.io, docs.rs, and examples, while every published
+  workspace crate points Cargo metadata at the shared README and its docs.rs
+  API documentation.
+
 - **`EventStore` is the production persistence adapter boundary.** Its
   contract now explicitly covers Yolop-class implementations backed by an
   existing locked, fsynced, access-controlled, tail-repairing session log,
