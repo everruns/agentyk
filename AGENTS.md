@@ -28,10 +28,13 @@ Cargo workspace, lockstep versions:
   middleware/policy orchestration, prepared model/tool-batch operations, and
   the in-process host. Durable execution hosts this engine; it never copies
   the turn loop.
+- `crates/agentyk-macros` — proc macros required by the facade's ergonomic
+  API. Kept separate because Rust requires attribute macros to live in a
+  `proc-macro` crate; generated code targets the public `agentyk` surface.
 - `crates/agentyk` — the facade and bundled modules: `JsonlEventLog`, drivers
   (feature `http`), MCP (feature `mcp`), filesystem (feature `fs`). MCP and
   filesystem are first-class library capabilities, not integration crates.
-  Re-exports core and engine explicitly; applications depend only on
+  Re-exports core, engine, and macros; applications depend only on
   `agentyk`. `python3 scripts/check_reexports.py` enforces the facade surface.
 
 - `examples/<name>` — runnable applications (`publish = false`). Workspace

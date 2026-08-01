@@ -32,6 +32,13 @@ release — every release bumps the patch component (`0.1.z`). See
   rewrites and records it on `tool.started` and `tool.completed`; both fields
   are optional so older logs still deserialize.
 
+- **Typed async functions can be attached directly as tools.**
+  `#[agentyk::tool(description = "…")]` turns an async function into a
+  `Tool` value accepted by `AgentBuilder::tool`, derives JSON Schema from its
+  parameters, deserializes model arguments, treats `Option<T>` as optional,
+  and can receive a final `&ToolContext`. Invalid arguments become recoverable
+  tool errors. `FnTool` remains available for closures assembled at runtime.
+
 ## [0.1.1] - 2026-07-31
 
 ### Changed
