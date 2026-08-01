@@ -10,7 +10,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 # Verified in CI (the `msrv` job), not just declared. 1.88 is the floor for
 # let-chains in edition 2024, which the turn loop and event log use.
@@ -33,8 +33,8 @@ missing_docs = "deny"
 
 [workspace.dependencies]
 # Internal (lockstep versions)
-agentyk-core = { path = "crates/agentyk-core", version = "0.1.0" }
-agentyk-engine = { path = "crates/agentyk-engine", version = "0.1.0" }
+agentyk-core = { path = "crates/agentyk-core", version = "0.1.1" }
+agentyk-engine = { path = "crates/agentyk-engine", version = "0.1.1" }
 
 # Shared external
 async-trait = "0.1"

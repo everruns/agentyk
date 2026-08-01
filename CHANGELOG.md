@@ -9,6 +9,8 @@ release — every release bumps the patch component (`0.1.z`). See
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-07-31
+
 ### Changed
 
 - **`examples/osbb` is an actual OSBB.** The multi-actor example was a generic
@@ -610,6 +612,8 @@ see [`knowledge/extensibility.md`](knowledge/extensibility.md).
   [Open Knowledge Format v0.2](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md) bundle (per-file `type`
   frontmatter + `specs/index.md`). `docs/` is reserved for public product docs
   (none yet — `README.md` is the entry point). Repo-internal only.
+
+**Full Changelog**: https://github.com/everruns/agentyk/compare/v0.1.0...v0.1.1
 
 ## [0.1.0] - 2026-07-11
 

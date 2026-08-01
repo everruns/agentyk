@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "agentyk"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "agentyk-core",
  "agentyk-engine",
@@ -21,7 +21,7 @@ dependencies = [
 
 [[package]]
 name = "agentyk-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "async-trait",
  "chrono",
@@ -34,7 +34,7 @@ dependencies = [
 
 [[package]]
 name = "agentyk-engine"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "agentyk-core",
  "async-trait",
