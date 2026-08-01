@@ -53,7 +53,7 @@ impl NarrationListener {
                 }
                 lines // empty vec = a tool-call-only step; the tool.* lines cover it
             }
-            EventData::ToolStarted { call } => vec![format!("⚙ {}(…)", call.name)],
+            EventData::ToolStarted { call, .. } => vec![format!("⚙ {}(…)", call.name)],
             EventData::ToolCompleted { name, is_error, .. } => {
                 vec![format!("{} {name}", if *is_error { "✗" } else { "✓" })]
             }

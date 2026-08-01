@@ -145,6 +145,8 @@ mod tests {
                     name: "echo".into(),
                     output: "out".into(),
                     is_error: false,
+                    display_name: None,
+                    narration: None,
                     metadata: serde_json::Value::Null,
                     parts: Vec::new(),
                 },

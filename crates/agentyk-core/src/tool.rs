@@ -13,6 +13,72 @@ use serde::{Deserialize, Serialize};
 
 use crate::id::{SessionId, TurnId};
 
+/// Lifecycle point for which a tool is producing human-readable narration.
+///
+/// The vocabulary matches everruns so an adopting host can reuse narration
+/// helpers without translating phases. `Waiting` is available to durable
+/// hosts even though the in-process engine currently emits only start and
+/// completion lifecycle events.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ToolNarrationPhase {
+    /// The call is about to execute.
+    Started,
+    /// The call is paused waiting for an external condition.
+    Waiting,
+    /// The call finished successfully.
+    Completed,
+    /// The call was denied or returned an error result.
+    Failed,
+}
+
+/// Host-neutral context available while a tool describes one of its calls.
+///
+/// Narration is synchronous and must be cheap. Host services needed only to
+/// format a path or label can be obtained from `extensions`; execution-only
+/// concerns such as cancellation and progress reporting are deliberately not
+/// exposed here.
+#[derive(Clone, Copy)]
+#[non_exhaustive]
+pub struct ToolNarrationContext<'a> {
+    /// Session whose timeline will carry the narration.
+    pub session_id: SessionId,
+    /// Turn containing the call.
+    pub turn_id: TurnId,
+    /// Host-injected services shared with the tool execution context.
+    pub extensions: &'a crate::extensions::Extensions,
+}
+
+impl<'a> ToolNarrationContext<'a> {
+    /// Build narration context from the execution context for the same call.
+    pub fn from_tool_context(context: &'a ToolContext) -> Self {
+        Self {
+            session_id: context.session_id,
+            turn_id: context.turn_id,
+            extensions: &context.extensions,
+        }
+    }
+}
+
+/// Human-facing fields attached to one durable tool lifecycle event.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[non_exhaustive]
+pub struct ToolEventPresentation {
+    /// Stable human-readable tool label, such as `Read file`.
+    pub display_name: Option<String>,
+    /// Call-specific lifecycle text, such as `Reading README.md`.
+    pub narration: Option<String>,
+}
+
+impl ToolEventPresentation {
+    /// Build the human-facing fields for one lifecycle event.
+    pub fn new(display_name: Option<String>, narration: Option<String>) -> Self {
+        Self {
+            display_name,
+            narration,
+        }
+    }
+}
+
 /// What the model sees: name, description, and a JSON-schema for arguments.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[non_exhaustive]
@@ -336,6 +402,29 @@ impl ToolContext {
 pub trait Tool: Send + Sync {
     /// What the model is told about this tool.
     fn definition(&self) -> ToolDefinition;
+
+    /// Human-readable tool label for timelines and other host UI.
+    ///
+    /// `None` lets a host fall back to the technical name from
+    /// [`ToolDefinition::name`].
+    fn display_name(&self) -> Option<&str> {
+        None
+    }
+
+    /// Describe this particular call at a lifecycle phase.
+    ///
+    /// The returned text is persisted in the event log. Implementations must
+    /// therefore avoid secrets and should use only the arguments necessary to
+    /// tell a user what is happening. `None` lets the host provide a generic
+    /// fallback from [`Tool::display_name`].
+    fn narrate(
+        &self,
+        _call: &crate::message::ToolCall,
+        _phase: ToolNarrationPhase,
+        _context: ToolNarrationContext<'_>,
+    ) -> Option<String> {
+        None
+    }
 
     /// Run it.
     ///

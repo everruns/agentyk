@@ -9,6 +9,29 @@ release — every release bumps the patch component (`0.1.z`). See
 
 ## [Unreleased]
 
+### Changed
+
+- **`EventStore` is the production persistence adapter boundary.** Its
+  contract now explicitly covers Yolop-class implementations backed by an
+  existing locked, fsynced, access-controlled, tail-repairing session log,
+  including effective branch projections. `JsonlEventLog` remains available
+  for local single-process resume, but is no longer described as the
+  production durability bar.
+
+### Added
+
+- **Live MCP server activation without mutable agents.**
+  `DynamicMcpCapability` exposes a host-controlled server set with
+  `activate`, `deactivate`, and atomic `replace_servers` operations. Each turn
+  snapshots the set during tool assembly, while calls already in flight keep
+  their previous clients alive.
+
+- **Durable tool narration.** Tools can provide a human-facing display name
+  and argument-aware narration for `Started`, `Waiting`, `Completed`, and
+  `Failed` phases. The canonical engine evaluates narration after call
+  rewrites and records it on `tool.started` and `tool.completed`; both fields
+  are optional so older logs still deserialize.
+
 ## [0.1.1] - 2026-07-31
 
 ### Changed

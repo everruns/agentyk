@@ -1,5 +1,11 @@
-//! File-backed event log: one JSON-serialized [`Event`] per line — the
-//! batteries-included durability option (the yolop pattern).
+//! Local file-backed event log: one JSON-serialized [`Event`] per line.
+//!
+//! This is a simple single-process store for examples, development, and local
+//! resume. It flushes Rust's userspace buffer after each batch, but does not
+//! provide cross-process locking, fsync durability, owner-only permissions,
+//! corrupt-tail repair, or physical branch filtering. Production hosts should
+//! implement [`agentyk_core::event_log::EventStore`] over their existing
+//! durable session log.
 
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, BufWriter, Write};
@@ -18,8 +24,9 @@ struct JsonlState {
     sequences: HashMap<SessionId, u64>,
 }
 
-/// Multiple sessions may share one file; sequences are tracked per session.
-/// Reopening an existing file resumes sequence numbering from its contents.
+/// Multiple sessions may share one local-process file; sequences are tracked
+/// per session. Reopening an existing file resumes sequence numbering from
+/// its contents.
 pub struct JsonlEventLog {
     path: PathBuf,
     state: Mutex<JsonlState>,

@@ -51,6 +51,15 @@ idempotency keys or deduplication at its activity boundary.
 `read` and `read_after` remain conveniences for callers that intentionally want
 an unbounded projection. Engine write paths use `head`, not a full read.
 
+This contract is also the adapter boundary for production hosts. It does not
+require Agentyk's JSONL layout: a host may project an active logical branch from
+an existing session log, retain copy-on-write lineage, repair a truncated
+physical tail, and enforce locking, fsync/transaction durability, and file or
+database permissions in its implementation. Reads must expose one ordered,
+contiguous effective stream, and `append_batch(Exact(_))` must arbitrate
+concurrent writers atomically. `JsonlEventLog` is deliberately only a
+single-process local implementation; it is not the production durability bar.
+
 ## Snapshots
 
 `SnapshotStore` is separate from `EventStore`. A `ProjectionSnapshot` is named,

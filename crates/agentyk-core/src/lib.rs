@@ -101,7 +101,8 @@ pub use middleware::{
 pub use profile::{InMemoryModelCatalog, ModelCatalog, ModelProfile};
 pub use replay::{History, messages_from_events};
 pub use tool::{
-    DeferrablePolicy, FnTool, Tool, ToolContext, ToolDefinition, ToolOutput, ToolPolicy,
-    ToolProgress, ToolProgressSink,
+    DeferrablePolicy, FnTool, Tool, ToolContext, ToolDefinition, ToolEventPresentation,
+    ToolNarrationContext, ToolNarrationPhase, ToolOutput, ToolPolicy, ToolProgress,
+    ToolProgressSink,
 };
 pub use turn::{SealReason, TurnAction, TurnOutcome, TurnPhase, TurnState};
