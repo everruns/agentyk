@@ -18,6 +18,8 @@ rust-version = "1.88"
 license = "MIT"
 repository = "https://github.com/everruns/agentyk"
 homepage = "https://github.com/everruns/agentyk"
+documentation = "https://docs.rs/agentyk"
+readme = "README.md"
 
 # Applied to every member via `lints.workspace = true`. agentyk is a pure-safe
 # library: nothing here needs `unsafe`, and forbidding it is a promise the
