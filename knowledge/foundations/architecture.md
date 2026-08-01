@@ -18,7 +18,7 @@ different hosts of that engine, not independent turn-loop implementations.
 The public API remains value-first: applications compose an `Agent` from
 objects and run sessions without first creating or registering entities.
 
-Public orientation is in [`../docs/architecture.md`](../docs/architecture.md).
+Public orientation is in [`../docs/architecture.md`](../../docs/architecture.md).
 This spec records the architectural constraints maintainers must preserve.
 
 ## Crate boundaries
@@ -147,7 +147,7 @@ The event-store contract must support:
 - immutable branch creation from a safe historical point.
 
 The session timeline and snapshot rules are specified in
-[`session-timelines.md`](session-timelines.md).
+[`session-timelines.md`](../extensibility/session-timelines.md).
 
 The engine advances live projections only after an append succeeds. A failed
 append must not leave in-memory history ahead of durable history.

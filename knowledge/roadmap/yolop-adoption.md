@@ -113,7 +113,7 @@ resolution is recorded under each.
    account id, and an expiry; Google/Ollama/custom endpoints work only because
    they reduce to a base URL. everruns' `ProviderMetadata` was the shape that was
    missing — or, in the spirit of
-   [`extensibility.md`](extensibility.md), a `metadata` hatch on `ModelSpec`,
+   [`extensibility.md`](../extensibility/extensibility.md), a `metadata` hatch on `ModelSpec`,
    since the contents are provider-flavored rather than universal.
 
    **Resolution.** `ModelSpec::metadata`, the hatch. It is the natural home

@@ -255,7 +255,7 @@ pub enum EventData {
     /// `event_type` should follow the dot-notation convention (e.g.
     /// `"budget.warning"`); as protocol coverage grows, well-known custom
     /// types are expected to graduate into first-class variants (see
-    /// `knowledge/everruns-adoption.md`).
+    /// `knowledge/roadmap/everruns-adoption.md`).
     Custom {
         /// Dot-notation type, e.g. `"budget.warning"`. Becomes
         /// [`Event::event_type`].

@@ -269,7 +269,7 @@ contract — is inherited from [everruns](https://github.com/everruns/everruns).
 agentyk is the value-first core; the plan is to rebuild `everruns-core` and
 `everruns-runtime` on top of it, with identity, persistence, and multitenancy
 layered on by hosts rather than baked into the model. See
-[`knowledge/plan.md`](knowledge/plan.md).
+[`knowledge/foundations/plan.md`](knowledge/foundations/plan.md).
 
 ## License
 

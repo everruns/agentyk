@@ -157,7 +157,7 @@ expensive to change the longer we wait.
    covers Everruns' six operator-facing lifecycle events: session start/end,
    user prompt submit, pre/post tool use, and turn end. It includes ordered
    mutation/block decisions, error policy, tool matchers, structured payloads,
-   and an opt-in trusted local shell executor. See [`hooks.md`](hooks.md).
+   and an opt-in trusted local shell executor. See [`hooks.md`](../extensibility/hooks.md).
    Everruns' internal `PostActHook` / `ClientSideToolHook` remain host
    mechanisms rather than user-hook events; client-side tool handoff still
    needs a protocol/turn-state design before it belongs here.
@@ -184,7 +184,7 @@ expensive to change the longer we wait.
    everruns' per-tool risk/UI taxonomy (`readonly`/`destructive`/`open_world`,
    etc.) is **not** a typed core field — it rides in the generic
    `ToolDefinition.metadata` hatch, and engine middleware reads it for
-   approval/risk gating (see [`extensibility.md`](extensibility.md)). Still no
+   approval/risk gating (see [`extensibility.md`](../extensibility/extensibility.md)). Still no
    ToolSearch-style capability that *surfaces* deferred tools on demand —
    `Deferred` today just means "hidden," not "hidden until requested."
 
@@ -320,7 +320,7 @@ expensive to change the longer we wait.
     participant provenance.
     Recovery has an explicit `resume_pending_with_agent` form because sensitive
     agent configuration is deliberately absent from the event log. See
-    [`multi-actor-sessions.md`](multi-actor-sessions.md).
+    [`multi-actor-sessions.md`](../extensibility/multi-actor-sessions.md).
 
 ## Tier 4 — host-side by design (non-gaps)
 
@@ -366,7 +366,7 @@ Phase 1.5 (pre-adoption hardening, in this repo):
 6. ✅ Act hooks (pre/post tool) — builder-attached guardrails. Mutation and
    approval are middleware behavior orchestrated by the engine; a
    capability contribution may bundle its own middleware. This is **not** a
-   core approval phase (see [`extensibility.md`](extensibility.md)).
+   core approval phase (see [`extensibility.md`](../extensibility/extensibility.md)).
 7. ✅ Per-turn `TurnControls`
 8. ✅ Sealing (`Sealed(SealReason)`) + budget seam
 9. ✅ Parallel-capable `PendingAct` data model + tool policy types —
@@ -378,10 +378,10 @@ Phase 1.5 (pre-adoption hardening, in this repo):
 12. ✅ `FileSystemCapability` (first big bundled capability) — see gap 15
 
 All twelve Phase 1.5 items are now done (with the scoping notes above); see
-[`plan.md`](plan.md#phase-1-status) for the full status list.
+[`plan.md`](../foundations/plan.md#phase-1-status) for the full status list.
 
 Phase 1.6 (protocol extensibility, 0.1.1) — from an audit against everruns
-0.17.16 (see [`extensibility.md`](extensibility.md) for the strategy):
+0.17.16 (see [`extensibility.md`](../extensibility/extensibility.md) for the strategy):
 
 1. ✅ `message_id` correlating the `output.message.*` streaming events (typed).
 2. ✅ `Message.thinking` + `thinking_signature` (typed reasoning round-trip).

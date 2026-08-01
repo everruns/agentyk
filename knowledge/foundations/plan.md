@@ -48,7 +48,7 @@ Close the gaps that block everruns adoption — protocol-affecting ones first
 (multimodal content, streaming/ephemeral events, cancellation, custom events,
 error retryability), then execution semantics (act hooks, sealing/budget,
 parallel act, context-assembly seam). Full analysis and attack order:
-[`everruns-adoption.md`](everruns-adoption.md).
+[`everruns-adoption.md`](../roadmap/everruns-adoption.md).
 
 **Phase 2: rebuild `everruns-core` and `everruns-runtime` on top.**
 The everruns engine re-bases onto agentyk: everruns' store traits, harness
@@ -110,7 +110,7 @@ everruns concept must be expressible on top of the agentyk primitive.
 | `Message.thinking` / `thinking_signature` (extended thinking round-trip) | same field names on `message::Message` | typed (universal reasoning, must round-trip to the provider); Anthropic parses, streams, and replays signed thinking blocks |
 | `Message.external_actor` | same field on `message::Message` | external user identity survives replay; provider-facing context labels the speaker without rewriting durable content |
 | `MessageId` on `output.message.*` (streaming lifecycle correlation) | `id::MessageId` on `OutputMessage{Started,Delta,Completed}`, held on `TurnState::current_message_id` | typed; allocated in `on_reason_started`, `#[serde(default)]` so pre-0.1.1 logs still load |
-| `ToolHints`, capability `status`/`category`/`icon`, `Message.phase`, narration hints | generic `metadata` hatches: `ToolDefinition.metadata`, `Capability::metadata()`, `Message.metadata` | everruns-flavored richness rides an opaque `serde_json::Value` (the data analogue of `EventData::Custom`); the adopting host owns the schema — see [`extensibility.md`](extensibility.md) |
+| `ToolHints`, capability `status`/`category`/`icon`, `Message.phase`, narration hints | generic `metadata` hatches: `ToolDefinition.metadata`, `Capability::metadata()`, `Message.metadata` | everruns-flavored richness rides an opaque `serde_json::Value` (the data analogue of `EventData::Custom`); the adopting host owns the schema — see [`extensibility.md`](../extensibility/extensibility.md) |
 | guardrail mutation / approval / capability-contributed hooks | `middleware::TurnMiddleware` (`Rewrite`/`Deny`), attached on the builder | mutation and approval no longer need a forked act loop |
 | parallel dispatch | a tool dispatcher over a batch prepared by the engine | dispatch policy changes without copying the reason/act loop |
 
@@ -132,7 +132,7 @@ server):
   `Session::run_with_agent`. External user identity is typed on `Message`, and
   host-owned participant provenance rides on `Event.metadata`. Membership and
   authorization stay in the embedding host. See
-  [`multi-actor-sessions.md`](multi-actor-sessions.md).
+  [`multi-actor-sessions.md`](../extensibility/multi-actor-sessions.md).
 - Turn loop — everruns `input → reason → act` contract: input event, model
   completion, tool execution, repeat until text (or `max_iterations`).
 - Event protocol + logs — `InMemoryEventLog`, `JsonlEventLog` (shared files,
@@ -141,7 +141,7 @@ server):
 - Session timelines — immutable `SessionPoint`s, historical inspection,
   completed-turn forks with recorded lineage, bounded `EventRange` pages,
   efficient heads in bundled stores, and optional schema-versioned projection
-  snapshots. See [`session-timelines.md`](session-timelines.md).
+  snapshots. See [`session-timelines.md`](../extensibility/session-timelines.md).
 - Capabilities — trait with prompt contributions and async tool discovery.
 - Tools — `Tool`, `FnTool`; unknown-tool calls surface as error results the
   model can recover from.
@@ -178,7 +178,7 @@ server):
 - Multimodal messages — `Message.content: Vec<ContentPart>` (`Text`/`Image`).
 - Streaming — `OutputMessageStarted`/`Delta`/`Completed`, ephemeral events
   (`sequence: None`, never persisted), `ChatDriver::complete_streaming` +
-  `DeltaSink`. Details: [`everruns-adoption.md`](everruns-adoption.md#tier-1).
+  `DeltaSink`. Details: [`everruns-adoption.md`](../roadmap/everruns-adoption.md#tier-1).
 - Cancellation — `cancellation::CancellationToken`, `TurnOutcome::Cancelled`,
   `Session::run_cancellable`. Checked between actions and per streaming
   chunk.
@@ -193,7 +193,7 @@ server):
   a `TurnState` transition (`on_tool_rewritten`), so it is durable and
   `tool.started` announces the executed call. `PostActHook`,
   `ClientSideToolHook` deferred — see
-  [`everruns-adoption.md`](everruns-adoption.md#tier-2).
+  [`everruns-adoption.md`](../roadmap/everruns-adoption.md#tier-2).
 - Per-turn controls — `TurnControls { model, reasoning }`,
   `Session::run_controlled`/`run_with_options`. Reasoning effort wired for
   OpenAI; Anthropic deferred (needs a token budget, not an effort string).
@@ -217,14 +217,14 @@ server):
   `execute_command()` routing outside the turn loop; `ToolContext.extensions`
   (`extensions::Extensions`, axum-style typed bag) populated via
   `AgentBuilder::extension(value)`. `mcp_servers()` deferred — see
-  [`everruns-adoption.md`](everruns-adoption.md#tier-3).
+  [`everruns-adoption.md`](../roadmap/everruns-adoption.md#tier-3).
 - File system capability (feature `fs`, default-on) — `filesystem::FileSystem`
   trait (`read_file`/`write_file`/`list_directory`/`delete_file`), backed by
   `RealDiskFileSystem` (structural `..` rejection, no OS round-trip needed to
   reject a traversal) or `InMemoryFileSystem`; `WriteBlocklistFileSystem`
   decorator guards vendored/build dirs. `FileSystemCapability` exposes 4
   tools to the model. See
-  [`everruns-adoption.md`](everruns-adoption.md#tier-3) for what didn't port
+  [`everruns-adoption.md`](../roadmap/everruns-adoption.md#tier-3) for what didn't port
   (`edit_file` CAS, `grep_files`, `stat_file`, symlink rejection, mounts,
   per-session workspace keying).
 
@@ -237,10 +237,10 @@ server):
   dispatcher.
 - User hooks — six Everruns lifecycle events through one `Hook` trait,
   block/mutation/error-policy semantics, tool matchers, and feature-gated
-  trusted local shell execution. See [`hooks.md`](hooks.md).
+  trusted local shell execution. See [`hooks.md`](../extensibility/hooks.md).
   The strategy — first-class typed fields only for universal correctness data,
   generic hatches for the rest, behavior in engine/host extension points — is
-  [`extensibility.md`](extensibility.md).
+  [`extensibility.md`](../extensibility/extensibility.md).
 
 Remaining for Phase 1 completion:
 
@@ -250,7 +250,7 @@ Remaining for Phase 1 completion:
   no-default-features, doc, `cargo test --workspace --all-features`).
 - ✅ CI-driven release/publish — `.github/workflows/{release,publish}.yml`
   publish `agentyk-core` → `agentyk-engine` → `agentyk` to crates.io on a
-  `chore(release): prepare vX.Y.Z` merge; see [`release.md`](release.md).
+  `chore(release): prepare vX.Y.Z` merge; see [`release.md`](../operations/release.md).
   Remaining one-time setup: add `CARGO_REGISTRY_TOKEN` to Actions secrets and
   create the `release` environment.
 - Crate docs polish (rustdoc landing pages, README examples).

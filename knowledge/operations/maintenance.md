@@ -56,8 +56,8 @@ Agentyk adds a stricter repository profile on top of that format:
 
 ## Integration points
 
-[AGENTS.md](../AGENTS.md) requires agents to consult and maintain this bundle.
-The [ship workflow](../.claude/skills/ship/SKILL.md) enforces knowledge review
+[AGENTS.md](../../AGENTS.md) requires agents to consult and maintain this bundle.
+The [ship workflow](../../.claude/skills/ship/SKILL.md) enforces knowledge review
 as a required outcome, and [Shipping](shipping.md) defines the release bar.
 
 [okf-spec]: https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md

@@ -20,7 +20,7 @@ can reproduce everruns-grade behavior **as a library composed over agentyk's
 seams**, without patches to core. This note is the map for doing that: what is
 already external, the one thing that genuinely needs core, and the rule we use
 to decide. The crate and engine boundaries are defined in
-[`architecture.md`](architecture.md).
+[`architecture.md`](../foundations/architecture.md).
 
 ## The rule: behavior is external, data extensibility is core
 
@@ -50,7 +50,7 @@ runtime dependencies such as drivers, observers, and services belong to
 `AgentBuilder` may configure definition and environment and return one
 runnable value, so this internal boundary does not add a registry or an
 identity-first lifecycle. See
-[`architecture.md`](architecture.md#definition-versus-environment).
+[`architecture.md`](../foundations/architecture.md#definition-versus-environment).
 
 ## What already composes over existing seams (no core change)
 
@@ -80,7 +80,7 @@ unknown kind can be retained as custom data so a listener or newer host may
 inspect it. This tolerance must not make an older engine claim it can safely
 resume through an event required to reduce turn state. Unknown
 correctness-bearing events stop replay; unknown observational events may be
-ignored. See [`architecture.md`](architecture.md#event-authority).
+ignored. See [`architecture.md`](../foundations/architecture.md#event-authority).
 
 Two seams have a deliberate division of labour. **Middleware** owns policy
 about a call — deny it, rewrite it, transform its result — and is orchestrated
@@ -97,7 +97,7 @@ engine removes the copied loop itself.
 ## What needed a core change (0.1.2)
 
 Two more hatches, both from the yolop port
-([`yolop-adoption.md`](yolop-adoption.md)), both following the rule rather
+([`yolop-adoption.md`](../roadmap/yolop-adoption.md)), both following the rule rather
 than bending it:
 
 - **`ToolOutput.metadata`** — structured result data for the host. A tool

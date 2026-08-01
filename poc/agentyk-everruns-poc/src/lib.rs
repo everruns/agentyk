@@ -2,7 +2,7 @@
 //!
 //! A **proof of the extensibility boundary**: everruns-flavored behavior built
 //! as a satellite over [`agentyk-core`](agentyk_core)'s public seams, with no
-//! change to core. See `knowledge/extensibility.md` in the agentyk repo.
+//! change to core. See `knowledge/extensibility/extensibility.md` in the agentyk repo.
 //!
 //! The library depends on `agentyk-core` only. It shows that Everruns data can
 //! ride the metadata hatch and that approval, memory, and narration compose
