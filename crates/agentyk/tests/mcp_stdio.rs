@@ -11,7 +11,8 @@
 #![cfg(all(unix, feature = "mcp"))]
 
 use agentyk::{
-    Agent, EventData, McpCapability, McpClient, McpServer, ModelSpec, Result, SimDriver, SimTurn,
+    Agent, DynamicMcpCapability, EventData, McpCapability, McpClient, McpServer, ModelSpec, Result,
+    SimDriver, SimTurn,
 };
 use serde_json::json;
 
@@ -46,6 +47,17 @@ read line; log "$line"
 echo '{"jsonrpc":"2.0","id":2,"result":{"resultType":"complete","tools":[{"name":"lookup","description":"Look things up.","inputSchema":{"type":"object","properties":{"q":{"type":"string"}}}}]}}'
 read line; log "$line"
 echo '{"jsonrpc":"2.0","id":3,"result":{"resultType":"complete","content":[{"type":"text","text":"lookup says: 42"}],"isError":false}}'
+"#;
+
+/// A configurable modern server used to prove that a retained dynamic
+/// capability handle changes the next turn without replacing the session.
+const RELOADABLE_MCP_SERVER: &str = r#"
+read line
+echo '{"jsonrpc":"2.0","id":1,"result":{"resultType":"complete","supportedVersions":["2026-07-28"],"capabilities":{"tools":{}}}}'
+read line
+printf '{"jsonrpc":"2.0","id":2,"result":{"resultType":"complete","tools":[{"name":"%s","description":"Reloadable tool.","inputSchema":{"type":"object"}}]}}\n' "$MCP_TOOL"
+read line
+printf '{"jsonrpc":"2.0","id":3,"result":{"resultType":"complete","content":[{"type":"text","text":"%s"}],"isError":false}}\n' "$MCP_RESULT"
 "#;
 
 /// A log file the scripted server appends each request line to.
@@ -145,6 +157,56 @@ async fn a_modern_stdio_server_is_spoken_to_statelessly() -> Result<()> {
         );
         assert!(line.contains(r#""io.modelcontextprotocol/clientCapabilities":{}"#));
     }
+    Ok(())
+}
+
+#[tokio::test]
+async fn dynamic_servers_change_at_the_next_turn_boundary() -> Result<()> {
+    let dynamic = DynamicMcpCapability::new();
+    dynamic.activate(
+        McpServer::stdio("first", "sh")
+            .arg("-c")
+            .arg(RELOADABLE_MCP_SERVER)
+            .env("MCP_TOOL", "first_tool")
+            .env("MCP_RESULT", "first result"),
+    );
+    let agent = Agent::builder()
+        .model(ModelSpec::llmsim())
+        .driver(SimDriver::new([
+            SimTurn::tool_call("first_tool", json!({})),
+            SimTurn::text("first done"),
+            SimTurn::tool_call("second_tool", json!({})),
+            SimTurn::text("second done"),
+        ]))
+        .capability(dynamic.clone())
+        .build()?;
+    let mut session = agent.session();
+
+    assert_eq!(session.run("first").await?.response, "first done");
+    dynamic.replace_servers([McpServer::stdio("second", "sh")
+        .arg("-c")
+        .arg(RELOADABLE_MCP_SERVER)
+        .env("MCP_TOOL", "second_tool")
+        .env("MCP_RESULT", "second result")]);
+    assert_eq!(dynamic.server_names(), vec!["second"]);
+    assert_eq!(session.run("second").await?.response, "second done");
+
+    let completed: Vec<_> = session
+        .events()
+        .await?
+        .into_iter()
+        .filter_map(|event| match event.data {
+            EventData::ToolCompleted { name, output, .. } => Some((name, output)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        completed,
+        [
+            ("first_tool".into(), "first result".into()),
+            ("second_tool".into(), "second result".into())
+        ]
+    );
     Ok(())
 }
 

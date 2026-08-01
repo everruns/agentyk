@@ -92,10 +92,11 @@ pub use agentyk_core::{
     ModelCatalog, ModelProfile, ModelSpec, NoopEventListener, PassthroughContextAssembler,
     ProjectionSnapshot, ReasoningConfig, Result, Role, SealReason, SessionId, SessionPoint,
     SnapshotStore, SystemPromptContext, TextContentPart, Tool, ToolCall, ToolCallDecision,
-    ToolChainOutcome, ToolContext, ToolDefinition, ToolInvocation, ToolOutput, ToolPolicy,
-    ToolProgress, ToolProgressSink, TurnAction, TurnControls, TurnId, TurnMiddleware, TurnOutcome,
-    TurnPhase, TurnState, Usage, after_tool_chain, before_tool_chain, event_types,
-    messages_from_events, notify_event_listeners,
+    ToolChainOutcome, ToolContext, ToolDefinition, ToolEventPresentation, ToolInvocation,
+    ToolNarrationContext, ToolNarrationPhase, ToolOutput, ToolPolicy, ToolProgress,
+    ToolProgressSink, TurnAction, TurnControls, TurnId, TurnMiddleware, TurnOutcome, TurnPhase,
+    TurnState, Usage, after_tool_chain, before_tool_chain, event_types, messages_from_events,
+    notify_event_listeners,
 };
 /// The names most applications want in scope at once.
 ///
@@ -114,7 +115,7 @@ pub mod prelude {
         Agent, AgentBuilder, Capability, ChatDriver, CompositeEventListener, Event, EventData,
         EventListener, EventLog, FnTool, Message, ModelSpec, NoopEventListener, Result, RunOptions,
         Session, SessionView, Tool, ToolCallDecision, ToolContext, ToolDefinition, ToolInvocation,
-        ToolOutput, TurnMiddleware, TurnResult,
+        ToolNarrationContext, ToolNarrationPhase, ToolOutput, TurnMiddleware, TurnResult,
     };
 }
 
@@ -143,8 +144,8 @@ pub use mcp::oauth::{
 #[cfg(feature = "mcp")]
 #[cfg_attr(docsrs, doc(cfg(feature = "mcp")))]
 pub use mcp::{
-    McpAuthProvider, McpCapability, McpClient, McpProtocolMode, McpServer, McpServerDiscovery,
-    McpTransport, StaticBearer,
+    DynamicMcpCapability, McpAuthProvider, McpCapability, McpClient, McpProtocolMode, McpServer,
+    McpServerDiscovery, McpTransport, StaticBearer,
 };
 
 #[cfg(feature = "http")]

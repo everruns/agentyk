@@ -1,7 +1,9 @@
 //! MCP — Model Context Protocol support.
 //!
-//! [`McpCapability`] connects to an MCP server, discovers its tools, and
-//! exposes them to the model as ordinary [`Tool`]s. Two transports:
+//! [`McpCapability`] connects to one MCP server, while
+//! [`DynamicMcpCapability`] exposes a live set that a host can replace at a
+//! turn boundary. Both expose discovered tools as ordinary [`Tool`]s. Two
+//! transports:
 //!
 //! - **stdio** — a child process spoken to in newline-delimited JSON-RPC 2.0.
 //!   Credentials go in its environment.
@@ -29,10 +31,10 @@
 //! The connection is lazy: the process is spawned (or the first HTTP request
 //! sent) on the first turn that resolves tools.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::process::Stdio;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicI64, Ordering};
+use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
@@ -1239,6 +1241,158 @@ impl Capability for McpCapability {
                 }) as Arc<dyn Tool>
             })
             .collect())
+    }
+}
+
+/// A live, host-controlled set of MCP servers exposed as one capability.
+///
+/// `Agent` remains an immutable composition value. This capability is the
+/// narrow mutable resource a Yolop-style host keeps alongside it: activating,
+/// deactivating, or replacing servers changes the tool snapshot returned on
+/// the next call to [`Capability::tools`], which the engine makes while
+/// assembling every turn. A turn already being assembled or executed keeps
+/// its old clients alive and is unaffected.
+///
+/// Clone this value before attaching it to an agent to retain a reload handle:
+///
+/// ```no_run
+/// use agentyk::{Agent, DynamicMcpCapability, McpServer, ModelSpec};
+///
+/// # fn demo() -> agentyk::Result<Agent> {
+/// let mcp = DynamicMcpCapability::new();
+/// let agent = Agent::builder()
+///     .model(ModelSpec::llmsim())
+///     .capability(mcp.clone())
+///     .build()?;
+/// mcp.activate(McpServer::stdio("workspace", "workspace-mcp"));
+/// # Ok(agent)
+/// # }
+/// ```
+#[derive(Clone)]
+pub struct DynamicMcpCapability {
+    auth: Option<Arc<dyn McpAuthProvider>>,
+    servers: Arc<RwLock<BTreeMap<String, Arc<McpCapability>>>>,
+}
+
+impl DynamicMcpCapability {
+    /// Create an empty live server set without HTTP authentication.
+    pub fn new() -> Self {
+        Self {
+            auth: None,
+            servers: Arc::new(RwLock::new(BTreeMap::new())),
+        }
+    }
+
+    /// Create an empty live server set sharing one authentication provider.
+    ///
+    /// The provider is still asked per request and receives the server name,
+    /// so it may select different or refreshed credentials for each server.
+    pub fn with_auth(auth: impl McpAuthProvider + 'static) -> Self {
+        Self::with_auth_arc(Arc::new(auth))
+    }
+
+    /// Create an authenticated live server set from a shared provider value.
+    pub fn with_auth_arc(auth: Arc<dyn McpAuthProvider>) -> Self {
+        Self {
+            auth: Some(auth),
+            servers: Arc::new(RwLock::new(BTreeMap::new())),
+        }
+    }
+
+    /// Activate a server, replacing an active configuration with the same
+    /// name.
+    ///
+    /// The replacement connects lazily on the next turn. Any in-flight call
+    /// continues through the previous client snapshot.
+    pub fn activate(&self, server: McpServer) {
+        let name = server.name.clone();
+        let mut capability = McpCapability::new(server);
+        if let Some(auth) = &self.auth {
+            capability = capability.auth_arc(auth.clone());
+        }
+        self.servers
+            .write()
+            .expect("dynamic MCP server set poisoned")
+            .insert(name, Arc::new(capability));
+    }
+
+    /// Deactivate the server named `name`. Returns whether it was active.
+    ///
+    /// Existing in-flight calls keep their client alive; future turn
+    /// assemblies no longer expose its tools.
+    pub fn deactivate(&self, name: &str) -> bool {
+        self.servers
+            .write()
+            .expect("dynamic MCP server set poisoned")
+            .remove(name)
+            .is_some()
+    }
+
+    /// Atomically replace the full active server configuration.
+    ///
+    /// Repeated names use the last configuration in the input. The new set
+    /// becomes visible as one snapshot to the next turn assembly.
+    pub fn replace_servers(&self, servers: impl IntoIterator<Item = McpServer>) {
+        let replacement = servers
+            .into_iter()
+            .map(|server| {
+                let name = server.name.clone();
+                let mut capability = McpCapability::new(server);
+                if let Some(auth) = &self.auth {
+                    capability = capability.auth_arc(auth.clone());
+                }
+                (name, Arc::new(capability))
+            })
+            .collect();
+        *self
+            .servers
+            .write()
+            .expect("dynamic MCP server set poisoned") = replacement;
+    }
+
+    /// Active server names in deterministic order.
+    pub fn server_names(&self) -> Vec<String> {
+        self.servers
+            .read()
+            .expect("dynamic MCP server set poisoned")
+            .keys()
+            .cloned()
+            .collect()
+    }
+}
+
+impl Default for DynamicMcpCapability {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[async_trait]
+impl Capability for DynamicMcpCapability {
+    fn id(&self) -> &str {
+        "mcp:dynamic"
+    }
+
+    fn description(&self) -> &str {
+        "Tools provided by a live set of MCP servers."
+    }
+
+    async fn tools(&self) -> Result<Vec<Arc<dyn Tool>>> {
+        // Never hold a blocking lock across an await. The Arcs are also the
+        // turn-boundary guarantee: a reload cannot invalidate tools already
+        // assembled for an in-flight turn.
+        let capabilities: Vec<_> = self
+            .servers
+            .read()
+            .expect("dynamic MCP server set poisoned")
+            .values()
+            .cloned()
+            .collect();
+        let mut tools = Vec::new();
+        for capability in capabilities {
+            tools.extend(capability.tools().await?);
+        }
+        Ok(tools)
     }
 }
 

@@ -76,7 +76,7 @@ impl Transcript {
             EventData::OutputMessageCompleted { message, .. } => {
                 self.finish_assistant(message);
             }
-            EventData::ToolStarted { call } => {
+            EventData::ToolStarted { call, .. } => {
                 self.entries.push(Entry::Tool {
                     call_id: call.id.clone(),
                     name: call.name.clone(),

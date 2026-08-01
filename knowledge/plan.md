@@ -102,7 +102,7 @@ everruns concept must be expressible on top of the agentyk primitive.
 | `PreToolUseHook`/`PostToolExecHook` internal policy | `middleware::TurnMiddleware` on `AgentBuilder` | typed Rust guardrails remain distinct from user hooks; `before_tool` covers deny **and rewrite** and is orchestrated by the canonical engine |
 | `TurnOutcome::Sealed(SealReason)` (no-progress/budget), `HardLimitStopRule`/`BudgetChecker` | `turn::{TurnOutcome::Sealed, SealReason}` + `budget::BudgetChecker` | checked once per action, like cancellation; `NoProgress` exists but nothing sets it (needs a durable crash-reclaim host) |
 | `tool.denied` (implicit in approval/guardrail flows) | `event_types::TOOL_DENIED` | durable; recorded alongside `tool.started`/`tool.completed` when a pre-hook denies |
-| MCP merge/discovery (runtime `mcp.rs`) | `McpCapability` / `McpClient` / `McpServer` | MCP is just a capability; stdio transport built in |
+| MCP merge/discovery and live reload (runtime `mcp.rs`) | `McpCapability` / `DynamicMcpCapability` / `McpClient` / `McpServer` | MCP is just a capability; the dynamic aggregate snapshots a mutable server set at each turn boundary while `Agent` stays immutable |
 | Typed prefixed ids (`session_<hex>`) | `id::TypedId` (`SessionId`, `TurnId`, `EventId`) | same format; only correlation ids remain — no `AgentId`, `ModelId`, `ProviderId` |
 | `CommandDescriptor` + capability slash commands | `capability::{CommandDescriptor, CommandContext}`, `Capability::{commands, execute_command}` | `Session::commands()`/`execute_command()` route to the owning capability, bypassing the turn loop entirely (no model call, no event); `mcp_servers()` held back — see `everruns-adoption.md` gap 13 |
 | `ToolContext` service bag (workspace/file/storage/image/credential/utility-LLM) | `extensions::Extensions` (`ToolContext.extensions`) | axum-style `TypeId`-keyed bag instead of enumerated `Option<Arc<dyn …>>` fields; `AgentBuilder::extension(value)` populates it once per agent |
@@ -110,7 +110,8 @@ everruns concept must be expressible on top of the agentyk primitive.
 | `Message.thinking` / `thinking_signature` (extended thinking round-trip) | same field names on `message::Message` | typed (universal reasoning, must round-trip to the provider); Anthropic parses, streams, and replays signed thinking blocks |
 | `Message.external_actor` | same field on `message::Message` | external user identity survives replay; provider-facing context labels the speaker without rewriting durable content |
 | `MessageId` on `output.message.*` (streaming lifecycle correlation) | `id::MessageId` on `OutputMessage{Started,Delta,Completed}`, held on `TurnState::current_message_id` | typed; allocated in `on_reason_started`, `#[serde(default)]` so pre-0.1.1 logs still load |
-| `ToolHints`, capability `status`/`category`/`icon`, `Message.phase`, narration hints | generic `metadata` hatches: `ToolDefinition.metadata`, `Capability::metadata()`, `Message.metadata` | everruns-flavored richness rides an opaque `serde_json::Value` (the data analogue of `EventData::Custom`); the adopting host owns the schema — see [`extensibility.md`](extensibility.md) |
+| Tool narration and display names | `Tool::{display_name,narrate}` + optional fields on `tool.started`/`tool.completed` | argument-aware lifecycle text is authored before information is lost and persists for replay; phase vocabulary matches everruns |
+| `ToolHints`, capability `status`/`category`/`icon`, `Message.phase` | generic `metadata` hatches: `ToolDefinition.metadata`, `Capability::metadata()`, `Message.metadata` | everruns-flavored richness rides an opaque `serde_json::Value` (the data analogue of `EventData::Custom`); the adopting host owns the schema — see [`extensibility.md`](extensibility.md) |
 | guardrail mutation / approval / capability-contributed hooks | `middleware::TurnMiddleware` (`Rewrite`/`Deny`), attached on the builder | mutation and approval no longer need a forked act loop |
 | parallel dispatch | a tool dispatcher over a batch prepared by the engine | dispatch policy changes without copying the reason/act loop |
 
@@ -135,9 +136,10 @@ server):
   [`multi-actor-sessions.md`](multi-actor-sessions.md).
 - Turn loop — everruns `input → reason → act` contract: input event, model
   completion, tool execution, repeat until text (or `max_iterations`).
-- Event protocol + logs — `InMemoryEventLog`, `JsonlEventLog` (shared files,
-  per-session sequences, reopen + resume); `Agent::resume_session` rebuilds
-  history purely from the log.
+- Event protocol + logs — `InMemoryEventLog`, local single-process
+  `JsonlEventLog`, and the production `EventStore` adapter seam (atomic
+  expected-version batches, bounded effective-branch reads, heads, forks);
+  `Agent::resume_session` rebuilds history purely from the log.
 - Session timelines — immutable `SessionPoint`s, historical inspection,
   completed-turn forks with recorded lineage, bounded `EventRange` pages,
   efficient heads in bundled stores, and optional schema-versioned projection
@@ -149,7 +151,8 @@ server):
   (Chat Completions; any OpenAI-compatible endpoint via `base_url`) and
   `AnthropicDriver` (Messages API) behind the `http` feature. Both stream
   real incremental SSE deltas.
-- MCP — stdio and Streamable HTTP JSON-RPC clients (`server/discover`,
+- MCP — static and live-reloadable server capabilities over stdio and
+  Streamable HTTP JSON-RPC clients (`server/discover`,
   `tools/list`, `tools/call`, and the `initialize` handshake for servers that
   still want it), lazy connection, tools exposed as ordinary `Tool`s. Both
   transports default to multi-era `Auto`. HTTP optimistically sends a

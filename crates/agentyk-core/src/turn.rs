@@ -232,7 +232,7 @@ impl TurnState {
                         pending.call = call.clone();
                     }
                 }
-                EventData::ToolStarted { call } => {
+                EventData::ToolStarted { call, .. } => {
                     let state = replay_state(&mut state, turn_id)?;
                     if let TurnPhase::PendingAct { calls } = &mut state.phase
                         && let Some(pending) =
@@ -484,6 +484,16 @@ impl TurnState {
     /// Record that the call with this id is starting. Idempotent per call
     /// id: re-running after a crash records nothing twice.
     pub fn on_tool_started(&mut self, call_id: &str) -> Vec<EventData> {
+        self.on_tool_started_with_presentation(call_id, Default::default())
+    }
+
+    /// Record that a call is starting, including durable human-facing fields.
+    /// Idempotent per call id, like [`Self::on_tool_started`].
+    pub fn on_tool_started_with_presentation(
+        &mut self,
+        call_id: &str,
+        presentation: crate::tool::ToolEventPresentation,
+    ) -> Vec<EventData> {
         let TurnPhase::PendingAct { calls } = &mut self.phase else {
             return Vec::new();
         };
@@ -496,6 +506,8 @@ impl TurnState {
         pending.started = true;
         vec![EventData::ToolStarted {
             call: pending.call.clone(),
+            display_name: presentation.display_name,
+            narration: presentation.narration,
         }]
     }
 
@@ -503,6 +515,17 @@ impl TurnState {
     /// in the batch has resolved, moves back to `PendingReason` — the batch
     /// can complete in any order.
     pub fn on_tool_completed(&mut self, call_id: &str, output: &ToolOutput) -> Vec<EventData> {
+        self.on_tool_completed_with_presentation(call_id, output, Default::default())
+    }
+
+    /// Apply a call result and attach durable human-facing completion fields.
+    /// Idempotent per call id, like [`Self::on_tool_completed`].
+    pub fn on_tool_completed_with_presentation(
+        &mut self,
+        call_id: &str,
+        output: &ToolOutput,
+        presentation: crate::tool::ToolEventPresentation,
+    ) -> Vec<EventData> {
         let TurnPhase::PendingAct { calls } = &mut self.phase else {
             return Vec::new();
         };
@@ -519,6 +542,8 @@ impl TurnState {
             name: pending.call.name.clone(),
             output: output.content.clone(),
             is_error: output.is_error,
+            display_name: presentation.display_name,
+            narration: presentation.narration,
             metadata: output.metadata.clone(),
             parts: output.parts.clone(),
         }];
@@ -746,7 +771,12 @@ mod tests {
 
         // `tool.started` announces the call as it will actually run.
         let started = state.on_tool_started(&call.id);
-        let [EventData::ToolStarted { call: announced }] = started.as_slice() else {
+        let [
+            EventData::ToolStarted {
+                call: announced, ..
+            },
+        ] = started.as_slice()
+        else {
             panic!("expected tool.started");
         };
         assert_eq!(announced.id, call.id, "a rewrite keeps the call id");

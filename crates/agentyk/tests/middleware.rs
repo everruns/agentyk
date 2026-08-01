@@ -166,7 +166,7 @@ async fn a_rewrite_reaches_the_tool_and_is_recorded() -> Result<()> {
     let started = events
         .iter()
         .find_map(|e| match &e.data {
-            EventData::ToolStarted { call } => Some(call.clone()),
+            EventData::ToolStarted { call, .. } => Some(call.clone()),
             _ => None,
         })
         .unwrap();

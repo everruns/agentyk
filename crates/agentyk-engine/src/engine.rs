@@ -9,7 +9,9 @@ use agentyk_core::event::EventData;
 use agentyk_core::hook::{HookContext, HookEvent};
 use agentyk_core::message::{Message, ToolCall};
 use agentyk_core::middleware::{self, ToolChainOutcome};
-use agentyk_core::tool::{ToolContext, ToolOutput};
+use agentyk_core::tool::{
+    ToolContext, ToolEventPresentation, ToolNarrationContext, ToolNarrationPhase, ToolOutput,
+};
 use agentyk_core::turn::{SealReason, TurnAction, TurnOutcome, TurnState};
 
 use crate::hooks::{self, PromptDecision, ToolDecision};
@@ -258,7 +260,15 @@ impl TurnEngine {
                                     Some("user_hook".into()),
                                 ));
                             }
-                            events.extend(state.on_tool_started(&blocked.id));
+                            events.extend(state.on_tool_started_with_presentation(
+                                &blocked.id,
+                                tool_presentation(
+                                    assembled,
+                                    &blocked,
+                                    ToolNarrationPhase::Started,
+                                    &context,
+                                ),
+                            ));
                             events.push(EventData::ToolDenied {
                                 call_id: blocked.id.clone(),
                                 name: blocked.name.clone(),
@@ -301,7 +311,15 @@ impl TurnEngine {
                     .await;
                     match decision {
                         ToolChainOutcome::Deny { reason } => {
-                            events.extend(state.on_tool_started(&call_after_hooks.id));
+                            events.extend(state.on_tool_started_with_presentation(
+                                &call_after_hooks.id,
+                                tool_presentation(
+                                    assembled,
+                                    &call_after_hooks,
+                                    ToolNarrationPhase::Started,
+                                    &context,
+                                ),
+                            ));
                             events.push(EventData::ToolDenied {
                                 call_id: call_after_hooks.id.clone(),
                                 name: call_after_hooks.name.clone(),
@@ -323,7 +341,15 @@ impl TurnEngine {
                                     None,
                                 ));
                             }
-                            events.extend(state.on_tool_started(&executed.id));
+                            events.extend(state.on_tool_started_with_presentation(
+                                &executed.id,
+                                tool_presentation(
+                                    assembled,
+                                    &executed,
+                                    ToolNarrationPhase::Started,
+                                    &context,
+                                ),
+                            ));
                             prepared.push(PreparedToolCall {
                                 call: executed,
                                 denied: None,
@@ -387,12 +413,12 @@ impl TurnEngine {
         output: ToolOutput,
         denied: bool,
     ) -> Vec<EventData> {
-        let output = if denied {
-            output
+        let context = ToolContext::new(host.session_id, state.turn_id)
+            .with_extensions(host.environment.extensions.clone())
+            .with_cancellation(host.cancellation.clone());
+        let (output, mut events) = if denied {
+            (output, Vec::new())
         } else {
-            let context = ToolContext::new(host.session_id, state.turn_id)
-                .with_extensions(host.environment.extensions.clone())
-                .with_cancellation(host.cancellation.clone());
             let definition = assembled.tool(&call.name).map(|tool| tool.definition());
             let output = middleware::after_tool_chain(
                 &host.definition.middleware,
@@ -409,10 +435,37 @@ impl TurnEngine {
                 output,
             )
             .await;
-            let mut events = warnings;
-            events.extend(state.on_tool_completed(&call.id, &output));
-            return events;
+            (output, warnings)
         };
-        state.on_tool_completed(&call.id, &output)
+        let phase = if output.is_error {
+            ToolNarrationPhase::Failed
+        } else {
+            ToolNarrationPhase::Completed
+        };
+        events.extend(state.on_tool_completed_with_presentation(
+            &call.id,
+            &output,
+            tool_presentation(assembled, call, phase, &context),
+        ));
+        events
     }
+}
+
+fn tool_presentation(
+    assembled: &AssembledTurn,
+    call: &ToolCall,
+    phase: ToolNarrationPhase,
+    context: &ToolContext,
+) -> ToolEventPresentation {
+    let Some(tool) = assembled.tool(&call.name) else {
+        return ToolEventPresentation::default();
+    };
+    ToolEventPresentation::new(
+        tool.display_name().map(str::to_owned),
+        tool.narrate(
+            call,
+            phase,
+            ToolNarrationContext::from_tool_context(context),
+        ),
+    )
 }
