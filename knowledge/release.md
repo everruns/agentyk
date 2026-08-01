@@ -15,12 +15,12 @@ Implemented.
 
 Releases are CI-driven. An agent (or human) prepares a release PR that bumps
 the version and updates the changelog; on merge to `main`, GitHub Actions
-creates the GitHub Release + tag and publishes all three crates to crates.io. No
+creates the GitHub Release + tag and publishes all four crates to crates.io. No
 crates.io token ever lives on a developer machine — it lives only in the
 repository's Actions secrets.
 
 Modeled on `everruns/bashkit`'s release process, reduced to agentyk's shape:
-three crates, one registry (crates.io), no git-only dependencies to strip.
+four crates, one registry (crates.io), no git-only dependencies to strip.
 
 ## Versioning
 
@@ -31,12 +31,13 @@ within `0.1.x` (agentyk is pre-adoption).
 
 ## Crates and publish order
 
-All three crates share one workspace version (`Cargo.toml`'s `[workspace.package]
-version`). They publish in dependency order:
+All four library crates share one workspace version (`Cargo.toml`'s
+`[workspace.package]` version). They publish in dependency order:
 
 1. `agentyk-core` — the contract crate, no internal deps.
 2. `agentyk-engine` — the canonical engine, depends on `agentyk-core`.
-3. `agentyk` — the facade crate, depends on core and engine (each a
+3. `agentyk-macros` — proc-macro implementation, no internal deps.
+4. `agentyk` — the facade crate, depends on core, engine, and macros (each a
    path-and-version dependency; cargo resolves the registry version at publish
    time).
 
@@ -60,10 +61,10 @@ crates.io silently failed.
    `git fetch --unshallow origin main 2>/dev/null || git fetch origin main`.
 2. **Determine version** — human-specified, or the next `0.1.z` patch.
 3. **Update the version** in the workspace `Cargo.toml` `[workspace.package]`
-   (all three crates inherit it via `version.workspace = true`). Keep the
+   (all four library crates inherit it via `version.workspace = true`). Keep the
    `[workspace.dependencies]` requirements for `agentyk-core` and
-   `agentyk-engine` in sync with the new version. Refresh `Cargo.lock` with a
-   plain `cargo build`.
+   `agentyk-engine` and `agentyk-macros` in sync with the new version. Refresh
+   `Cargo.lock` with a plain `cargo build`.
 4. **Update `CHANGELOG.md`** — add a `## [X.Y.Z] - YYYY-MM-DD` section (format
    below). `release.yml` extracts the notes by matching this exact header.
 5. **Local verification** — `cargo fmt --all --check`,
@@ -74,15 +75,17 @@ crates.io silently failed.
 6. **Verify publish-readiness** (catches what tests don't — packaging, missing
    files, version drift):
    - `cargo publish -p agentyk-core --dry-run` must succeed.
+   - `cargo publish -p agentyk-macros --dry-run` must succeed.
    - `cargo publish -p agentyk-engine --dry-run` and
      `cargo publish -p agentyk --dry-run` resolve their internal dependencies
-     from the registry. On the first release of this three-crate layout they
+     from the registry. On the first release of this four-crate layout they
      may not package locally until the preceding crate exists. This is
      expected: `publish.yml` publishes in dependency order and waits for each
      index update.
    - Version sync: the workspace version is greater than the latest published
      version on crates.io (`cargo search agentyk-core`,
-     `cargo search agentyk-engine`, `cargo search agentyk`).
+     `cargo search agentyk-engine`, `cargo search agentyk-macros`,
+     `cargo search agentyk`).
 7. **Commit and push** — `chore(release): prepare vX.Y.Z` on a feature branch.
 8. **Open a PR** — same title; changelog excerpt + publish-readiness report in
    the description.
@@ -95,9 +98,10 @@ crates.io silently failed.
   from `origin/main`, extracts notes from `CHANGELOG.md`, creates the GitHub
   Release + tag, then dispatches `publish.yml` against the verified tag.
 - **`publish.yml`** (trigger: Release published, or manual dispatch) —
-  publishes `agentyk-core`, `agentyk-engine`, then `agentyk`, waiting for the
-  index between them. Each reads `CARGO_REGISTRY_TOKEN` from the `release`
-  environment. A final job verifies all three crates report the new version.
+  publishes `agentyk-core`, `agentyk-engine`, `agentyk-macros`, then `agentyk`,
+  waiting for the index between them. Each reads `CARGO_REGISTRY_TOKEN` from
+  the `release` environment. A final job verifies all four crates report the
+  new version.
   The checkout
   keeps its git credentials (this is a **private** repo — the "source is on
   main" check does an authenticated `git fetch`, which a credential-stripped
@@ -109,10 +113,10 @@ crates.io silently failed.
 ## Authentication (one-time repository setup)
 
 - Add `CARGO_REGISTRY_TOKEN` (a crates.io API token with publish scope for all
-  three crates) to the repository's GitHub Actions secrets.
+  four crates) to the repository's GitHub Actions secrets.
 - Create a GitHub **environment** named `release` (Settings → Environments).
-  Both publish jobs run in it; add required reviewers there if you want a manual
-  approval gate before anything reaches crates.io.
+  Every publish job runs in it; add required reviewers there if you want a
+  manual approval gate before anything reaches crates.io.
 - The first-ever publish must be done by an owner of the crate names on
   crates.io (crates.io auto-owns a name on first publish); after that the token
   suffices.
@@ -126,8 +130,8 @@ available `cargo publish --dry-run` succeeds.
 ## Post-merge monitoring
 
 - GitHub Release (`release.yml`): `gh release view vX.Y.Z`
-- crates.io (`publish.yml`): search `agentyk-core`, `agentyk-engine`, and
-  `agentyk`
+- crates.io (`publish.yml`): search `agentyk-core`, `agentyk-engine`,
+  `agentyk-macros`, and `agentyk`
 
 If a workflow fails: `gh run view <run-id> --log-failed`, fix the root cause,
 re-run (transient) or open a hotfix patch release (packaging/code bug). Do not
@@ -141,6 +145,6 @@ leave a release half-shipped (one crate live, the other not).
 
 ## Rollback
 
-`cargo yank --version X.Y.Z agentyk` (and its core/engine siblings) — use sparingly;
-yanked versions still resolve for existing `Cargo.lock` files but are not
-selected for new dependency resolution.
+`cargo yank --version X.Y.Z agentyk` (and its core/engine/macro siblings) — use
+sparingly; yanked versions still resolve for existing `Cargo.lock` files but
+are not selected for new dependency resolution.

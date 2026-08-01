@@ -124,6 +124,16 @@ pub use agentyk_engine::{
     PreparedStep, PreparedToolCall, PreparedTurnStart, RunOptions, Session, SessionView,
     TurnEngine, TurnHost, TurnOperation, TurnResult, agent, engine, host, in_process, session,
 };
+pub use agentyk_macros::tool;
+pub use schemars::JsonSchema;
+
+/// Implementation details used by exported macros. Not a stable API.
+#[doc(hidden)]
+pub mod __private {
+    pub use async_trait::async_trait;
+    pub use schemars;
+    pub use serde_json;
+}
 pub use drivers::sim::{SimDriver, SimToolCall, SimTurn};
 #[cfg(feature = "fs")]
 #[cfg_attr(docsrs, doc(cfg(feature = "fs")))]

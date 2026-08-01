@@ -21,6 +21,30 @@ let turn = session.run("list the files").await?;
 println!("{}", turn.response);
 ```
 
+Ordinary async functions can be attached directly as typed tools. The macro
+uses the function name as the tool name, derives its JSON schema from the
+parameters, and turns bad model arguments into a tool error:
+
+```rust
+use agentyk::{Agent, ToolOutput};
+
+#[agentyk::tool(description = "Add two integers.")]
+async fn add(a: i64, b: i64) -> ToolOutput {
+    ToolOutput::text((a + b).to_string())
+}
+
+let agent = Agent::builder()
+    // model + driver...
+    .tool(add)
+    .build()?;
+```
+
+Add a final `&ToolContext` parameter when the function needs session-scoped
+extensions, cancellation, or progress reporting; it is not exposed to the
+model. Custom parameter types derive `serde::Deserialize` and
+`agentyk::JsonSchema`. Capabilities remain the object-level bundle for prompt
+contributions, dynamic tool discovery, commands, metadata, and shared state.
+
 ## What's inside
 
 - **Turn loop** — the everruns `input → reason → act` contract: model
@@ -117,14 +141,16 @@ used by Everruns and Yolop, while Agentyk runs the parent and child turns:
 
 ## Packaging
 
-Three crates separate portable contracts, canonical turn semantics, and
-bundled implementations:
+Four crates separate portable contracts, canonical turn semantics, proc
+macros, and bundled implementations:
 
 - **`agentyk-core`** — the contract: what you *implement against*. Traits
   and portable values, events, and turn reducers.
 - **`agentyk-engine`** — the canonical step engine, `Agent`, `Session`, and
   in-process runner. Everruns durable execution hosts this same engine one
   persisted step at a time.
+- **`agentyk-macros`** — attribute macros re-exported by the facade, including
+  `#[agentyk::tool]`. Applications do not depend on it directly.
 - **`agentyk`** — the application facade and bundled feature-gated modules:
   drivers, event stores, MCP, and filesystem support.
 

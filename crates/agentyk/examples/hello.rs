@@ -5,8 +5,13 @@
 //! cargo run --example hello
 //! ```
 
-use agentyk::{Agent, FnTool, ModelSpec, SimDriver, SimTurn, ToolOutput};
+use agentyk::{Agent, ModelSpec, SimDriver, SimTurn, ToolOutput};
 use serde_json::json;
+
+#[agentyk::tool(description = "Current time.")]
+async fn time() -> ToolOutput {
+    ToolOutput::text(chrono::Utc::now().to_rfc3339())
+}
 
 #[tokio::main]
 async fn main() -> agentyk::Result<()> {
@@ -18,12 +23,7 @@ async fn main() -> agentyk::Result<()> {
             SimTurn::tool_call("time", json!({})),
             SimTurn::text("It is exactly now."),
         ]))
-        .tool(FnTool::new(
-            "time",
-            "Current time.",
-            json!({"type": "object"}),
-            |_| async { ToolOutput::text(chrono::Utc::now().to_rfc3339()) },
-        ))
+        .tool(time)
         .build()?;
 
     let mut session = agent.session();
