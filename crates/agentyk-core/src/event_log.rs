@@ -183,6 +183,19 @@ pub enum ExpectedVersion {
 }
 
 /// Append-only, per-session-sequenced event storage.
+///
+/// This is the production persistence seam, not a prescription for a file or
+/// database layout. A Yolop-class implementation can place logical branches
+/// over an existing session log, use database transactions or cross-process
+/// locks for [`ExpectedVersion`], fsync before acknowledging an append,
+/// enforce owner-only access, and repair a truncated physical tail. The
+/// contract visible to the engine stays the same: atomic batches, contiguous
+/// effective sequences, ordered branch reads, and immutable fork points.
+///
+/// Physical recovery and access control remain store responsibilities because
+/// the correct mechanism depends on the backing system. Returning `Ok` from
+/// [`EventStore::append_batch`] means the implementation has reached whatever
+/// durability level it documents for its host.
 #[async_trait]
 pub trait EventStore: Send + Sync {
     /// Atomically append a batch and assign ids, timestamps, and contiguous

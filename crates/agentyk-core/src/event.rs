@@ -174,6 +174,12 @@ pub enum EventData {
     ToolStarted {
         /// The call as it will run: id, name, and arguments.
         call: ToolCall,
+        /// Human-readable tool label captured when the call started.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        display_name: Option<String>,
+        /// Tool-authored, call-specific start narration for timeline UI.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        narration: Option<String>,
     },
     /// A tool call resolved. Recorded for denied calls too, carrying the
     /// denial reason as an error result, because that is what the model sees.
@@ -187,6 +193,12 @@ pub enum EventData {
         /// Whether `output` describes a failure. Tool failures are results,
         /// not turn failures: the model gets to react to them.
         is_error: bool,
+        /// Human-readable tool label captured when the call completed.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        display_name: Option<String>,
+        /// Tool-authored, call-specific completion or failure narration.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        narration: Option<String>,
         /// Structured result data for the host — see
         /// [`crate::tool::ToolOutput::metadata`]. `Null` (and omitted from
         /// serialization) unless the tool attached some, so logs written
@@ -756,6 +768,8 @@ mod tests {
                 name: "read_file".into(),
                 output: "hi".into(),
                 is_error: false,
+                display_name: Some("Read file".into()),
+                narration: Some("Read README.md".into()),
                 metadata: serde_json::Value::Null,
                 parts: Vec::new(),
             },
@@ -764,6 +778,40 @@ mod tests {
         let back: Event = serde_json::from_str(&serde_json::to_string(&event).unwrap()).unwrap();
         assert_eq!(back, event);
         assert!(matches!(back.data, EventData::ToolCompleted { .. }));
+    }
+
+    #[test]
+    fn older_tool_events_gain_empty_presentation_fields() {
+        let started: EventData = serde_json::from_value(serde_json::json!({
+            "kind": "tool_started",
+            "call": {"id": "call_0", "name": "read_file", "arguments": {}}
+        }))
+        .unwrap();
+        assert!(matches!(
+            started,
+            EventData::ToolStarted {
+                display_name: None,
+                narration: None,
+                ..
+            }
+        ));
+
+        let completed: EventData = serde_json::from_value(serde_json::json!({
+            "kind": "tool_completed",
+            "call_id": "call_0",
+            "name": "read_file",
+            "output": "hi",
+            "is_error": false
+        }))
+        .unwrap();
+        assert!(matches!(
+            completed,
+            EventData::ToolCompleted {
+                display_name: None,
+                narration: None,
+                ..
+            }
+        ));
     }
 
     #[test]

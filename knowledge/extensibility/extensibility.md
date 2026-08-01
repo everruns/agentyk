@@ -18,7 +18,7 @@ reducers. The goal is that a downstream project — the eventual
 everruns-core rebuild, a `agentyk-everruns-poc` compat layer, or any adopter —
 can reproduce everruns-grade behavior **as a library composed over agentyk's
 seams**, without patches to core. This note is the map for doing that: what is
-already external, the one thing that genuinely needs core, and the rule we use
+already external, what genuinely needs core, and the rule we use
 to decide. The crate and engine boundaries are defined in
 [`architecture.md`](../foundations/architecture.md).
 
@@ -27,8 +27,8 @@ to decide. The crate and engine boundaries are defined in
 You cannot add a field to another crate's serialized `struct`/`enum`. So the
 only thing an external crate fundamentally *can't* do is extend the protocol
 types that flow through the driver, the event log, and replay. Everything
-else — orchestration, hooks, capabilities, narration, compaction — is
-behavior, and agentyk already exposes seams for behavior.
+else — orchestration, hooks, capability logic, narration rendering,
+compaction — is behavior, and agentyk exposes seams for behavior.
 
 Therefore:
 
@@ -59,9 +59,10 @@ identity-first lifecycle. See
 | Guardrails that **mutate/redact** a call, **approval** pauses, capability-contributed hooks | `middleware::TurnMiddleware` — `before_tool` returns `Proceed`/`Rewrite`/`Deny`, `after_tool` transforms the result; attached with `AgentBuilder::middleware` |
 | Operator-authored lifecycle hooks | `hook::Hook` — six stable Everruns events with JSON payloads/outcomes; optional trusted local `ShellHook`, or a host-owned sandbox executor |
 | **Parallel** tool dispatch | A host tool dispatcher over the batch prepared by the canonical step engine; it never owns the whole turn loop |
-| MCP server merging (`mcp_servers()`) | A `Capability` whose `tools()` connects and returns the servers' tools (see the bundled `McpCapability`) |
+| MCP server merging and live reload | `DynamicMcpCapability`; the host mutates its server set and the next per-turn `tools()` snapshot sees it |
 | Tool risk taxonomy / `ToolHints` | A tool wrapper + engine middleware; hints are host-side, never sent to the model — carry them in `ToolDefinition.metadata` |
-| Narration, `status()`/`category()`/`icon()`, `facts()`, richer command results | Capabilities + `EventListener`s (narration is a listener over the event stream); `Capability::metadata()` for status/category |
+| Tool narration | `Tool::display_name` + phase-aware `Tool::narrate`; the engine persists their output on tool lifecycle events and listeners only render it |
+| `status()`/`category()`/`icon()`, `facts()`, richer command results | Capabilities + `EventListener`s; `Capability::metadata()` for status/category |
 | Compaction / infinity-context | A `ContextAssembler` using the request's model, token limit, immutable point, and paged events; return provenance and context events in `ContextAssembly` |
 | File-system depth (mounts, grep, stat, edit) | More `FileSystem` tools + store impls behind the `fs` feature |
 | Host services reaching tools | `ToolContext.extensions` (typed, `TypeId`-keyed bag) |
@@ -93,6 +94,19 @@ core's hooks could only allow or deny, a satellite that merely wanted to redact
 an argument had to fork the entire act loop, duplicating the cancel check, the
 delta sink, and the outcome mapping — code that then drifts. The canonical step
 engine removes the copied loop itself.
+
+## What needed a core change (live MCP and narration)
+
+Two Yolop production-parity changes land on opposite sides of the rule:
+
+- **Dynamic MCP is behavior.** `DynamicMcpCapability` keeps a reloadable set
+  of ordinary `McpCapability` values and snapshots them from `tools()` during
+  turn assembly. No `Agent` mutability or turn-loop branch was added.
+- **Narration output is protocol data.** `Tool::narrate` owns argument-aware
+  wording, while optional `display_name` and `narration` fields on
+  `tool.started`/`tool.completed` preserve exactly what the live UI saw for a
+  replaying UI. The reducer ignores the fields, and old logs deserialize them
+  as absent.
 
 ## What needed a core change (0.1.2)
 
@@ -138,7 +152,7 @@ because they cross the driver / event-log / replay boundary:
    for the reason step and stamped onto all three events.
 3. **Generic `metadata` hatches** — `Message.metadata`,
    `ToolDefinition.metadata`, and `Capability::metadata()`. This is where
-   everruns-flavored richness rides: execution `phase`, narration hints, the
+   everruns-flavored richness rides: execution `phase`, the
    tool risk/hint taxonomy, capability status/category/icon. Adding these once
    means core does **not** need another change as everruns evolves — new
    fields land in the bag, and the adopting host interprets them.
@@ -151,7 +165,8 @@ still deserialize.
 
 > Rebuilt everruns-core =
 > a durable host and operation dispatchers
-> + capabilities (narration, compaction, facts, filesystem depth)
+> + tools (narration)
+> + capabilities (compaction, facts, filesystem depth)
 > + drivers
 > + `metadata` conventions (a documented schema for what rides in the hatches).
 
@@ -175,8 +190,9 @@ only; the facade appears as a dev dependency for end-to-end tests. It ships:
   `ToolDefinition.metadata` under a `"hints"` key — the metadata hatch driving
   real behavior, with core none the wiser.
 - `NarrationListener` — an `EventListener` that renders the event stream into
-  transcript lines, showing everruns' largest UI surface (`tool_narration`) is
-  a pure observer, not a turn-loop concern.
+  transcript lines. The listener remains a pure renderer; call-specific
+  narration is now authored by the tool and carried durably by the lifecycle
+  event instead of being re-derived from a narrower event after the fact.
 - `MemoryAssembler` — a `ContextAssembler` that injects a persistent memory
   note into every turn and can cap replayed history (`keep_last`), showing
   everruns-style **memory + compaction** shape *what the turn sends* over the

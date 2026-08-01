@@ -27,9 +27,12 @@ println!("{}", turn.response);
   completion, tool execution, repeat until a text answer.
 - **Event log** — every step is a typed event (`turn.started`,
   `input.message`, `tool.completed`, …). Logs are pluggable
-  (`InMemoryEventLog`, `JsonlEventLog`, or your own `EventLog` impl) and
-  sessions resume by replaying them. Bounded pages, immutable historical
-  points, forks, and disposable snapshots support long-lived timelines.
+  (`InMemoryEventLog`, the single-process local `JsonlEventLog`, or your own
+  production `EventStore` impl) and sessions resume by replaying them. A host
+  store owns cross-process concurrency, fsync/transaction durability, access
+  control, tail recovery, and physical branch layout. Bounded pages,
+  immutable historical points, forks, and disposable snapshots support
+  long-lived timelines.
 - **Event listeners** — `EventListener` observes durable and ephemeral events,
   optionally filtered by event type. `CompositeEventListener` combines
   observers with ordered, panic-isolated delivery.
@@ -47,9 +50,14 @@ println!("{}", turn.response);
 - **Live tool progress** — a running tool calls
   `ToolContext::report_progress`, and the host sees ephemeral `tool.progress`
   events while it works. Results can carry structured `metadata` for the host
-  and image `parts` for the model, alongside the text both read.
+  and image `parts` for the model, alongside the text both read. A tool can
+  also supply `display_name()` and phase-aware `narrate()` text, durably
+  captured on its start and completion events.
 - **MCP** — `McpCapability` connects to Model Context Protocol servers over
-  stdio or HTTP and exposes their tools to the model. Both transports default
+  stdio or HTTP and exposes their tools to the model. `DynamicMcpCapability`
+  lets a host activate, deactivate, or atomically replace a server set; the
+  next turn sees the new snapshot without mutating the `Agent` or replacing
+  its session log. Both transports default
   to `McpProtocolMode::Auto` and speak the stateless `2026-07-28` protocol
   where they can — carrying the protocol version, client capabilities, and
   identity in each request's `_meta` — falling back to the initialize
@@ -135,7 +143,7 @@ nothing that can open a socket or spawn a process. Opt in to what you need.
 | --- | --- | --- |
 | *(none)* | turn loop, `InMemoryEventLog`, `JsonlEventLog`, `SimDriver` | — |
 | `http` | `OpenAiDriver`, `AnthropicDriver` (SSE streaming) | `reqwest`, `futures-util` |
-| `mcp` | `McpCapability` / `McpClient` over stdio (HTTP transport also needs `http`) | `tokio` (rt, process, io-util, sync, time) |
+| `mcp` | static or live-reloadable MCP capabilities / `McpClient` over stdio (HTTP transport also needs `http`) | `tokio` (rt, process, io-util, sync, time) |
 | `mcp-oauth` | OAuth 2.1 discovery, DCR, PKCE loopback login, token refresh | `mcp`, `http`, `base64`, `rand`, `sha2` |
 | `fs` | `FileSystemCapability`, real-disk and in-memory stores | `tokio` (fs, sync), `regex` |
 | `hooks` | trusted local `ShellHook` executor | `tokio` (process, io-util, time) |

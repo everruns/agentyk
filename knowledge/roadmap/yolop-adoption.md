@@ -201,7 +201,10 @@ Real, worked around, but each one costs an adopter something.
    `ttlMs`-bounded `tools/list` cache — live with that client rather than in
    everruns' shared, credential-keyed transport cache.
    Needs the `http` feature alongside `mcp`; without it, connecting says so.
-   Capabilities contributing servers (gap 13) is still open.
+   Live activation followed: `DynamicMcpCapability` owns a host-reloadable set
+   of these per-server capabilities. `tools()` snapshots it during each turn's
+   assembly, so Yolop can activate, deactivate, or replace servers without
+   mutating `Agent`; an in-flight turn retains its old client snapshot.
 9. ✅ **Reasoning effort is unvalidated — fixed.**
 
    *Was:* `ModelSpec::reasoning_effort` took any string, with no model-profile
@@ -261,6 +264,24 @@ missing its token took down the whole run. Worth a note for the library
 regardless — a host has no way to distinguish "one capability is unavailable"
 from "the turn failed" other than the error string, and no event marks it.
 
+## Follow-up production parity
+
+Three later gaps were resolved at the boundary where each belongs:
+
+- **Dynamic MCP** is a mutable capability resource, not a mutable agent.
+  `DynamicMcpCapability` snapshots its active server set once per turn
+  assembly. Removed or replaced clients stay alive for calls already in
+  flight; the next turn sees the new definitions.
+- **Production persistence** already fits `EventStore`. Yolop should adapt its
+  existing locked, fsynced, private, tail-repairing session log and project an
+  effective branch through `read_page`; `JsonlEventLog` is explicitly a local
+  single-process store rather than the production bar. No second storage
+  abstraction is needed.
+- **Narration** is authored by `Tool::narrate` at `Started`, `Completed`, or
+  `Failed`, after call rewrites, and captured with `display_name` on durable
+  lifecycle events. A replaying UI reads the same text the live UI saw instead
+  of reconstructing it from a reduced event shape.
+
 ## What is left
 
 Gaps 1–9 are closed. What remains is one open question and a short list of
@@ -271,10 +292,8 @@ things this analysis never claimed:
   extensions and the cancellation token, so a host channel can be injected
   today. Whether a *first-class* one is worth a core field is a decision to
   make on evidence, not by omission.
-- **Byte caps on `read_file`** (line windows exist), **background/detached
-  tools**, and **capabilities contributing MCP servers**
-  ([`everruns-adoption.md`](everruns-adoption.md) gap 13) were never in this
-  list; they remain open there.
+- **Byte caps on `read_file`** (line windows exist) and
+  **background/detached tools** were never in this list; they remain open.
 
 Everything protocol-affecting has landed, which was the ordering constraint:
 logs are starting to be persisted.

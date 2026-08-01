@@ -470,7 +470,7 @@ impl Collected {
         self.events
             .iter()
             .filter_map(|event| match &event.data {
-                EventData::ToolStarted { call } => Some(call.name.clone()),
+                EventData::ToolStarted { call, .. } => Some(call.name.clone()),
                 _ => None,
             })
             .collect()
