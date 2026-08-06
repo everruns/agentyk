@@ -55,13 +55,22 @@
 //!
 //! With a real provider (feature `http`):
 //!
-//! ```ignore
+//! ```no_run
+//! # #[cfg(feature = "http")]
+//! # async fn run() -> agentyk::Result<()> {
+//! use agentyk::{Agent, AnthropicDriver, ModelSpec};
+//!
+//! let key = std::env::var("ANTHROPIC_API_KEY").expect("ANTHROPIC_API_KEY must be set");
 //! let agent = Agent::builder()
 //!     .system_prompt("You are a coding agent.")
 //!     .model(ModelSpec::anthropic("claude-sonnet-4-5").api_key(key))
-//!     .capability(my_capability)
+//!     .driver(AnthropicDriver::new())
 //!     .build()?;
-//! let result = agent.run("list the files").await?;
+//!
+//! let result = agent.run("List the files in the current directory.").await?;
+//! println!("{}", result.response);
+//! # Ok(())
+//! # }
 //! ```
 
 // Enables the "Available on crate feature ..." badges when docs.rs builds
