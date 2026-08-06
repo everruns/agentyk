@@ -82,6 +82,10 @@ Record the result in the PR body. Docs-, comment-, or test-only changes may say
 Write the body around functional change and impact — what changed, why, how it
 was validated, what it risks — using
 [`.github/pull_request_template.md`](../../../.github/pull_request_template.md).
+Attach the evidence you gathered so a reviewer can see the change working, not just
+read that it does — output, logs, screenshots, or a VHS/asciinema recording for
+terminal or timing-sensitive behavior, and a before/after for fixes. State
+explicitly when a change has no observable behavior.
 Impact/public API, security, performance, contract review, and **Follow-ups**
 are never omitted. Default to doing in-scope work rather than deferring it.
 
