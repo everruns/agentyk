@@ -164,6 +164,16 @@ history.
 <sup>Real `openai/gpt-5.6-terra` run. See the example README for the offline
 tests and recording recipe.</sup>
 
+## Comprehensive example
+
+[`production_agent.rs`](crates/agentyk/examples/production_agent.rs) composes a
+typed tool, a pre-tool safety hook, durable `JsonlEventLog` storage, multiple
+turns, and replay-based resume. It stays deterministic and offline:
+
+```sh
+cargo run -p agentyk --example production_agent
+```
+
 ## Background hosting examples
 
 These examples keep task lifecycle in the application, matching the boundary
