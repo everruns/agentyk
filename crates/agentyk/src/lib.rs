@@ -21,6 +21,18 @@
 //! value-first core that everruns-core and everruns-runtime are intended to
 //! be rebuilt on top of.
 //!
+//! # Where to start
+//!
+//! - Run the deterministic example below to learn the turn loop.
+//! - See the repository's `production_agent` example to compose a typed tool,
+//!   a safety hook, [`JsonlEventLog`], multiple turns, and replay-based resume.
+//! - Add [`FileSystemCapability`] for workspace-scoped file tools or
+//!   [`McpCapability`] for tools discovered from an MCP server.
+//! - Replace [`SimDriver`] with [`OpenAiDriver`] or [`AnthropicDriver`] when
+//!   the host is ready to supply provider credentials.
+//!
+//! # Quick start
+//!
 //! ```
 //! use agentyk::{Agent, ModelSpec, SimDriver, SimTurn};
 //!
