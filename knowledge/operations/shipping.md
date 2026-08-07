@@ -154,8 +154,11 @@ look for the failure in the diff:
   replay still reconstructs a session's history.
 - **Host neutrality.** No trait in core starts presuming a database, a server,
   or a tenant.
-- **Secrets.** `ModelSpec` carries an API key by value and serializes it when
-  set, so it must not reach an event, a log line, or a serialized message.
+- **Secrets.** Credentials live on `Provider` — never on `ModelSpec`, which is
+  ordinary serializable config. A `ProviderEndpoint` holds the resolved
+  credential headers, so it must not reach an event, a log line, or a
+  serialized message; anything new that carries a secret redacts it in `Debug`
+  and stays off the wire.
 - **Dependency risk.** A new crate needs a one-line justification. Core,
   engine, and facade move in lockstep — see [`release.md`](release.md).
 

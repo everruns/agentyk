@@ -1,6 +1,6 @@
 //! The Anthropic Messages protocol — spoken by Anthropic itself and by the
 //! gateways that proxy it. Which service a request reaches is a
-//! [`Provider`](agentyk_core::provider::Provider)'s business, not this
+//! [`Provider`]'s business, not this
 //! driver's; [`anthropic()`] is the ready-made one for Anthropic.
 //!
 //! Wire mapping only — sending, status/transport classification, and SSE
@@ -49,7 +49,7 @@ pub fn anthropic(api_key: impl Into<String>) -> Provider {
 
 /// Speaks the Anthropic Messages protocol. One instance serves any number of
 /// services that speak it — pair it with a
-/// [`Provider`](agentyk_core::provider::Provider) that supplies the endpoint
+/// [`Provider`] that supplies the endpoint
 /// and credentials. Streams real incremental deltas.
 pub struct AnthropicDriver {
     client: reqwest::Client,

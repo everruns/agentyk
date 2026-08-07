@@ -1,7 +1,7 @@
 //! The OpenAI Chat Completions protocol — spoken by OpenAI itself and by the
 //! many services that copied it (OpenRouter, gateways, local runtimes). Which
 //! of them a request reaches is a
-//! [`Provider`](agentyk_core::provider::Provider)'s business, not this
+//! [`Provider`]'s business, not this
 //! driver's; [`openai()`] is the ready-made one for OpenAI.
 //!
 //! Wire mapping only — sending, status/transport classification, and SSE
@@ -24,7 +24,7 @@ pub const OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
 
 /// Speaks the OpenAI Chat Completions protocol. One instance serves any
 /// number of services that speak it — pair it with a
-/// [`Provider`](agentyk_core::provider::Provider) that supplies the endpoint
+/// [`Provider`] that supplies the endpoint
 /// and credentials. Streams real incremental deltas.
 pub struct OpenAiDriver {
     client: reqwest::Client,
