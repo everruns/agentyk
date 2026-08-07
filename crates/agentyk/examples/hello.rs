@@ -5,7 +5,7 @@
 //! cargo run --example hello
 //! ```
 
-use agentyk::{Agent, ModelSpec, SimDriver, SimTurn, ToolOutput};
+use agentyk::{Agent, ModelSpec, Provider, SimDriver, SimTurn, ToolOutput};
 use serde_json::json;
 
 #[agentyk::tool(description = "Current time.")]
@@ -19,10 +19,10 @@ async fn main() -> agentyk::Result<()> {
         .name("hello")
         .system_prompt("You are terse.")
         .model(ModelSpec::llmsim())
-        .driver(SimDriver::new([
+        .provider(Provider::llmsim(SimDriver::new([
             SimTurn::tool_call("time", json!({})),
             SimTurn::text("It is exactly now."),
-        ]))
+        ])))
         .tool(time)
         .build()?;
 

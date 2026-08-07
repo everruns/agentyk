@@ -51,7 +51,8 @@ what the operation means.
 `agentyk` is the public facade most applications depend on. It re-exports core
 and engine, and includes the library's bundled modules:
 
-- the scripted, OpenAI-compatible, and Anthropic drivers;
+- the scripted, OpenAI Chat Completions, and Anthropic Messages drivers, plus
+  the ready-made providers that pair them with an endpoint and credentials;
 - the JSONL and in-memory event stores;
 - MCP client and capability support;
 - filesystem abstractions and the filesystem capability.
@@ -69,7 +70,7 @@ An agent's definition is distinct from the environment that runs it.
 
 ```text
 AgentDefinition                 AgentEnvironment          Session / TurnHost
-├── name                        ├── drivers               ├── event store
+├── name                        ├── providers             ├── event store
 ├── instructions                ├── event observers       ├── session id
 ├── default model               └── runtime services      └── cancellation
 ├── capabilities
@@ -178,7 +179,8 @@ durable host implements the same `Hook` trait using its own executor.
 Heavy dependencies remain optional through Cargo features:
 
 ```text
-http  → OpenAI-compatible and Anthropic driver modules
+http  → OpenAI Chat Completions and Anthropic Messages drivers, and their
+        ready-made providers
 mcp   → MCP client and capability module
 fs    → filesystem abstractions and capability module
 hooks → trusted local shell-hook executor

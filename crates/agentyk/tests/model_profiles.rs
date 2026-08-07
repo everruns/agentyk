@@ -1,21 +1,21 @@
 //! Model profiles: catching an unsupported request at composition time.
 
 use agentyk::{
-    Agent, DriverId, Error, InMemoryModelCatalog, ModelCatalog, ModelProfile, ModelSpec, Result,
-    SimDriver, SimTurn,
+    Agent, Error, InMemoryModelCatalog, ModelCatalog, ModelProfile, ModelSpec, Provider,
+    ProviderId, Result, SimDriver, SimTurn,
 };
 
 fn catalog() -> InMemoryModelCatalog {
     InMemoryModelCatalog::new()
         .with(
-            DriverId::llmsim(),
+            ProviderId::llmsim(),
             "llmsim",
             ModelProfile::new()
                 .context_window(8_000)
                 .reasoning_efforts(["low", "high"]),
         )
         .with(
-            DriverId::anthropic(),
+            ProviderId::anthropic(),
             "claude-thinker",
             ModelProfile::new().thinking(true),
         )
@@ -24,7 +24,7 @@ fn catalog() -> InMemoryModelCatalog {
 fn builder(model: ModelSpec) -> agentyk::AgentBuilder {
     Agent::builder()
         .model(model)
-        .driver(SimDriver::new([SimTurn::text("hi")]))
+        .provider(Provider::llmsim(SimDriver::new([SimTurn::text("hi")])))
         .model_catalog(catalog())
 }
 
@@ -63,8 +63,8 @@ fn an_unknown_model_is_passed_through_untouched() -> Result<()> {
     // The whole point of a catalog being partial: describing some models must
     // never mean rejecting the rest.
     let agent = Agent::builder()
-        .model(ModelSpec::new(DriverId::llmsim(), "some-new-model").reasoning_effort("whatever"))
-        .driver(SimDriver::new([SimTurn::text("hi")]))
+        .model(ModelSpec::on(ProviderId::llmsim(), "some-new-model").reasoning_effort("whatever"))
+        .provider(Provider::llmsim(SimDriver::new([SimTurn::text("hi")])))
         .model_catalog(catalog())
         .build()?;
     assert!(agent.model_profile().is_none());
@@ -75,7 +75,7 @@ fn an_unknown_model_is_passed_through_untouched() -> Result<()> {
 fn without_a_catalog_nothing_is_validated() -> Result<()> {
     let agent = Agent::builder()
         .model(ModelSpec::llmsim().reasoning_effort("ultra"))
-        .driver(SimDriver::new([SimTurn::text("hi")]))
+        .provider(Provider::llmsim(SimDriver::new([SimTurn::text("hi")])))
         .build()?;
     assert!(agent.model_profile().is_none());
     Ok(())
@@ -97,14 +97,14 @@ fn a_catalog_can_be_anything_that_answers_the_question() {
     struct EverythingIsHigh;
 
     impl ModelCatalog for EverythingIsHigh {
-        fn profile(&self, _driver: &DriverId, _model: &str) -> Option<ModelProfile> {
+        fn profile(&self, _provider: &ProviderId, _model: &str) -> Option<ModelProfile> {
             Some(ModelProfile::new().reasoning_efforts(["high"]))
         }
     }
 
     let rejected = Agent::builder()
         .model(ModelSpec::llmsim().reasoning_effort("low"))
-        .driver(SimDriver::new([SimTurn::text("hi")]))
+        .provider(Provider::llmsim(SimDriver::new([SimTurn::text("hi")])))
         .model_catalog(EverythingIsHigh)
         .build();
     assert!(rejected.is_err());
@@ -113,7 +113,7 @@ fn a_catalog_can_be_anything_that_answers_the_question() {
 #[test]
 fn a_stated_window_and_output_ceiling_imply_the_input_budget() -> Result<()> {
     let catalog = InMemoryModelCatalog::new().with(
-        DriverId::llmsim(),
+        ProviderId::llmsim(),
         "llmsim",
         ModelProfile::new()
             .context_window(200_000)
@@ -121,7 +121,7 @@ fn a_stated_window_and_output_ceiling_imply_the_input_budget() -> Result<()> {
     );
     let agent = Agent::builder()
         .model(ModelSpec::llmsim())
-        .driver(SimDriver::new([SimTurn::text("hi")]))
+        .provider(Provider::llmsim(SimDriver::new([SimTurn::text("hi")])))
         .model_catalog(catalog)
         .build()?;
     assert_eq!(agent.definition().context_token_limit, Some(192_000));
@@ -131,7 +131,7 @@ fn a_stated_window_and_output_ceiling_imply_the_input_budget() -> Result<()> {
 #[test]
 fn an_explicit_limit_wins_over_the_catalog() -> Result<()> {
     let catalog = InMemoryModelCatalog::new().with(
-        DriverId::llmsim(),
+        ProviderId::llmsim(),
         "llmsim",
         ModelProfile::new()
             .context_window(200_000)
@@ -139,7 +139,7 @@ fn an_explicit_limit_wins_over_the_catalog() -> Result<()> {
     );
     let agent = Agent::builder()
         .model(ModelSpec::llmsim())
-        .driver(SimDriver::new([SimTurn::text("hi")]))
+        .provider(Provider::llmsim(SimDriver::new([SimTurn::text("hi")])))
         .model_catalog(catalog)
         .context_token_limit(50_000)
         .build()?;
@@ -152,13 +152,13 @@ fn a_window_alone_implies_nothing() -> Result<()> {
     // Without an output ceiling there is no honest input budget — reserving
     // room would mean inventing a number the host never stated.
     let catalog = InMemoryModelCatalog::new().with(
-        DriverId::llmsim(),
+        ProviderId::llmsim(),
         "llmsim",
         ModelProfile::new().context_window(200_000),
     );
     let agent = Agent::builder()
         .model(ModelSpec::llmsim())
-        .driver(SimDriver::new([SimTurn::text("hi")]))
+        .provider(Provider::llmsim(SimDriver::new([SimTurn::text("hi")])))
         .model_catalog(catalog)
         .build()?;
     assert_eq!(agent.definition().context_token_limit, None);

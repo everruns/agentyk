@@ -1,19 +1,23 @@
 //! The shared HTTP driver machinery.
 //!
-//! A provider driver should be nothing but wire mapping: build a request body,
-//! read a response, fold a stream. Everything around that — sending, status
+//! A driver should be nothing but wire mapping: build a request body, read a
+//! response, fold a stream. Everything around that — sending, status
 //! classification, transport-error classification, SSE framing, forwarding
-//! deltas — is identical across providers, and was previously duplicated per
+//! deltas — is identical across protocols, and was previously duplicated per
 //! driver, where it drifts.
 //!
-//! A driver implements [`HttpProvider`] plus a [`StreamAccumulator`], and its
+//! Where the request goes and what credential it carries is not here either:
+//! that is the [`Provider`](agentyk_core::provider::Provider)'s, resolved per
+//! request and read off [`ChatRequest::endpoint`].
+//!
+//! A driver implements [`WireProtocol`] plus a [`StreamAccumulator`], and its
 //! [`ChatDriver`](agentyk_core::driver::ChatDriver) impl delegates to
 //! [`complete`] and [`complete_streaming`]. Adding a provider is the wire
 //! mapping and nothing else.
 
 pub(crate) mod sse;
 
-use agentyk_core::driver::{ChatRequest, ChatResponse, DeltaSink, ModelSpec};
+use agentyk_core::driver::{ChatRequest, ChatResponse, DeltaSink};
 use agentyk_core::error::{Error, LlmErrorKind, Result};
 use futures_util::StreamExt;
 use serde_json::Value;
@@ -88,25 +92,23 @@ pub(crate) fn decode<T: serde::de::DeserializeOwned>(label: &str, body: &str) ->
 }
 
 /// One provider's wire protocol.
-pub(crate) trait HttpProvider: Send + Sync {
+pub(crate) trait WireProtocol: Send + Sync {
     type Accumulator: StreamAccumulator;
 
-    /// Short name used in error messages, e.g. `"anthropic"`.
+    /// Short name for the protocol, used when a *wire* payload is wrong —
+    /// e.g. `"anthropic messages"`. Failures that are about the service
+    /// rather than the format name the provider instead.
     fn label(&self) -> &str;
 
-    /// Used when [`ModelSpec::base_url`] is unset.
-    fn default_base_url(&self) -> &str;
-
-    /// Path appended to the base url, e.g. `"/v1/messages"`.
+    /// Path appended to the provider's base url, e.g. `"/v1/messages"`.
     fn endpoint(&self) -> &str;
 
-    /// Attach credentials and provider headers. Returning an error here is
-    /// how a provider that *requires* a key reports a missing one.
-    fn authorize(
-        &self,
-        builder: reqwest::RequestBuilder,
-        model: &ModelSpec,
-    ) -> Result<reqwest::RequestBuilder>;
+    /// Headers the *protocol* requires on every request, whichever service
+    /// serves it — Anthropic's `anthropic-version`. Provider headers are
+    /// applied after these, so a service can override one it pins itself.
+    fn protocol_headers(&self) -> Vec<(&'static str, &'static str)> {
+        Vec::new()
+    }
 
     fn build_body(&self, request: &ChatRequest) -> Value;
 
@@ -150,73 +152,96 @@ fn network_error(label: &str, context: &str, error: &reqwest::Error) -> Error {
     Error::driver(kind, format!("{label} {context}: {error}"))
 }
 
-fn endpoint_url<P: HttpProvider>(provider: &P, model: &ModelSpec) -> String {
-    let base = model
-        .base_url
-        .as_deref()
-        .unwrap_or_else(|| provider.default_base_url());
-    format!("{}{}", base.trim_end_matches('/'), provider.endpoint())
+/// Where this request goes: the provider's base url plus the protocol's path.
+///
+/// A missing base url is a wiring mistake, not a default to paper over — the
+/// protocol has no opinion about which service speaks it, so guessing one
+/// would send a gateway's traffic to a vendor.
+fn endpoint_url<P: WireProtocol>(protocol: &P, request: &ChatRequest) -> Result<String> {
+    let base = request.endpoint.base_url.as_deref().ok_or_else(|| {
+        Error::driver(
+            LlmErrorKind::InvalidRequest,
+            format!(
+                "provider `{}` has no base url, which the {} protocol needs — set it with Provider::base_url",
+                request.model.provider,
+                protocol.label()
+            ),
+        )
+    })?;
+    Ok(format!("{base}{}", protocol.endpoint()))
 }
 
 /// Send a prepared body and hand back a successful response, or a classified
 /// error. The single place a provider's HTTP failure becomes an [`Error`].
-async fn send<P: HttpProvider>(
-    provider: &P,
+async fn send<P: WireProtocol>(
+    protocol: &P,
     client: &reqwest::Client,
-    model: &ModelSpec,
+    request: &ChatRequest,
     body: &Value,
 ) -> Result<reqwest::Response> {
-    let builder = client.post(endpoint_url(provider, model)).json(body);
-    let response = provider
-        .authorize(builder, model)?
+    // Errors here name the *provider*: a 402 from OpenRouter reported as
+    // "openai" sends whoever reads the log to the wrong dashboard.
+    let service = request.model.provider.to_string();
+    let mut builder = client.post(endpoint_url(protocol, request)?).json(body);
+    for (name, value) in protocol.protocol_headers() {
+        builder = builder.header(name, value);
+    }
+    for (name, value) in &request.endpoint.headers {
+        builder = builder.header(name, value);
+    }
+    let response = builder
         .send()
         .await
-        .map_err(|e| network_error(provider.label(), "request failed", &e))?;
+        .map_err(|e| network_error(&service, "request failed", &e))?;
 
     let status = response.status();
     if !status.is_success() {
         let payload: Value = response.json().await.unwrap_or(Value::Null);
         return Err(Error::driver(
-            provider.classify_status(status),
-            format!("{} http {status}: {payload}", provider.label()),
+            protocol.classify_status(status),
+            format!("{service} http {status}: {payload}"),
         ));
     }
     Ok(response)
 }
 
 /// One non-streaming completion.
-pub(crate) async fn complete<P: HttpProvider>(
-    provider: &P,
+pub(crate) async fn complete<P: WireProtocol>(
+    protocol: &P,
     client: &reqwest::Client,
     request: ChatRequest,
 ) -> Result<ChatResponse> {
-    let body = provider.build_body(&request);
-    let response = send(provider, client, &request.model, &body).await?;
-    let text = response
-        .text()
-        .await
-        .map_err(|e| network_error(provider.label(), "response body could not be read", &e))?;
-    provider.parse_response(&text)
+    let body = protocol.build_body(&request);
+    let response = send(protocol, client, &request, &body).await?;
+    let text = response.text().await.map_err(|e| {
+        network_error(
+            &request.model.provider.to_string(),
+            "response body could not be read",
+            &e,
+        )
+    })?;
+    protocol.parse_response(&text)
 }
 
 /// One streaming completion: forwards text increments to `sink` as they
 /// arrive and returns the same response [`complete`] would.
-pub(crate) async fn complete_streaming<P: HttpProvider>(
-    provider: &P,
+pub(crate) async fn complete_streaming<P: WireProtocol>(
+    protocol: &P,
     client: &reqwest::Client,
     request: ChatRequest,
     sink: &mut dyn DeltaSink,
 ) -> Result<ChatResponse> {
-    let mut body = provider.build_body(&request);
-    provider.enable_streaming(&mut body);
+    let mut body = protocol.build_body(&request);
+    protocol.enable_streaming(&mut body);
 
-    let response = send(provider, client, &request.model, &body).await?;
+    let service = request.model.provider.to_string();
+    let response = send(protocol, client, &request, &body).await?;
     let mut bytes = response.bytes_stream();
     let mut decoder = SseDecoder::new();
     let mut accumulator = P::Accumulator::default();
 
     while let Some(chunk) = bytes.next().await {
-        let chunk = chunk.map_err(|e| network_error(provider.label(), "stream read failed", &e))?;
+        let chunk = chunk.map_err(|e| network_error(&service, "stream read failed", &e))?;
         pump(
             &mut accumulator,
             &mut decoder,
@@ -287,6 +312,60 @@ impl DeltaSink for RecordingSink {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use agentyk_core::driver::ModelSpec;
+    use agentyk_core::message::Message;
+
+    struct TestProtocol;
+
+    impl WireProtocol for TestProtocol {
+        type Accumulator = crate::drivers::openai::OpenAiStream;
+
+        fn label(&self) -> &str {
+            "test"
+        }
+
+        fn endpoint(&self) -> &str {
+            "/v1/chat"
+        }
+
+        fn build_body(&self, _request: &ChatRequest) -> Value {
+            Value::Null
+        }
+
+        fn enable_streaming(&self, _body: &mut Value) {}
+
+        fn parse_response(&self, _body: &str) -> Result<ChatResponse> {
+            unreachable!()
+        }
+    }
+
+    fn request(base_url: Option<&str>) -> ChatRequest {
+        let mut request = ChatRequest::new(
+            ModelSpec::on("some-gateway", "m"),
+            vec![Message::user("hi")],
+        );
+        request.endpoint.base_url = base_url.map(str::to_string);
+        request
+    }
+
+    #[test]
+    fn the_url_is_the_providers_base_plus_the_protocols_path() {
+        assert_eq!(
+            endpoint_url(&TestProtocol, &request(Some("https://gateway.internal"))).unwrap(),
+            "https://gateway.internal/v1/chat"
+        );
+    }
+
+    #[test]
+    fn a_provider_with_no_base_url_fails_naming_itself() {
+        // The protocol has no default host to fall back on — guessing one
+        // would send a gateway\'s traffic to a vendor.
+        let error = endpoint_url(&TestProtocol, &request(None)).unwrap_err();
+
+        let message = error.to_string();
+        assert!(message.contains("some-gateway"), "{message}");
+        assert!(message.contains("Provider::base_url"), "{message}");
+    }
 
     #[test]
     fn the_default_classification_splits_retryable_from_terminal() {

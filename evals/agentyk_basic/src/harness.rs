@@ -19,8 +19,9 @@ use std::process::Stdio;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use agentyk::{
-    Agent, AnthropicDriver, ChatDriver, ChatRequest, ChatResponse, DeltaSink, DriverId, Event,
+use agentyk::providers;
+use agentyk::{Provider, 
+    Agent, AnthropicDriver, BearerAuth, ChatDriver, ChatRequest, ChatResponse, DeltaSink, Event,
     EventData, EventListener, FileSystemCapability, FnTool, InMemoryEventLog, ModelSpec,
     OpenAiDriver, RealDiskFileSystem, SimDriver, SimTurn, ToolCallDecision, ToolInvocation,
     ToolOutput, TurnMiddleware, Usage as AgentykUsage,
@@ -114,12 +115,13 @@ pub async fn run_case(sample: Sample, cx: RunCx) -> Transcript {
         Err(error) => return infra_failure(format!("could not seed the workspace: {error}")),
     };
 
-    let model = match model_spec(&cx) {
-        Ok(model) => model,
+    let model = model_spec(&cx);
+    let provider = match provider(&cx, &sample, harness.buffered) {
+        Ok(provider) => provider,
         Err(error) => return infra_failure(error),
     };
     let recorder = Arc::new(Recorder::default());
-    let agent = match build_agent(workspace.path(), model, &sample, &harness, recorder.clone()) {
+    let agent = match build_agent(workspace.path(), model, provider, &harness, recorder.clone()) {
         Ok(agent) => agent,
         Err(error) => return infra_failure(format!("could not build the agent: {error}")),
     };
@@ -190,51 +192,62 @@ fn infra_failure(message: String) -> Transcript {
 // Wiring
 // ============================================================================
 
-/// Route the matrix target to a driver + model, with the key from the
-/// environment. `openrouter` rides the OpenAI-compatible driver, which is the
-/// point of that target: it proves the compatible path against a real gateway.
+/// The matrix target's model, named against the service the target runs on.
 ///
 /// A target may carry a `reasoning_effort` in its metadata, which rides onto
 /// the [`ModelSpec`] — the `gpt-5.6` family needs `none` before it will accept
 /// function tools on chat completions at all.
-fn model_spec(cx: &RunCx) -> Result<ModelSpec, String> {
-    let model = cx.target.model.clone();
+fn model_spec(cx: &RunCx) -> ModelSpec {
+    let spec = match cx.target.provider.as_str() {
+        "sim" => ModelSpec::llmsim(),
+        other => ModelSpec::on(other, cx.target.model.clone()),
+    };
+    match cx
+        .target
+        .metadata
+        .get("reasoning_effort")
+        .and_then(Value::as_str)
+    {
+        Some(effort) => spec.reasoning_effort(effort),
+        None => spec,
+    }
+}
+
+/// The service that model runs on: endpoint, credential from the environment,
+/// and the driver whose protocol it speaks.
+///
+/// `openrouter` is the case the split exists for — the same OpenAI Chat
+/// Completions driver as `openai`, pointed somewhere else with a different
+/// key, so the target proves the compatible path against a real gateway.
+fn provider(cx: &RunCx, sample: &Sample, buffered: bool) -> Result<Provider, String> {
     let key = |name: &str| {
         std::env::var(name)
             .ok()
             .filter(|key| !key.trim().is_empty())
             .ok_or_else(|| format!("{name} is not set"))
     };
-    let spec = match cx.target.provider.as_str() {
+    Ok(match cx.target.provider.as_str() {
         // The offline target: no key, no network, a scripted model. It exists
         // so the wiring this harness measures — capabilities, middleware,
         // events, trajectory projection — is graded in CI too, not only when
         // someone has provider credentials.
-        "sim" => ModelSpec::llmsim(),
-        "anthropic" => ModelSpec::anthropic(model).api_key(key("ANTHROPIC_API_KEY")?),
-        "openai" => ModelSpec::openai(model).api_key(key("OPENAI_API_KEY")?),
-        "openrouter" => ModelSpec::openai(model)
-            .api_key(key("OPENROUTER_API_KEY")?)
-            .base_url("https://openrouter.ai/api/v1"),
-        other => return Err(format!("no agentyk driver for provider `{other}`")),
-    };
-    Ok(
-        match cx
-            .target
-            .metadata
-            .get("reasoning_effort")
-            .and_then(Value::as_str)
-        {
-            Some(effort) => spec.reasoning_effort(effort),
-            None => spec,
-        },
-    )
+        "sim" => Provider::llmsim(SimDriver::new(script(sample))),
+        // 16k: the 8k default truncates a multi-file edit mid-write.
+        "anthropic" => providers::anthropic(key("ANTHROPIC_API_KEY")?)
+            .with_driver_arc(wrap(AnthropicDriver::new().max_tokens(16_000), buffered)),
+        "openai" => providers::openai(key("OPENAI_API_KEY")?)
+            .with_driver_arc(wrap(OpenAiDriver::new(), buffered)),
+        "openrouter" => Provider::from_driver("openrouter", wrap(OpenAiDriver::new(), buffered))
+            .base_url("https://openrouter.ai/api/v1")
+            .auth(BearerAuth::new(key("OPENROUTER_API_KEY")?)),
+        other => return Err(format!("no agentyk provider for `{other}`")),
+    })
 }
 
 fn build_agent(
     workspace: &Path,
     model: ModelSpec,
-    sample: &Sample,
+    provider: Provider,
     harness: &Harness,
     recorder: Arc<Recorder>,
 ) -> agentyk::Result<Agent> {
@@ -247,16 +260,7 @@ fn build_agent(
         .listener_arc(recorder)
         .max_iterations(harness.max_iterations);
 
-    builder = match model.driver.as_str() {
-        id if id == DriverId::llmsim().as_str() => builder.driver(SimDriver::new(script(sample))),
-        // 16k: the 8k default truncates a multi-file edit mid-write.
-        id if id == DriverId::anthropic().as_str() => {
-            let driver = AnthropicDriver::new().max_tokens(16_000);
-            wrap_driver(builder, driver, harness.buffered)
-        }
-        _ => wrap_driver(builder, OpenAiDriver::new(), harness.buffered),
-    };
-    builder = builder.model(model);
+    builder = builder.model(model).provider(provider);
 
     if harness.shell {
         builder = builder.tool(run_command_tool(workspace.to_path_buf()));
@@ -264,14 +268,11 @@ fn build_agent(
     builder.build()
 }
 
-fn wrap_driver(
-    builder: agentyk::AgentBuilder,
-    driver: impl ChatDriver + 'static,
-    buffered: bool,
-) -> agentyk::AgentBuilder {
+/// Optionally hide a driver's incremental streaming, for the buffered preset.
+fn wrap(driver: impl ChatDriver + 'static, buffered: bool) -> Arc<dyn ChatDriver> {
     match buffered {
-        true => builder.driver(Buffered(driver)),
-        false => builder.driver(driver),
+        true => Arc::new(Buffered(driver)),
+        false => Arc::new(driver),
     }
 }
 
@@ -306,10 +307,6 @@ struct Buffered<D>(D);
 
 #[async_trait]
 impl<D: ChatDriver + 'static> ChatDriver for Buffered<D> {
-    fn id(&self) -> DriverId {
-        self.0.id()
-    }
-
     async fn complete(&self, request: ChatRequest) -> agentyk::Result<ChatResponse> {
         self.0.complete(request).await
     }

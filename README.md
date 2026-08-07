@@ -28,14 +28,14 @@ Build and run an agent by value. `SimDriver` makes this example deterministic
 and requires no API key or network access:
 
 ```rust
-use agentyk::{Agent, ModelSpec, SimDriver, SimTurn};
+use agentyk::{Agent, ModelSpec, Provider, SimDriver, SimTurn};
 
 # async fn example() -> agentyk::Result<()> {
 let agent = Agent::builder()
     .name("hello")
     .system_prompt("You are terse.")
     .model(ModelSpec::llmsim())
-    .driver(SimDriver::new([SimTurn::text("Hello from agentyk.")]))
+    .provider(Provider::llmsim(SimDriver::new([SimTurn::text("Hello from agentyk.")])))
     .build()?;
 
 let mut session = agent.session();
@@ -72,7 +72,7 @@ async fn add(a: i64, b: i64) -> ToolOutput {
 }
 
 let agent = Agent::builder()
-    // model + driver...
+    // model + provider...
     .tool(add)
     .build()?;
 ```
@@ -144,11 +144,15 @@ contributions, dynamic tool discovery, commands, metadata, and shared state.
   event metadata carries host-owned participant provenance.
 - **Concurrent tools** — a batch the model asked for in parallel runs in
   parallel, with results still recorded in the order it asked.
-- **Multi-provider drivers** — `ChatDriver` implementations routed by
-  `DriverId`: OpenAI-compatible and Anthropic (feature `http`), plus a
-  scripted `SimDriver` for deterministic offline tests and examples. The
-  Anthropic driver places prompt-cache breakpoints by default, so a long
-  session does not pay full price to re-send its own transcript.
+- **Providers over drivers** — a `ChatDriver` is one wire protocol (OpenAI
+  Chat Completions, Anthropic Messages, both feature `http`, plus a scripted
+  `SimDriver` for offline tests); a `Provider` is a service that speaks one,
+  owning the endpoint and the credentials. So one driver serves OpenAI, a
+  gateway, and a local runtime at once, credentials refresh per request
+  through `ProviderAuth`, and a `ModelSpec` stays plain config that names a
+  service without carrying its key. The Anthropic driver places prompt-cache
+  breakpoints by default, so a long session does not pay full price to
+  re-send its own transcript.
 
 ## Multi-actor demo
 
@@ -200,7 +204,8 @@ macros, and bundled implementations:
 - **`agentyk-macros`** — attribute macros re-exported by the facade, including
   `#[agentyk::tool]`. Applications do not depend on it directly.
 - **`agentyk`** — the application facade and bundled feature-gated modules:
-  drivers, event stores, MCP, and filesystem support.
+  drivers and their ready-made providers, event stores, MCP, and filesystem
+  support.
 
 MCP and filesystem are first-class parts of the library, not separate
 integration crates. Other integrations also stay as modules for now. See
@@ -257,7 +262,7 @@ impl Hook for ProtectDeploy {
 }
 
 let agent = Agent::builder()
-    // model + driver + tools...
+    // model + provider + tools...
     .hook(ProtectDeploy)
     .build()?;
 ```

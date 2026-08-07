@@ -4,9 +4,9 @@
 //! request, reads a response, or folds a stream — the code between reqwest and
 //! `ChatResponse` had only unit coverage of its parts. These tests serve
 //! canned provider responses from a local `TcpListener` and drive the real
-//! [`ChatDriver`] through [`ModelSpec::base_url`], so the request actually
-//! goes out over a socket and the response actually comes back through the
-//! shared HTTP layer.
+//! [`ChatDriver`] through a [`Provider`] pointed at that socket, so the
+//! request actually goes out over the wire and the response actually comes
+//! back through the shared HTTP layer.
 //!
 //! What they still cannot prove is that the canned bodies match what the
 //! providers really send today. Only a live call does that.
@@ -16,7 +16,7 @@
 use std::sync::Arc;
 
 use agentyk::{
-    AnthropicDriver, ChatDriver, ChatRequest, DeltaSink, Message, ModelSpec, OpenAiDriver, Result,
+    ChatRequest, DeltaSink, Message, ModelSpec, OpenAiDriver, Provider, Result, providers,
 };
 use async_trait::async_trait;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -138,12 +138,9 @@ async fn anthropic_completes_over_a_real_socket() {
     )
     .await;
 
-    let response = AnthropicDriver::new()
-        .complete(request(
-            ModelSpec::anthropic("claude-x")
-                .api_key("k")
-                .base_url(&server.base_url),
-        ))
+    let response = providers::anthropic("k")
+        .base_url(&server.base_url)
+        .complete(request(ModelSpec::anthropic("claude-x")))
         .await
         .expect("a well-formed response parses");
 
@@ -183,15 +180,9 @@ async fn anthropic_streams_over_a_real_socket() {
     .await;
 
     let mut sink = Collect::default();
-    let response = AnthropicDriver::new()
-        .complete_streaming(
-            request(
-                ModelSpec::anthropic("claude-x")
-                    .api_key("k")
-                    .base_url(&server.base_url),
-            ),
-            &mut sink,
-        )
+    let response = providers::anthropic("k")
+        .base_url(&server.base_url)
+        .complete_streaming(request(ModelSpec::anthropic("claude-x")), &mut sink)
         .await
         .expect("the stream folds");
 
@@ -210,10 +201,10 @@ async fn openai_completes_over_a_real_socket() {
     )
     .await;
 
-    let response = OpenAiDriver::new()
-        .complete(request(
-            ModelSpec::openai("gpt-x").base_url(&server.base_url),
-        ))
+    // No auth on this provider: the local-runtime case.
+    let response = Provider::new("local", OpenAiDriver::new())
+        .base_url(&server.base_url)
+        .complete(request(ModelSpec::on("local", "gpt-x")))
         .await
         .expect("a well-formed response parses");
 
@@ -249,11 +240,9 @@ async fn openai_streams_over_a_real_socket() {
     .await;
 
     let mut sink = Collect::default();
-    let response = OpenAiDriver::new()
-        .complete_streaming(
-            request(ModelSpec::openai("gpt-x").base_url(&server.base_url)),
-            &mut sink,
-        )
+    let response = providers::openai("k")
+        .base_url(&server.base_url)
+        .complete_streaming(request(ModelSpec::openai("gpt-x")), &mut sink)
         .await
         .expect("the stream folds");
 
@@ -271,15 +260,17 @@ async fn openai_streams_over_a_real_socket() {
 async fn an_http_error_is_classified_by_retryability() {
     let server = FakeProvider::serving(429, "application/json", r#"{"error":"slow down"}"#).await;
 
-    let error = OpenAiDriver::new()
-        .complete(request(
-            ModelSpec::openai("gpt-x").base_url(&server.base_url),
-        ))
+    // Reported against the service, not the protocol: an operator reading
+    // this needs to know whose rate limit was hit.
+    let error = Provider::new("some-gateway", OpenAiDriver::new())
+        .base_url(&server.base_url)
+        .complete(request(ModelSpec::on("some-gateway", "gpt-x")))
         .await
         .expect_err("429 is an error");
 
     assert!(error.is_retryable(), "a rate limit is worth retrying");
     assert!(error.to_string().contains("429"), "{error}");
+    assert!(error.to_string().contains("some-gateway"), "{error}");
 }
 
 /// The diagnosable-shape-change guarantee, proved through the real transport
@@ -293,12 +284,9 @@ async fn a_changed_response_shape_reports_itself_end_to_end() {
     )
     .await;
 
-    let error = AnthropicDriver::new()
-        .complete(request(
-            ModelSpec::anthropic("claude-x")
-                .api_key("k")
-                .base_url(&server.base_url),
-        ))
+    let error = providers::anthropic("k")
+        .base_url(&server.base_url)
+        .complete(request(ModelSpec::anthropic("claude-x")))
         .await
         .expect_err("a renamed field must not read as an empty answer");
 

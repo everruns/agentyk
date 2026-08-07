@@ -8,8 +8,8 @@ use std::sync::{Arc, Mutex};
 
 use agentyk::{
     Agent, EventData, EventLog, EventRequest, ExpectedVersion, FnTool, History, Hook, HookEvent,
-    HookOutcome, HookPayload, InMemoryEventLog, ModelSpec, Result, SimDriver, SimTurn, ToolContext,
-    ToolOutput, TurnEngine, TurnHost, TurnOperation, TurnOutcome, TurnState, atoms,
+    HookOutcome, HookPayload, InMemoryEventLog, ModelSpec, Provider, Result, SimDriver, SimTurn,
+    ToolContext, ToolOutput, TurnEngine, TurnHost, TurnOperation, TurnOutcome, TurnState, atoms,
 };
 use async_trait::async_trait;
 use serde_json::json;
@@ -88,10 +88,10 @@ async fn durable_host_replays_state_between_every_engine_step() -> Result<()> {
         .system_prompt("You do arithmetic.")
         .model(ModelSpec::llmsim())
         .max_iterations(4)
-        .driver(SimDriver::new([
+        .provider(Provider::llmsim(SimDriver::new([
             SimTurn::tool_call("add", json!({"a": 20, "b": 22})),
             SimTurn::text("The answer is 42."),
-        ]))
+        ])))
         .tool(add_tool())
         .hook(RecordingHook {
             event: HookEvent::UserPromptSubmit,
@@ -119,7 +119,7 @@ async fn durable_host_replays_state_between_every_engine_step() -> Result<()> {
     let turn_id = started.state.turn_id;
     record(&log, &started.state, started.events).await?;
     let assembled = engine.assemble(&bootstrap_host).await?;
-    let driver = agent.driver_for_model().expect("driver");
+    let provider = agent.provider_for_model().expect("provider");
 
     loop {
         // No serialized TurnState survives this boundary. Every activity
@@ -143,7 +143,7 @@ async fn durable_host_replays_state_between_every_engine_step() -> Result<()> {
         let mut state = TurnState::replay(&events, turn_id)?;
         match step.operation {
             TurnOperation::InvokeModel { request } => {
-                let response = driver.complete(request).await?;
+                let response = provider.complete(request).await?;
                 let effects = engine.complete_model(&mut state, &response);
                 record(&log, &state, effects).await?;
             }

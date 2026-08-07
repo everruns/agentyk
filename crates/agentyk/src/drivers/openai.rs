@@ -1,5 +1,8 @@
-//! OpenAI Chat Completions driver. Also serves any OpenAI-compatible
-//! endpoint (OpenRouter, local runtimes, proxies) via `ModelSpec::base_url`.
+//! The OpenAI Chat Completions protocol — spoken by OpenAI itself and by the
+//! many services that copied it (OpenRouter, gateways, local runtimes). Which
+//! of them a request reaches is a
+//! [`Provider`](agentyk_core::provider::Provider)'s business, not this
+//! driver's; [`openai()`] is the ready-made one for OpenAI.
 //!
 //! Wire mapping only — sending, status/transport classification, and SSE
 //! framing live in the crate-internal `drivers::http` layer.
@@ -8,37 +11,29 @@ use async_trait::async_trait;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use agentyk_core::driver::{
-    ChatDriver, ChatRequest, ChatResponse, DeltaSink, DriverId, ModelSpec, Usage,
-};
+use agentyk_core::driver::{ChatDriver, ChatRequest, ChatResponse, DeltaSink, Usage};
 use agentyk_core::error::{Error, LlmErrorKind, Result};
 use agentyk_core::message::{ContentPart, Message, Role, ToolCall};
+use agentyk_core::provider::{BearerAuth, Provider, ProviderId};
 
-use super::http::{self, HttpProvider, StreamAccumulator, decode};
+use super::http::{self, StreamAccumulator, WireProtocol, decode};
 
-const DEFAULT_BASE_URL: &str = "https://api.openai.com/v1";
+/// Where OpenAI itself serves this protocol. Every other service that speaks
+/// it brings its own base url.
+pub const OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
 
-/// Speaks the OpenAI Chat Completions protocol.
-///
-/// Also serves any compatible endpoint — OpenRouter, local runtimes, proxies
-/// — via [`ModelSpec::base_url`]. An api key is optional, since local
-/// runtimes routinely need none. Streams real incremental deltas.
+/// Speaks the OpenAI Chat Completions protocol. One instance serves any
+/// number of services that speak it — pair it with a
+/// [`Provider`](agentyk_core::provider::Provider) that supplies the endpoint
+/// and credentials. Streams real incremental deltas.
 pub struct OpenAiDriver {
-    id: DriverId,
     client: reqwest::Client,
 }
 
 impl OpenAiDriver {
-    /// A driver registered as `"openai"`, on a default HTTP client.
+    /// The protocol on a default HTTP client.
     pub fn new() -> Self {
-        Self::with_id(DriverId::openai())
-    }
-
-    /// Register the same protocol under a different driver id (e.g.
-    /// `"openrouter"`) so multiple OpenAI-compatible providers can coexist.
-    pub fn with_id(id: DriverId) -> Self {
         Self {
-            id,
             client: super::http::client(),
         }
     }
@@ -49,6 +44,25 @@ impl OpenAiDriver {
         self.client = client;
         self
     }
+}
+
+/// OpenAI itself: `api.openai.com`, bearer auth, Chat Completions.
+///
+/// ```no_run
+/// # use agentyk::{Agent, ModelSpec, providers};
+/// # fn wire(api_key: String) -> agentyk::Result<()> {
+/// let agent = Agent::builder()
+///     .name("assistant")
+///     .model(ModelSpec::on("openai", "gpt-5.5"))
+///     .provider(providers::openai(api_key))
+///     .build()?;
+/// # Ok(())
+/// # }
+/// ```
+pub fn openai(api_key: impl Into<String>) -> Provider {
+    Provider::new(ProviderId::openai(), OpenAiDriver::new())
+        .base_url(OPENAI_BASE_URL)
+        .auth(BearerAuth::new(api_key))
 }
 
 impl Default for OpenAiDriver {
@@ -383,31 +397,15 @@ impl StreamAccumulator for OpenAiStream {
     }
 }
 
-impl HttpProvider for OpenAiDriver {
+impl WireProtocol for OpenAiDriver {
     type Accumulator = OpenAiStream;
 
     fn label(&self) -> &str {
-        "openai"
-    }
-
-    fn default_base_url(&self) -> &str {
-        DEFAULT_BASE_URL
+        "openai chat completions"
     }
 
     fn endpoint(&self) -> &str {
         "/chat/completions"
-    }
-
-    /// A key is optional: local runtimes and proxies routinely need none.
-    fn authorize(
-        &self,
-        builder: reqwest::RequestBuilder,
-        model: &ModelSpec,
-    ) -> Result<reqwest::RequestBuilder> {
-        Ok(match &model.api_key {
-            Some(key) => builder.bearer_auth(key),
-            None => builder,
-        })
     }
 
     fn build_body(&self, request: &ChatRequest) -> Value {
@@ -479,10 +477,6 @@ impl HttpProvider for OpenAiDriver {
 
 #[async_trait]
 impl ChatDriver for OpenAiDriver {
-    fn id(&self) -> DriverId {
-        self.id.clone()
-    }
-
     async fn complete(&self, request: ChatRequest) -> Result<ChatResponse> {
         http::complete(self, &self.client, request).await
     }
@@ -500,6 +494,7 @@ impl ChatDriver for OpenAiDriver {
 mod tests {
     use super::*;
     use crate::drivers::http::{RecordingSink, drive_stream};
+    use agentyk_core::driver::ModelSpec;
 
     fn request(model: ModelSpec) -> ChatRequest {
         ChatRequest::new(model, vec![Message::user("hi")])

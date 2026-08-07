@@ -3,7 +3,9 @@
 
 use std::sync::Arc;
 
-use agentyk::{Agent, FnTool, ModelSpec, Result, SimDriver, SimToolCall, SimTurn, ToolOutput};
+use agentyk::{
+    Agent, FnTool, ModelSpec, Provider, Result, SimDriver, SimToolCall, SimTurn, ToolOutput,
+};
 use agentyk_core::middleware::{ToolCallDecision, ToolInvocation, TurnMiddleware};
 use agentyk_everruns_poc::{HintedTool, NarrationListener, ToolHints};
 use async_trait::async_trait;
@@ -14,10 +16,10 @@ async fn narration_renders_the_event_stream() -> Result<()> {
     let narration: Arc<NarrationListener> = Arc::default();
     let agent = Agent::builder()
         .model(ModelSpec::llmsim())
-        .driver(SimDriver::new([
+        .provider(Provider::llmsim(SimDriver::new([
             SimTurn::tool_call("look", json!({})),
             SimTurn::text("all set"),
-        ]))
+        ])))
         .listener_arc(narration.clone())
         .tool(FnTool::new(
             "look",
@@ -67,13 +69,13 @@ async fn narration_surfaces_engine_middleware_redaction() -> Result<()> {
     let narration: Arc<NarrationListener> = Arc::default();
     let agent = Agent::builder()
         .model(ModelSpec::llmsim())
-        .driver(SimDriver::new([
+        .provider(Provider::llmsim(SimDriver::new([
             SimTurn::tool_calls([
                 SimToolCall::new("search", json!({"q": "x"})),
                 SimToolCall::new("save", json!({"secret": "p@ss"})),
             ]),
             SimTurn::text("done"),
-        ]))
+        ])))
         // Only a redactor in the chain — no approval guard, so the destructive
         // tool still runs.
         .middleware(RedactSecret)

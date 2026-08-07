@@ -3,8 +3,8 @@
 use std::sync::Arc;
 
 use agentyk::{
-    Agent, Capability, EventData, FnTool, InMemoryEventLog, ModelSpec, Result, SimDriver, SimTurn,
-    SystemPromptContext, ToolOutput, event_types, messages_from_events,
+    Agent, Capability, EventData, FnTool, InMemoryEventLog, ModelSpec, Provider, Result, SimDriver,
+    SimTurn, SystemPromptContext, ToolOutput, event_types, messages_from_events,
 };
 use async_trait::async_trait;
 use serde_json::json;
@@ -37,7 +37,7 @@ async fn turn_with_tool_call() -> Result<()> {
         .name("calculator")
         .system_prompt("You do arithmetic with tools.")
         .model(ModelSpec::llmsim())
-        .driver(sim)
+        .provider(Provider::llmsim(sim))
         .tool(add_tool())
         .build()?;
 
@@ -87,7 +87,7 @@ async fn unknown_tool_becomes_error_result_and_model_recovers() -> Result<()> {
     ]);
     let agent = Agent::builder()
         .model(ModelSpec::llmsim())
-        .driver(sim)
+        .provider(Provider::llmsim(sim))
         .build()?;
 
     let turn = agent.run("go").await?;
@@ -106,7 +106,7 @@ async fn max_iterations_fails_the_turn() -> Result<()> {
     ]);
     let agent = Agent::builder()
         .model(ModelSpec::llmsim())
-        .driver(sim)
+        .provider(Provider::llmsim(sim))
         .tool(add_tool())
         .max_iterations(2)
         .build()?;
@@ -139,7 +139,7 @@ async fn capability_contributes_to_system_prompt() -> Result<()> {
     let agent = Agent::builder()
         .system_prompt("Base prompt.")
         .model(ModelSpec::llmsim())
-        .driver(ForwardingDriver(sim.clone()))
+        .provider(Provider::llmsim(ForwardingDriver(sim.clone())))
         .capability(PirateCapability)
         .build()?;
 
@@ -157,10 +157,6 @@ struct ForwardingDriver(Arc<SimDriver>);
 
 #[async_trait]
 impl agentyk::ChatDriver for ForwardingDriver {
-    fn id(&self) -> agentyk::DriverId {
-        self.0.id()
-    }
-
     async fn complete(&self, request: agentyk::ChatRequest) -> Result<agentyk::ChatResponse> {
         self.0.complete(request).await
     }
@@ -172,7 +168,9 @@ async fn resume_rebuilds_history_from_the_log() -> Result<()> {
 
     let agent_one = Agent::builder()
         .model(ModelSpec::llmsim())
-        .driver(SimDriver::new([SimTurn::text("first answer")]))
+        .provider(Provider::llmsim(SimDriver::new([SimTurn::text(
+            "first answer",
+        )])))
         .build()?;
     let mut session = agent_one.session_with_log(log.clone());
     session.run("first question").await?;
@@ -183,7 +181,9 @@ async fn resume_rebuilds_history_from_the_log() -> Result<()> {
     // A fresh agent instance resumes purely from the log.
     let agent_two = Agent::builder()
         .model(ModelSpec::llmsim())
-        .driver(SimDriver::new([SimTurn::text("second answer")]))
+        .provider(Provider::llmsim(SimDriver::new([SimTurn::text(
+            "second answer",
+        )])))
         .build()?;
     let mut resumed = agent_two.resume_session(log, session_id).await?;
     assert_eq!(resumed.messages(), live_messages.as_slice());
@@ -203,11 +203,11 @@ async fn resume_rebuilds_history_from_the_log() -> Result<()> {
 async fn live_history_always_equals_a_replay_of_the_log() -> Result<()> {
     let agent = Agent::builder()
         .model(ModelSpec::llmsim())
-        .driver(SimDriver::new([
+        .provider(Provider::llmsim(SimDriver::new([
             SimTurn::tool_call("add", json!({"a": 2, "b": 3})),
             SimTurn::tool_call("add", json!({"a": 10, "b": 1})),
             SimTurn::text("11"),
-        ]))
+        ])))
         .tool(add_tool())
         .build()?;
 
@@ -230,10 +230,16 @@ async fn missing_model_is_a_build_error() {
 }
 
 #[tokio::test]
-async fn unregistered_driver_is_a_build_error() {
+async fn an_unregistered_provider_is_a_build_error_listing_the_registered_ones() {
     let error = Agent::builder()
-        .model(ModelSpec::new("no-such-driver", "m"))
+        .model(ModelSpec::on("no-such-service", "m"))
+        .provider(Provider::llmsim(SimDriver::new([SimTurn::text("hi")])))
         .build()
         .unwrap_err();
-    assert!(error.to_string().contains("no-such-driver"));
+
+    // The usual cause is a typo in config, so the message has to say what
+    // *is* registered rather than only what is missing.
+    let message = error.to_string();
+    assert!(message.contains("no-such-service"), "{message}");
+    assert!(message.contains("llmsim"), "{message}");
 }

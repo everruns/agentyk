@@ -7,7 +7,7 @@ use async_trait::async_trait;
 
 use agentyk::{
     Agent, ContextAssembler, ContextAssembly, ContextEvent, ContextRequest, ContextSource,
-    ModelSpec, Result, SimDriver, SimTurn,
+    ModelSpec, Provider, Result, SimDriver, SimTurn,
 };
 
 /// Keeps only the most recent `keep` messages — a minimal stand-in for
@@ -51,7 +51,7 @@ async fn default_passthrough_sends_full_history() -> Result<()> {
     ]));
     let agent = Agent::builder()
         .model(ModelSpec::llmsim())
-        .driver(ForwardingDriver(sim.clone()))
+        .provider(Provider::llmsim(ForwardingDriver(sim.clone())))
         .build()?;
 
     let mut session = agent.session();
@@ -74,7 +74,7 @@ async fn custom_assembler_trims_what_is_sent_without_touching_the_log() -> Resul
     ]));
     let agent = Agent::builder()
         .model(ModelSpec::llmsim())
-        .driver(ForwardingDriver(sim.clone()))
+        .provider(Provider::llmsim(ForwardingDriver(sim.clone())))
         .context_assembler(KeepLast { keep: 1 })
         .context_token_limit(128)
         .build()?;
@@ -113,10 +113,6 @@ struct ForwardingDriver(Arc<SimDriver>);
 
 #[async_trait]
 impl agentyk::ChatDriver for ForwardingDriver {
-    fn id(&self) -> agentyk::DriverId {
-        self.0.id()
-    }
-
     async fn complete(&self, request: agentyk::ChatRequest) -> Result<agentyk::ChatResponse> {
         self.0.complete(request).await
     }

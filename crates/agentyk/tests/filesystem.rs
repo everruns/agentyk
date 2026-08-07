@@ -1,21 +1,21 @@
 //! `FileSystemCapability`: file tools reachable through a full agent turn.
 #![cfg(feature = "fs")]
 
-use agentyk::{Agent, InMemoryFileSystem, ModelSpec, Result, SimDriver, SimTurn};
+use agentyk::{Agent, InMemoryFileSystem, ModelSpec, Provider, Result, SimDriver, SimTurn};
 use serde_json::json;
 
 #[tokio::test]
 async fn write_then_read_round_trips_through_the_turn_loop() -> Result<()> {
     let agent = Agent::builder()
         .model(ModelSpec::llmsim())
-        .driver(SimDriver::new([
+        .provider(Provider::llmsim(SimDriver::new([
             SimTurn::tool_call(
                 "write_file",
                 json!({"path": "notes.txt", "content": "remember the milk"}),
             ),
             SimTurn::tool_call("read_file", json!({"path": "notes.txt"})),
             SimTurn::text("done"),
-        ]))
+        ])))
         .capability(agentyk::FileSystemCapability::new(InMemoryFileSystem::new()))
         .build()?;
 
@@ -38,11 +38,11 @@ async fn write_then_read_round_trips_through_the_turn_loop() -> Result<()> {
 async fn list_directory_reports_written_files() -> Result<()> {
     let agent = Agent::builder()
         .model(ModelSpec::llmsim())
-        .driver(SimDriver::new([
+        .provider(Provider::llmsim(SimDriver::new([
             SimTurn::tool_call("write_file", json!({"path": "a.txt", "content": "1"})),
             SimTurn::tool_call("list_directory", json!({})),
             SimTurn::text("done"),
-        ]))
+        ])))
         .capability(agentyk::FileSystemCapability::new(InMemoryFileSystem::new()))
         .build()?;
 
@@ -67,10 +67,10 @@ async fn list_directory_reports_written_files() -> Result<()> {
 async fn deleting_an_unknown_file_is_an_error_result_not_a_panic() -> Result<()> {
     let agent = Agent::builder()
         .model(ModelSpec::llmsim())
-        .driver(SimDriver::new([
+        .provider(Provider::llmsim(SimDriver::new([
             SimTurn::tool_call("delete_file", json!({"path": "missing.txt"})),
             SimTurn::text("done"),
-        ]))
+        ])))
         .capability(agentyk::FileSystemCapability::new(InMemoryFileSystem::new()))
         .build()?;
 
@@ -93,10 +93,10 @@ async fn call_tool(
 ) -> Result<(String, bool, serde_json::Value)> {
     let agent = Agent::builder()
         .model(ModelSpec::llmsim())
-        .driver(SimDriver::new([
+        .provider(Provider::llmsim(SimDriver::new([
             SimTurn::tool_call(name, arguments),
             SimTurn::text("done"),
-        ]))
+        ])))
         .capability(agentyk::FileSystemCapability::from_arc(store))
         .build()?;
     let mut session = agent.session();

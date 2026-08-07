@@ -47,8 +47,9 @@ Environment:
 
 ### Providers
 
-Either driver works; the whole difference is a `ModelSpec`, so switching is a
-flag rather than a code path:
+Either service works; the whole difference is a `ModelSpec` plus the
+`Provider` it names, both resolved in one place, so switching is a flag rather
+than a code path:
 
 ```sh
 codenko --provider anthropic --model claude-opus-5

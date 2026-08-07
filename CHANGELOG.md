@@ -11,6 +11,34 @@ release — every release bumps the patch component (`0.1.z`). See
 
 ### Changed
 
+- **Providers are now a layer above drivers, and credentials live on them.** A
+  `ChatDriver` is one wire protocol and nothing more — it no longer carries a
+  default hostname, an auth scheme, or an id. A `Provider` is a service that
+  speaks one: `ProviderId`, base url, a per-request `ProviderAuth`, service
+  headers, and the driver it holds. Agents register providers
+  (`AgentBuilder::provider`) and a `ModelSpec` names one by id, so a single
+  `OpenAiDriver` serves OpenAI, a gateway, and a local runtime at once, and an
+  error from a gateway names the gateway. `providers::openai` and
+  `providers::anthropic` are the ready-made assemblies; anything else is
+  `Provider::new(id, driver).base_url(..).auth(..)`. Replaces `DriverId`,
+  `DriverRegistry`, `AgentBuilder::driver`, and `ChatDriver::id`.
+
+- **`ModelSpec` carries no credentials.** `api_key` and `base_url` are gone
+  from the spec — they belong to the provider it names — which makes a
+  `ModelSpec` ordinary configuration: serializable, loggable, safe in an
+  event. The redacting `Debug` impl and the rule that a spec must never reach
+  a log line went with them. `ModelSpec::new` is now `ModelSpec::on(provider,
+  model)`. `ModelSpec::metadata` remains, for model-flavored request knobs
+  rather than secrets.
+
+- **Model credentials can expire.** `ProviderAuth::headers` is asked once per
+  request rather than read once at construction, so an OAuth access token can
+  refresh mid-session — the same contract `mcp::McpAuthProvider` already had.
+  `BearerAuth` and `StaticHeaderAuth` cover the static cases.
+
+- **`ModelCatalog` is keyed by provider, not driver.** What a model supports
+  is a fact about the service serving it.
+
 - **The crate landing page now provides a copy-ready quick start.** The README
   links directly to crates.io, docs.rs, and examples, while every published
   workspace crate points Cargo metadata at the shared README and its docs.rs

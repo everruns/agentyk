@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use agentyk::{
     Agent, Error, EventData, EventLog, EventRange, EventRequest, ExpectedVersion, JsonlEventLog,
-    ModelSpec, Result, SessionId, SimDriver, SimTurn,
+    ModelSpec, Provider, Result, SessionId, SimDriver, SimTurn,
 };
 use serde_json::json;
 
@@ -15,10 +15,10 @@ async fn jsonl_log_persists_and_resumes_across_reopen() -> Result<()> {
 
     let agent = Agent::builder()
         .model(ModelSpec::llmsim())
-        .driver(SimDriver::new([
+        .provider(Provider::llmsim(SimDriver::new([
             SimTurn::tool_call("noop", json!({})),
             SimTurn::text("done"),
-        ]))
+        ])))
         .build()?;
 
     let session_id = {
@@ -38,7 +38,7 @@ async fn jsonl_log_persists_and_resumes_across_reopen() -> Result<()> {
     // Resume the session from the reopened log and keep going.
     let agent_two = Agent::builder()
         .model(ModelSpec::llmsim())
-        .driver(SimDriver::new([SimTurn::text("again")]))
+        .provider(Provider::llmsim(SimDriver::new([SimTurn::text("again")])))
         .build()?;
     let mut resumed = agent_two.resume_session(log.clone(), session_id).await?;
     let turn = resumed.run("more").await?;
@@ -63,7 +63,7 @@ async fn a_log_containing_a_future_event_kind_still_reads_and_resumes() -> Resul
 
     let agent = Agent::builder()
         .model(ModelSpec::llmsim())
-        .driver(SimDriver::new([SimTurn::text("first")]))
+        .provider(Provider::llmsim(SimDriver::new([SimTurn::text("first")])))
         .build()?;
 
     let session_id = {
@@ -105,7 +105,7 @@ async fn a_log_containing_a_future_event_kind_still_reads_and_resumes() -> Resul
     // And the session still resumes: history replays past the unknown event.
     let agent_two = Agent::builder()
         .model(ModelSpec::llmsim())
-        .driver(SimDriver::new([SimTurn::text("second")]))
+        .provider(Provider::llmsim(SimDriver::new([SimTurn::text("second")])))
         .build()?;
     let mut resumed = agent_two.resume_session(log, session_id).await?;
     assert_eq!(resumed.run("more").await?.response, "second");
@@ -120,7 +120,10 @@ async fn two_sessions_share_one_file_with_independent_sequences() -> Result<()> 
 
     let agent = Agent::builder()
         .model(ModelSpec::llmsim())
-        .driver(SimDriver::new([SimTurn::text("one"), SimTurn::text("two")]))
+        .provider(Provider::llmsim(SimDriver::new([
+            SimTurn::text("one"),
+            SimTurn::text("two"),
+        ])))
         .build()?;
 
     let mut a = agent.session_with_log(log.clone());

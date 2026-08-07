@@ -5,8 +5,8 @@
 use std::sync::Arc;
 
 use agentyk::{
-    Agent, CancellationToken, EventListener, FnTool, InMemoryEventLog, ModelSpec, SimDriver,
-    SimTurn, ToolCallDecision, ToolInvocation, ToolOutput, TurnMiddleware,
+    Agent, CancellationToken, EventListener, FnTool, InMemoryEventLog, ModelSpec, Provider,
+    SimDriver, SimTurn, ToolCallDecision, ToolInvocation, ToolOutput, TurnMiddleware,
 };
 use async_trait::async_trait;
 use codenko::agent::{AppEvent, AppEventSender, Prompt, TurnOutcome, spawn_agent_task};
@@ -67,7 +67,7 @@ async fn run_turn(
         .name("codenko-test")
         .system_prompt("scripted")
         .model(ModelSpec::llmsim())
-        .driver(SimDriver::new(turns))
+        .provider(Provider::llmsim(SimDriver::new(turns)))
         .tool(echo_tool())
         .middleware(FixedApproval(approve))
         .listener_arc(Arc::new(Forward(events.clone())))
@@ -210,7 +210,9 @@ async fn a_cancelled_turn_reports_itself_as_interrupted() {
         .name("codenko-test")
         .system_prompt("scripted")
         .model(ModelSpec::llmsim())
-        .driver(SimDriver::new([SimTurn::text("never sent")]))
+        .provider(Provider::llmsim(SimDriver::new([SimTurn::text(
+            "never sent",
+        )])))
         .listener_arc(Arc::new(Forward(events.clone())))
         .build()
         .expect("agent builds");

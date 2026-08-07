@@ -1,7 +1,7 @@
 //! What a model can actually do — and catching a request it can't, early.
 //!
-//! [`ModelSpec`] is deliberately just "which model,
-//! through which driver, with which credentials". It will happily carry a
+//! [`ModelSpec`] is deliberately just "which model, on which service". It
+//! will happily carry a
 //! reasoning effort the model does not offer, or a thinking budget from a
 //! model that has none; the first sign of trouble is then a provider error in
 //! the middle of a turn, which is the most expensive place to learn it.
@@ -19,7 +19,8 @@
 
 use std::collections::HashMap;
 
-use crate::driver::{DriverId, ModelSpec};
+use crate::driver::ModelSpec;
+use crate::provider::ProviderId;
 
 /// What one model supports. Every field is optional knowledge: `None` means
 /// "not stated", never "not supported", so a partial catalog entry can still
@@ -125,8 +126,8 @@ impl ModelProfile {
 /// know this model", which is never an error: an unknown model is sent to the
 /// provider unchanged.
 pub trait ModelCatalog: Send + Sync {
-    /// What is known about this model on this driver.
-    fn profile(&self, driver: &DriverId, model: &str) -> Option<ModelProfile>;
+    /// What is known about this model on this service.
+    fn profile(&self, provider: &ProviderId, model: &str) -> Option<ModelProfile>;
 }
 
 /// A catalog built from entries you supply — the straightforward
@@ -145,10 +146,10 @@ impl InMemoryModelCatalog {
     /// Describe one model. Replaces any previous entry for the same pair.
     ///
     /// ```
-    /// use agentyk_core::{DriverId, InMemoryModelCatalog, ModelProfile, ModelSpec};
+    /// use agentyk_core::{ProviderId, InMemoryModelCatalog, ModelProfile, ModelSpec};
     ///
     /// let catalog = InMemoryModelCatalog::new().with(
-    ///     DriverId::openai(),
+    ///     ProviderId::openai(),
     ///     "gpt-5.5",
     ///     ModelProfile::new()
     ///         .context_window(400_000)
@@ -156,26 +157,26 @@ impl InMemoryModelCatalog {
     /// );
     ///
     /// use agentyk_core::ModelCatalog;
-    /// let profile = catalog.profile(&DriverId::openai(), "gpt-5.5").unwrap();
+    /// let profile = catalog.profile(&ProviderId::openai(), "gpt-5.5").unwrap();
     /// assert!(profile.validate(&ModelSpec::openai("gpt-5.5").reasoning_effort("high")).is_ok());
     /// assert!(profile.validate(&ModelSpec::openai("gpt-5.5").reasoning_effort("extreme")).is_err());
     /// ```
     pub fn with(
         mut self,
-        driver: DriverId,
+        provider: ProviderId,
         model: impl Into<String>,
         profile: ModelProfile,
     ) -> Self {
         self.profiles
-            .insert((driver.as_str().to_string(), model.into()), profile);
+            .insert((provider.as_str().to_string(), model.into()), profile);
         self
     }
 }
 
 impl ModelCatalog for InMemoryModelCatalog {
-    fn profile(&self, driver: &DriverId, model: &str) -> Option<ModelProfile> {
+    fn profile(&self, provider: &ProviderId, model: &str) -> Option<ModelProfile> {
         self.profiles
-            .get(&(driver.as_str().to_string(), model.to_string()))
+            .get(&(provider.as_str().to_string(), model.to_string()))
             .cloned()
     }
 }
@@ -235,12 +236,12 @@ mod tests {
 
     #[test]
     fn a_catalog_is_keyed_by_driver_and_model() {
-        let catalog = InMemoryModelCatalog::new().with(DriverId::openai(), "gpt", gpt());
-        assert!(catalog.profile(&DriverId::openai(), "gpt").is_some());
+        let catalog = InMemoryModelCatalog::new().with(ProviderId::openai(), "gpt", gpt());
+        assert!(catalog.profile(&ProviderId::openai(), "gpt").is_some());
         assert!(
-            catalog.profile(&DriverId::anthropic(), "gpt").is_none(),
+            catalog.profile(&ProviderId::anthropic(), "gpt").is_none(),
             "same name on another protocol is another model"
         );
-        assert!(catalog.profile(&DriverId::openai(), "unknown").is_none());
+        assert!(catalog.profile(&ProviderId::openai(), "unknown").is_none());
     }
 }

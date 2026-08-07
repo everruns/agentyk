@@ -6,8 +6,8 @@ use std::sync::atomic::AtomicBool;
 use async_trait::async_trait;
 
 use agentyk::{
-    Agent, CancellationToken, ChatDriver, ChatRequest, ChatResponse, DeltaSink, DriverId, Error,
-    EventData, ModelSpec, Result, SimDriver, SimTurn, Tool, ToolCallDecision, ToolContext,
+    Agent, CancellationToken, ChatDriver, ChatRequest, ChatResponse, DeltaSink, Error, EventData,
+    ModelSpec, Provider, Result, SimDriver, SimTurn, Tool, ToolCallDecision, ToolContext,
     ToolDefinition, ToolInvocation, ToolOutput, TurnMiddleware, Usage, event_types,
 };
 
@@ -15,7 +15,9 @@ use agentyk::{
 async fn pre_cancelled_token_stops_before_any_reason_call() -> Result<()> {
     let agent = Agent::builder()
         .model(ModelSpec::llmsim())
-        .driver(SimDriver::new([SimTurn::text("should never run")]))
+        .provider(Provider::llmsim(SimDriver::new([SimTurn::text(
+            "should never run",
+        )])))
         .build()?;
 
     let token = CancellationToken::new();
@@ -51,10 +53,6 @@ struct CancelMidStreamDriver {
 
 #[async_trait]
 impl ChatDriver for CancelMidStreamDriver {
-    fn id(&self) -> DriverId {
-        DriverId::llmsim()
-    }
-
     async fn complete(&self, _request: ChatRequest) -> Result<ChatResponse> {
         unreachable!("this test only drives complete_streaming")
     }
@@ -82,9 +80,9 @@ async fn cancellation_mid_stream_stops_the_turn() -> Result<()> {
     let token = CancellationToken::new();
     let agent = Agent::builder()
         .model(ModelSpec::llmsim())
-        .driver(CancelMidStreamDriver {
+        .provider(Provider::llmsim(CancelMidStreamDriver {
             token: token.clone(),
-        })
+        }))
         .build()?;
 
     let mut session = agent.session();
@@ -116,7 +114,7 @@ async fn cancellation_mid_stream_stops_the_turn() -> Result<()> {
 async fn cancelling_after_a_successful_turn_has_no_effect() -> Result<()> {
     let agent = Agent::builder()
         .model(ModelSpec::llmsim())
-        .driver(SimDriver::new([SimTurn::text("done")]))
+        .provider(Provider::llmsim(SimDriver::new([SimTurn::text("done")])))
         .build()?;
 
     let token = CancellationToken::new();
@@ -176,10 +174,10 @@ async fn cancelling_during_a_tool_call_drops_it_instead_of_waiting() -> Result<(
     let dropped = Arc::new(AtomicBool::new(false));
     let agent = Agent::builder()
         .model(ModelSpec::llmsim())
-        .driver(SimDriver::new([
+        .provider(Provider::llmsim(SimDriver::new([
             SimTurn::tool_call("hang", serde_json::json!({})),
             SimTurn::text("never reached"),
-        ]))
+        ])))
         .tool(NeverEndingTool {
             token: token.clone(),
             dropped: dropped.clone(),
@@ -238,10 +236,10 @@ async fn middleware_can_stop_waiting_when_the_turn_is_cancelled() -> Result<()> 
     let token = CancellationToken::new();
     let agent = Agent::builder()
         .model(ModelSpec::llmsim())
-        .driver(SimDriver::new([
+        .provider(Provider::llmsim(SimDriver::new([
             SimTurn::tool_call("hang", serde_json::json!({})),
             SimTurn::text("never reached"),
-        ]))
+        ])))
         .tool(NeverEndingTool {
             token: CancellationToken::new(),
             dropped: Arc::new(AtomicBool::new(false)),

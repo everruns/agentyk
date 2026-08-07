@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use serde_json::json;
 
 use agentyk::{
-    Agent, EventData, FnTool, ModelSpec, Result, SimDriver, SimTurn, ToolCallDecision,
+    Agent, EventData, FnTool, ModelSpec, Provider, Result, SimDriver, SimTurn, ToolCallDecision,
     ToolInvocation, ToolOutput, TurnMiddleware, event_types,
 };
 
@@ -39,10 +39,10 @@ impl TurnMiddleware for DenyByName {
 async fn denied_tool_never_executes() -> Result<()> {
     let agent = Agent::builder()
         .model(ModelSpec::llmsim())
-        .driver(SimDriver::new([
+        .provider(Provider::llmsim(SimDriver::new([
             SimTurn::tool_call("echo", json!({"text": "should not run"})),
             SimTurn::text("done"),
-        ]))
+        ])))
         .tool(echo_tool())
         .middleware(DenyByName { denied: "echo" })
         .build()?;
@@ -86,10 +86,10 @@ async fn denied_tool_never_executes() -> Result<()> {
 async fn allowed_tool_runs_normally_with_middleware_present() -> Result<()> {
     let agent = Agent::builder()
         .model(ModelSpec::llmsim())
-        .driver(SimDriver::new([
+        .provider(Provider::llmsim(SimDriver::new([
             SimTurn::tool_call("echo", json!({"text": "hi"})),
             SimTurn::text("done"),
-        ]))
+        ])))
         .tool(echo_tool())
         .middleware(DenyByName {
             denied: "not-this-one",
@@ -132,10 +132,10 @@ impl TurnMiddleware for RedactSecret {
 async fn a_rewrite_reaches_the_tool_and_is_recorded() -> Result<()> {
     let agent = Agent::builder()
         .model(ModelSpec::llmsim())
-        .driver(SimDriver::new([
+        .provider(Provider::llmsim(SimDriver::new([
             SimTurn::tool_call("echo", json!({"text": "p@ssw0rd"})),
             SimTurn::text("done"),
-        ]))
+        ])))
         .tool(echo_tool())
         .middleware(RedactSecret)
         .build()?;
@@ -209,10 +209,10 @@ async fn a_rewrite_feeds_the_next_middleware_and_a_later_deny_still_wins() -> Re
 
     let agent = Agent::builder()
         .model(ModelSpec::llmsim())
-        .driver(SimDriver::new([
+        .provider(Provider::llmsim(SimDriver::new([
             SimTurn::tool_call("echo", json!({"text": "p@ssw0rd"})),
             SimTurn::text("done"),
-        ]))
+        ])))
         .tool(echo_tool())
         .middleware(RedactSecret)
         .middleware(DenyRedacted)
@@ -252,10 +252,10 @@ impl TurnMiddleware for Truncate {
 async fn after_tool_transforms_tool_output() -> Result<()> {
     let agent = Agent::builder()
         .model(ModelSpec::llmsim())
-        .driver(SimDriver::new([
+        .provider(Provider::llmsim(SimDriver::new([
             SimTurn::tool_call("echo", json!({"text": "0123456789"})),
             SimTurn::text("done"),
-        ]))
+        ])))
         .tool(echo_tool())
         .middleware(Truncate { max_len: 4 })
         .build()?;
@@ -293,10 +293,10 @@ impl TurnMiddleware for RecordCall {
 async fn after_tool_runs_in_attachment_order() -> Result<()> {
     let agent = Agent::builder()
         .model(ModelSpec::llmsim())
-        .driver(SimDriver::new([
+        .provider(Provider::llmsim(SimDriver::new([
             SimTurn::tool_call("echo", json!({"text": "x"})),
             SimTurn::text("done"),
-        ]))
+        ])))
         .tool(echo_tool())
         .middleware(RecordCall { label: "first" })
         .middleware(RecordCall { label: "second" })
@@ -324,10 +324,10 @@ async fn after_tool_runs_in_attachment_order() -> Result<()> {
 async fn after_tool_does_not_run_for_a_denied_call() -> Result<()> {
     let agent = Agent::builder()
         .model(ModelSpec::llmsim())
-        .driver(SimDriver::new([
+        .provider(Provider::llmsim(SimDriver::new([
             SimTurn::tool_call("echo", json!({"text": "x"})),
             SimTurn::text("done"),
-        ]))
+        ])))
         .tool(echo_tool())
         .middleware(DenyByName { denied: "echo" })
         .middleware(RecordCall { label: "after" })

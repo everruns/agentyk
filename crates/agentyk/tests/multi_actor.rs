@@ -3,17 +3,13 @@
 use std::sync::Arc;
 
 use agentyk::{
-    Agent, ChatDriver, ChatRequest, ChatResponse, ModelSpec, Result, SimDriver, SimTurn,
+    Agent, ChatDriver, ChatRequest, ChatResponse, ModelSpec, Provider, Result, SimDriver, SimTurn,
 };
 
 struct SharedSim(Arc<SimDriver>);
 
 #[async_trait::async_trait]
 impl ChatDriver for SharedSim {
-    fn id(&self) -> agentyk::DriverId {
-        agentyk::DriverId::llmsim()
-    }
-
     async fn complete(&self, request: ChatRequest) -> Result<ChatResponse> {
         self.0.complete(request).await
     }
@@ -32,13 +28,13 @@ async fn addressed_agent_overlays_behavior_on_the_hosts_harness_and_history() ->
         .name("host")
         .system_prompt("You are the host.")
         .model(ModelSpec::llmsim())
-        .driver(SharedSim(host_driver.clone()))
+        .provider(Provider::llmsim(SharedSim(host_driver.clone())))
         .build()?;
     let guest = Agent::builder()
         .name("reviewer")
         .system_prompt("You are the reviewer.")
         .model(ModelSpec::llmsim())
-        .driver(SharedSim(guest_driver.clone()))
+        .provider(Provider::llmsim(SharedSim(guest_driver.clone())))
         .build()?;
 
     let mut session = host.session();

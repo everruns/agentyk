@@ -14,7 +14,7 @@ use std::sync::Arc;
 
 use agentyk::{
     Agent, Hook, HookEvent, HookMatcher, HookOutcome, HookPayload, JsonlEventLog, ModelSpec,
-    Result, SimDriver, SimTurn, ToolOutput,
+    Provider, Result, SimDriver, SimTurn, ToolOutput,
 };
 use async_trait::async_trait;
 use serde_json::json;
@@ -65,7 +65,7 @@ async fn main() -> Result<()> {
         .name("support-agent")
         .system_prompt("Answer from tool results; do not invent order status.")
         .model(ModelSpec::llmsim())
-        .driver(driver)
+        .provider(Provider::llmsim(driver))
         .tool(lookup_order)
         .hook(ReadOnlyGate {
             matcher: HookMatcher {

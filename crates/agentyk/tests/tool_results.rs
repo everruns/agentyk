@@ -1,8 +1,8 @@
 //! Rich tool results: what the model sees, and what it sees on each protocol.
 
 use agentyk::{
-    Agent, ContentPart, EventData, ImageContentPart, ModelSpec, Result, SimDriver, SimTurn, Tool,
-    ToolContext, ToolDefinition, ToolOutput,
+    Agent, ContentPart, EventData, ImageContentPart, ModelSpec, Provider, Result, SimDriver,
+    SimTurn, Tool, ToolContext, ToolDefinition, ToolOutput,
 };
 use async_trait::async_trait;
 use serde_json::json;
@@ -27,10 +27,10 @@ impl Tool for ScreenshotTool {
 async fn run() -> Result<agentyk::Session> {
     let agent = Agent::builder()
         .model(ModelSpec::llmsim())
-        .driver(SimDriver::new([
+        .provider(Provider::llmsim(SimDriver::new([
             SimTurn::tool_call("screenshot", json!({})),
             SimTurn::text("the login form has two fields"),
-        ]))
+        ])))
         .tool(ScreenshotTool)
         .build()?;
     let mut session = agent.session();
@@ -91,7 +91,9 @@ async fn a_turn_can_be_opened_with_an_image() -> Result<()> {
     // this needs no separate entry point.
     let agent = Agent::builder()
         .model(ModelSpec::llmsim())
-        .driver(SimDriver::new([SimTurn::text("a login form")]))
+        .provider(Provider::llmsim(SimDriver::new([SimTurn::text(
+            "a login form",
+        )])))
         .build()?;
 
     let mut session = agent.session();
@@ -120,7 +122,10 @@ async fn a_plain_string_still_opens_a_turn() -> Result<()> {
     let agent = Agent::builder()
         .model(ModelSpec::llmsim())
         // One scripted turn per session below.
-        .driver(SimDriver::new([SimTurn::text("hi"), SimTurn::text("hi")]))
+        .provider(Provider::llmsim(SimDriver::new([
+            SimTurn::text("hi"),
+            SimTurn::text("hi"),
+        ])))
         .build()?;
     assert_eq!(agent.session().run("hello").await?.response, "hi");
     // …and an owned String, which is what a host that formats a prompt has.

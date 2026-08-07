@@ -1,9 +1,9 @@
 //! End-to-end coverage for durable, tool-authored lifecycle narration.
 
 use agentyk::{
-    Agent, EventData, ModelSpec, Result, SimDriver, SimTurn, Tool, ToolCall, ToolCallDecision,
-    ToolContext, ToolDefinition, ToolInvocation, ToolNarrationContext, ToolNarrationPhase,
-    ToolOutput, TurnMiddleware,
+    Agent, EventData, ModelSpec, Provider, Result, SimDriver, SimTurn, Tool, ToolCall,
+    ToolCallDecision, ToolContext, ToolDefinition, ToolInvocation, ToolNarrationContext,
+    ToolNarrationPhase, ToolOutput, TurnMiddleware,
 };
 use async_trait::async_trait;
 use serde_json::{Value, json};
@@ -64,12 +64,12 @@ impl Tool for NarratedTool {
 async fn tool_narration_is_durable_for_success_and_failure() -> Result<()> {
     let agent = Agent::builder()
         .model(ModelSpec::llmsim())
-        .driver(SimDriver::new([
+        .provider(Provider::llmsim(SimDriver::new([
             SimTurn::tool_call("visit", json!({"place": "old library"})),
             SimTurn::text("done"),
             SimTurn::tool_call("visit", json!({"place": "museum", "fail": true})),
             SimTurn::text("could not visit"),
-        ]))
+        ])))
         .tool(NarratedTool)
         .middleware(RedirectLibrary)
         .build()?;

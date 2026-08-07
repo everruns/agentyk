@@ -116,9 +116,13 @@ resolution is recorded under each.
    [`extensibility.md`](../extensibility/extensibility.md), a `metadata` hatch on `ModelSpec`,
    since the contents are provider-flavored rather than universal.
 
-   **Resolution.** `ModelSpec::metadata`, the hatch. It is the natural home
-   for credentials, so it is redacted in `Debug` alongside `api_key` and falls
-   under the same rule: a `ModelSpec` never reaches an event or a log line.
+   **Resolution.** `ModelSpec::metadata`, the hatch — since superseded for
+   the credential half of the problem. A `Provider` now owns the endpoint and
+   a per-request `ProviderAuth`, so a Codex refresh token belongs there
+   (where it can actually be refreshed mid-session) rather than in a spec
+   field. `metadata` remains for model-flavored request knobs, and a
+   `ModelSpec` carries no secret at all. See
+   [`providers.md`](../extensibility/providers.md).
 
 ## Sharp edges
 

@@ -13,9 +13,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use agentyk::{
-    Agent, AnthropicDriver, CancellationToken, Event, EventListener, EventLog,
-    FileSystemCapability, FnTool, ModelSpec, RealDiskFileSystem, ToolCall, ToolCallDecision,
-    ToolInvocation, ToolOutput, TurnMiddleware,
+    Agent, CancellationToken, Event, EventListener, EventLog, FileSystemCapability, FnTool,
+    ModelSpec, Provider, RealDiskFileSystem, ToolCall, ToolCallDecision, ToolInvocation,
+    ToolOutput, TurnMiddleware,
 };
 use async_trait::async_trait;
 use serde_json::json;
@@ -234,6 +234,7 @@ fn truncate(mut text: String, limit: usize) -> String {
 pub fn build_agent(
     workspace: &Path,
     model: ModelSpec,
+    provider: Provider,
     events: AppEventSender,
 ) -> agentyk::Result<Agent> {
     let files = RealDiskFileSystem::new(workspace)?;
@@ -241,8 +242,7 @@ pub fn build_agent(
         .name("codenko")
         .system_prompt(SYSTEM_PROMPT)
         .model(model)
-        // Room for a long tool-calling turn; the default 8k truncates edits.
-        .driver(AnthropicDriver::new().max_tokens(16_000))
+        .provider(provider)
         .capability(FileSystemCapability::new(files))
         .tool(run_command_tool(workspace.to_path_buf()))
         .middleware(ApprovalMiddleware(events.clone()))

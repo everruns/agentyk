@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 
 use agentyk::{
     Agent, FnTool, Hook, HookContext, HookErrorPolicy, HookEvent, HookMatcher, HookOutcome,
-    HookPayload, Message, ModelSpec, Result, SimDriver, SimTurn, ToolOutput,
+    HookPayload, Message, ModelSpec, Provider, Result, SimDriver, SimTurn, ToolOutput,
 };
 use async_trait::async_trait;
 use serde_json::json;
@@ -85,7 +85,7 @@ async fn prompt_tool_and_turn_hooks_mutate_in_order() -> Result<()> {
     };
     let agent = Agent::builder()
         .model(ModelSpec::llmsim())
-        .driver(driver)
+        .provider(Provider::llmsim(driver))
         .tool(FnTool::new(
             "echo",
             "Echo text",
@@ -164,7 +164,9 @@ async fn blockable_and_advisory_semantics_are_distinct() -> Result<()> {
     let seen = Arc::new(Mutex::new(Vec::new()));
     let agent = Agent::builder()
         .model(ModelSpec::llmsim())
-        .driver(SimDriver::new([SimTurn::text("unreachable")]))
+        .provider(Provider::llmsim(SimDriver::new([SimTurn::text(
+            "unreachable",
+        )])))
         .hook(hook(
             "start",
             HookEvent::SessionStart,
@@ -226,7 +228,7 @@ async fn warn_on_error_records_a_hook_warning_without_blocking() -> Result<()> {
     let seen = Arc::new(Mutex::new(Vec::new()));
     let agent = Agent::builder()
         .model(ModelSpec::llmsim())
-        .driver(SimDriver::new([SimTurn::text("ok")]))
+        .provider(Provider::llmsim(SimDriver::new([SimTurn::text("ok")])))
         .hook(hook(
             "broken-start",
             HookEvent::SessionStart,
@@ -261,7 +263,9 @@ fn matcher_on_a_non_tool_event_is_a_build_error() {
     };
     let result = Agent::builder()
         .model(ModelSpec::llmsim())
-        .driver(SimDriver::new(std::iter::empty::<SimTurn>()))
+        .provider(Provider::llmsim(SimDriver::new(
+            std::iter::empty::<SimTurn>(),
+        )))
         .hook(invalid)
         .build();
     assert!(matches!(result, Err(agentyk::Error::InvalidAgent(_))));
