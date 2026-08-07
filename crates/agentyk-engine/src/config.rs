@@ -7,12 +7,13 @@ use std::sync::Arc;
 use agentyk_core::budget::BudgetChecker;
 use agentyk_core::capability::Capability;
 use agentyk_core::context::{ContextAssembler, PassthroughContextAssembler};
-use agentyk_core::driver::{DriverRegistry, ModelSpec};
+use agentyk_core::driver::ModelSpec;
 use agentyk_core::event::EventListener;
 use agentyk_core::extensions::Extensions;
 use agentyk_core::hook::Hook;
 use agentyk_core::middleware::TurnMiddleware;
 use agentyk_core::profile::ModelCatalog;
+use agentyk_core::provider::ProviderRegistry;
 
 /// The default ceiling on reason/act iterations within one turn.
 pub(crate) const DEFAULT_MAX_ITERATIONS: usize = 16;
@@ -30,9 +31,9 @@ pub(crate) struct AgentConfig {
     pub(crate) model: Option<ModelSpec>,
     /// What the agent can do: each contributes prompt text and tools.
     pub(crate) capabilities: Vec<Arc<dyn Capability>>,
-    /// The driver protocols available to this agent, routed by
-    /// [`ModelSpec::driver`].
-    pub(crate) drivers: DriverRegistry,
+    /// The services available to this agent, routed by
+    /// [`ModelSpec::provider`].
+    pub(crate) providers: ProviderRegistry,
     /// Observers of the event stream. They cannot change a turn — see
     /// [`TurnMiddleware`] for that.
     pub(crate) listeners: Vec<Arc<dyn EventListener>>,
@@ -65,7 +66,7 @@ impl Default for AgentConfig {
             system_prompt: String::new(),
             model: None,
             capabilities: Vec::new(),
-            drivers: DriverRegistry::new(),
+            providers: ProviderRegistry::new(),
             listeners: Vec::new(),
             max_iterations: DEFAULT_MAX_ITERATIONS,
             middleware: Vec::new(),

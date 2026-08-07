@@ -1,6 +1,6 @@
 //! `ToolContext::extensions`: host-injected services reaching a tool.
 
-use agentyk::{Agent, ModelSpec, Result, SimDriver, SimTurn, ToolOutput};
+use agentyk::{Agent, ModelSpec, Provider, Result, SimDriver, SimTurn, ToolOutput};
 use serde_json::json;
 
 #[derive(Clone)]
@@ -36,10 +36,10 @@ impl agentyk::Tool for Greeter {
 async fn extension_flows_through_to_tool_execution() -> Result<()> {
     let agent = Agent::builder()
         .model(ModelSpec::llmsim())
-        .driver(SimDriver::new([
+        .provider(Provider::llmsim(SimDriver::new([
             SimTurn::tool_call("greet", json!({"name": "world"})),
             SimTurn::text("done"),
-        ]))
+        ])))
         .extension(GreetingPrefix("Yo,".to_string()))
         .tool(Greeter)
         .build()?;
@@ -63,10 +63,10 @@ async fn extension_flows_through_to_tool_execution() -> Result<()> {
 async fn missing_extension_is_visible_to_the_tool_not_a_panic() -> Result<()> {
     let agent = Agent::builder()
         .model(ModelSpec::llmsim())
-        .driver(SimDriver::new([
+        .provider(Provider::llmsim(SimDriver::new([
             SimTurn::tool_call("greet", json!({"name": "world"})),
             SimTurn::text("done"),
-        ]))
+        ])))
         // No .extension(...) this time.
         .tool(Greeter)
         .build()?;

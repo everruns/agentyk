@@ -400,7 +400,7 @@ impl Session {
     /// embedding host owns membership, roles, and authorization, resolves the
     /// addressed participant to an [`Agent`], then passes that value here. The
     /// guest contributes behavior and model defaults; the session host keeps
-    /// supplying drivers, listeners, and extensions. Plain [`Self::run`]
+    /// supplying providers, listeners, and extensions. Plain [`Self::run`]
     /// continues to route to the session's host agent.
     pub async fn run_with_agent(
         &mut self,

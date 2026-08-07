@@ -20,10 +20,11 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::capability::{Capability, SystemPromptContext};
-use crate::driver::{ChatDriver, ChatRequest, ChatResponse, DeltaSink, ModelSpec};
+use crate::driver::{ChatRequest, ChatResponse, DeltaSink, ModelSpec};
 use crate::error::Result;
 use crate::id::SessionId;
 use crate::message::{ContentPart, Message, Role, ToolCall};
+use crate::provider::{Provider, ProviderEndpoint};
 use crate::tool::{Tool, ToolContext, ToolDefinition, ToolOutput};
 
 /// The resolved per-turn environment: what the model sees and what the host
@@ -119,6 +120,8 @@ pub fn chat_request(
     }
     ChatRequest {
         model: model.clone(),
+        // Filled in by the provider, which resolves credentials per call.
+        endpoint: ProviderEndpoint::default(),
         system_prompt: assembled.system_prompt.clone(),
         messages,
         tools: assembled.tool_definitions.clone(),
@@ -127,12 +130,12 @@ pub fn chat_request(
 
 /// The reason atom: one LLM completion over the current history.
 pub async fn reason(
-    driver: &dyn ChatDriver,
+    provider: &Provider,
     model: &ModelSpec,
     assembled: &AssembledTurn,
     messages: Vec<Message>,
 ) -> Result<ChatResponse> {
-    driver
+    provider
         .complete(chat_request(model, assembled, messages))
         .await
 }
@@ -141,13 +144,13 @@ pub async fn reason(
 /// the driver generates it (see [`DeltaSink`]), and the final response is
 /// identical to what [`reason`] would return.
 pub async fn reason_streaming(
-    driver: &dyn ChatDriver,
+    provider: &Provider,
     model: &ModelSpec,
     assembled: &AssembledTurn,
     messages: Vec<Message>,
     sink: &mut dyn DeltaSink,
 ) -> Result<ChatResponse> {
-    driver
+    provider
         .complete_streaming(chat_request(model, assembled, messages), sink)
         .await
 }

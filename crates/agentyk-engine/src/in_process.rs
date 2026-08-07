@@ -185,11 +185,16 @@ impl InProcessExecutor {
         }
         let engine = TurnEngine;
         let assembled = engine.assemble(host).await?;
-        let driver = host
+        let provider = host
             .environment
-            .drivers
-            .get(&host.model.driver)
-            .ok_or_else(|| Error::UnknownDriver(host.model.driver.to_string()))?;
+            .providers
+            .get(&host.model.provider)
+            .ok_or_else(|| {
+                Error::UnknownProvider(
+                    host.model.provider.to_string(),
+                    host.environment.providers.ids().join(", "),
+                )
+            })?;
         let turn_id = state.turn_id;
 
         loop {
@@ -205,7 +210,7 @@ impl InProcessExecutor {
                         message_id,
                         cancellation,
                     };
-                    match driver.complete_streaming(request, &mut sink).await {
+                    match provider.complete_streaming(request, &mut sink).await {
                         Ok(response) => {
                             let events = engine.complete_model(&mut state, &response);
                             host.record(turn_id, events).await?;

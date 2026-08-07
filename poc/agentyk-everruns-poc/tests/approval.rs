@@ -2,7 +2,9 @@
 //! `metadata` hints, driving a real agent through the framework harness — all
 //! over agentyk-core's public seams, no core change.
 
-use agentyk::{Agent, EventData, FnTool, ModelSpec, Result, SimDriver, SimTurn, ToolOutput};
+use agentyk::{
+    Agent, EventData, FnTool, ModelSpec, Provider, Result, SimDriver, SimTurn, ToolOutput,
+};
 use agentyk_core::message::ToolCall;
 use agentyk_everruns_poc::{ApprovalDecision, ApprovalMiddleware, Approver, HintedTool, ToolHints};
 use async_trait::async_trait;
@@ -34,10 +36,10 @@ fn delete_tool() -> FnTool {
 fn agent_with(approver: impl Approver + 'static, hints: ToolHints) -> Result<Agent> {
     Agent::builder()
         .model(ModelSpec::llmsim())
-        .driver(SimDriver::new([
+        .provider(Provider::llmsim(SimDriver::new([
             SimTurn::tool_call("delete", json!({})),
             SimTurn::text("done"),
-        ]))
+        ])))
         .middleware(ApprovalMiddleware::new(approver))
         .tool(HintedTool::new(delete_tool(), hints))
         .build()

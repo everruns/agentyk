@@ -60,6 +60,7 @@ pub mod input;
 pub mod message;
 pub mod middleware;
 pub mod profile;
+pub mod provider;
 pub mod replay;
 pub mod tool;
 pub mod turn;
@@ -73,8 +74,7 @@ pub use context::{
 };
 pub use controls::TurnControls;
 pub use driver::{
-    ChatDriver, ChatRequest, ChatResponse, DeltaSink, DriverId, DriverRegistry, ModelSpec,
-    ReasoningConfig, Usage,
+    ChatDriver, ChatRequest, ChatResponse, DeltaSink, ModelSpec, ReasoningConfig, Usage,
 };
 pub use error::{Error, LlmErrorKind, Result};
 pub use event::{
@@ -99,6 +99,10 @@ pub use middleware::{
     before_tool_chain,
 };
 pub use profile::{InMemoryModelCatalog, ModelCatalog, ModelProfile};
+pub use provider::{
+    BearerAuth, Provider, ProviderAuth, ProviderEndpoint, ProviderId, ProviderRegistry,
+    StaticHeaderAuth,
+};
 pub use replay::{History, messages_from_events};
 pub use tool::{
     DeferrablePolicy, FnTool, Tool, ToolContext, ToolDefinition, ToolEventPresentation,

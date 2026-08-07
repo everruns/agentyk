@@ -13,7 +13,9 @@
 
 use std::sync::Arc;
 
-use agentyk::{Agent, FnTool, ModelSpec, Result, SimDriver, SimToolCall, SimTurn, ToolOutput};
+use agentyk::{
+    Agent, FnTool, ModelSpec, Provider, Result, SimDriver, SimToolCall, SimTurn, ToolOutput,
+};
 use agentyk_core::message::ToolCall;
 use agentyk_core::middleware::{ToolCallDecision, ToolInvocation, TurnMiddleware};
 use agentyk_everruns_poc::{
@@ -67,7 +69,7 @@ async fn main() -> Result<()> {
         .name("guarded-agent")
         .system_prompt("You are a careful assistant.")
         .model(ModelSpec::llmsim())
-        .driver(SimDriver::new([
+        .provider(Provider::llmsim(SimDriver::new([
             // A batch: one safe read + one destructive delete, dispatched together.
             SimTurn::tool_calls([
                 SimToolCall::new("search", json!({"q": "cats"})),
@@ -76,7 +78,7 @@ async fn main() -> Result<()> {
             // Then a tool whose secret argument is redacted before it runs.
             SimTurn::tool_call("save_note", json!({"note": "hi", "secret": "p@ssw0rd"})),
             SimTurn::text("All done — one search ran, the delete was blocked, and the secret never reached the tool."),
-        ]))
+        ])))
         // Guardrails are ordinary middleware in the canonical engine:
         // redact first, then gate risky tools through the approval policy.
         .middleware(RedactSecret)

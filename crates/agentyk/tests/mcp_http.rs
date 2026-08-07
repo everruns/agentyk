@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use agentyk::{
     Agent, McpAuthProvider, McpCapability, McpClient, McpProtocolMode, McpServer, ModelSpec,
-    Result, SimDriver, SimTurn, StaticBearer,
+    Provider, Result, SimDriver, SimTurn, StaticBearer,
 };
 use async_trait::async_trait;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -173,10 +173,10 @@ async fn a_remote_server_contributes_its_tools_to_a_turn() -> Result<()> {
     let server = scripted_server().await;
     let agent = Agent::builder()
         .model(ModelSpec::llmsim())
-        .driver(SimDriver::new([
+        .provider(Provider::llmsim(SimDriver::new([
             SimTurn::tool_call("search_issues", serde_json::json!({"q": "open"})),
             SimTurn::text("3 open issues"),
-        ]))
+        ])))
         .capability(McpCapability::new(
             McpServer::http("github", &server.url).protocol_mode(McpProtocolMode::Stateful),
         ))
@@ -204,7 +204,7 @@ async fn the_session_id_from_initialize_is_sent_on_later_requests() -> Result<()
     let server = scripted_server().await;
     let agent = Agent::builder()
         .model(ModelSpec::llmsim())
-        .driver(SimDriver::new([SimTurn::text("done")]))
+        .provider(Provider::llmsim(SimDriver::new([SimTurn::text("done")])))
         .capability(McpCapability::new(
             McpServer::http("github", &server.url).protocol_mode(McpProtocolMode::Stateful),
         ))
@@ -244,7 +244,7 @@ async fn an_auth_provider_is_asked_for_every_request() -> Result<()> {
     let server = scripted_server().await;
     let agent = Agent::builder()
         .model(ModelSpec::llmsim())
-        .driver(SimDriver::new([SimTurn::text("done")]))
+        .provider(Provider::llmsim(SimDriver::new([SimTurn::text("done")])))
         .capability(
             McpCapability::new(
                 McpServer::http("github", &server.url).protocol_mode(McpProtocolMode::Stateful),
@@ -273,7 +273,7 @@ async fn a_static_bearer_covers_the_simple_case() -> Result<()> {
     let server = scripted_server().await;
     let agent = Agent::builder()
         .model(ModelSpec::llmsim())
-        .driver(SimDriver::new([SimTurn::text("done")]))
+        .provider(Provider::llmsim(SimDriver::new([SimTurn::text("done")])))
         .capability(
             McpCapability::new(
                 McpServer::http("github", &server.url).protocol_mode(McpProtocolMode::Stateful),
@@ -292,7 +292,7 @@ async fn extra_headers_are_sent_and_credentials_are_not_required() -> Result<()>
     let server = scripted_server().await;
     let agent = Agent::builder()
         .model(ModelSpec::llmsim())
-        .driver(SimDriver::new([SimTurn::text("done")]))
+        .provider(Provider::llmsim(SimDriver::new([SimTurn::text("done")])))
         .capability(McpCapability::new(
             McpServer::http("github", &server.url)
                 .protocol_mode(McpProtocolMode::Stateful)

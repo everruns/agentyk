@@ -34,7 +34,7 @@
 //! # Quick start
 //!
 //! ```
-//! use agentyk::{Agent, ModelSpec, SimDriver, SimTurn};
+//! use agentyk::{Provider, Agent, ModelSpec, SimDriver, SimTurn};
 //!
 //! # #[tokio::main(flavor = "current_thread")]
 //! # async fn main() -> agentyk::Result<()> {
@@ -42,7 +42,7 @@
 //!     .name("greeter")
 //!     .system_prompt("You are terse.")
 //!     .model(ModelSpec::llmsim())
-//!     .driver(SimDriver::new([SimTurn::text("hi!")]))
+//!     .provider(Provider::llmsim(SimDriver::new([SimTurn::text("hi!")])))
 //!     .build()?;
 //!
 //! let mut session = agent.session();
@@ -58,13 +58,15 @@
 //! ```no_run
 //! # #[cfg(feature = "http")]
 //! # async fn run() -> agentyk::Result<()> {
-//! use agentyk::{Agent, AnthropicDriver, ModelSpec};
+//! use agentyk::{Agent, ModelSpec, providers};
 //!
 //! let key = std::env::var("ANTHROPIC_API_KEY").expect("ANTHROPIC_API_KEY must be set");
 //! let agent = Agent::builder()
 //!     .system_prompt("You are a coding agent.")
-//!     .model(ModelSpec::anthropic("claude-sonnet-4-5").api_key(key))
-//!     .driver(AnthropicDriver::new())
+//!     // The model says *what to run*; the provider says *where, with which
+//!     // credential*. The key never touches the spec.
+//!     .model(ModelSpec::anthropic("claude-sonnet-4-5"))
+//!     .provider(providers::anthropic(key))
 //!     .build()?;
 //!
 //! let result = agent.run("List the files in the current directory.").await?;
@@ -98,26 +100,27 @@ pub mod mcp;
 // surface a decision.
 pub use agentyk_core::{
     atoms, budget, cancellation, capability, concurrency, context, controls, driver, error, event,
-    event_log, extensions, hook, id, input, message, middleware, profile, replay, tool, turn,
+    event_log, extensions, hook, id, input, message, middleware, profile, provider, replay, tool,
+    turn,
 };
 
 pub use agentyk_core::{
-    BudgetChecker, BudgetDecision, CancellationToken, Capability, ChatDriver, ChatRequest,
-    ChatResponse, CommandContext, CommandDescriptor, CompositeEventListener, ContentPart,
-    ContextAssembler, ContextAssembly, ContextEvent, ContextRequest, ContextSource,
-    DeferrablePolicy, DeltaSink, DriverId, DriverRegistry, Error, Event, EventData, EventId,
-    EventListener, EventLog, EventPage, EventRange, EventRequest, EventStore, ExpectedVersion,
-    Extensions, ExternalActor, FnTool, History, Hook, HookContext, HookErrorPolicy, HookEvent,
-    HookMatcher, HookOutcome, HookPayload, ImageContentPart, InMemoryEventLog,
-    InMemoryModelCatalog, InMemorySnapshotStore, InputQueue, LlmErrorKind, Message, MessageId,
-    ModelCatalog, ModelProfile, ModelSpec, NoopEventListener, PassthroughContextAssembler,
-    ProjectionSnapshot, ReasoningConfig, Result, Role, SealReason, SessionId, SessionPoint,
-    SnapshotStore, SystemPromptContext, TextContentPart, Tool, ToolCall, ToolCallDecision,
-    ToolChainOutcome, ToolContext, ToolDefinition, ToolEventPresentation, ToolInvocation,
-    ToolNarrationContext, ToolNarrationPhase, ToolOutput, ToolPolicy, ToolProgress,
-    ToolProgressSink, TurnAction, TurnControls, TurnId, TurnMiddleware, TurnOutcome, TurnPhase,
-    TurnState, Usage, after_tool_chain, before_tool_chain, event_types, messages_from_events,
-    notify_event_listeners,
+    BearerAuth, BudgetChecker, BudgetDecision, CancellationToken, Capability, ChatDriver,
+    ChatRequest, ChatResponse, CommandContext, CommandDescriptor, CompositeEventListener,
+    ContentPart, ContextAssembler, ContextAssembly, ContextEvent, ContextRequest, ContextSource,
+    DeferrablePolicy, DeltaSink, Error, Event, EventData, EventId, EventListener, EventLog,
+    EventPage, EventRange, EventRequest, EventStore, ExpectedVersion, Extensions, ExternalActor,
+    FnTool, History, Hook, HookContext, HookErrorPolicy, HookEvent, HookMatcher, HookOutcome,
+    HookPayload, ImageContentPart, InMemoryEventLog, InMemoryModelCatalog, InMemorySnapshotStore,
+    InputQueue, LlmErrorKind, Message, MessageId, ModelCatalog, ModelProfile, ModelSpec,
+    NoopEventListener, PassthroughContextAssembler, ProjectionSnapshot, Provider, ProviderAuth,
+    ProviderEndpoint, ProviderId, ProviderRegistry, ReasoningConfig, Result, Role, SealReason,
+    SessionId, SessionPoint, SnapshotStore, StaticHeaderAuth, SystemPromptContext, TextContentPart,
+    Tool, ToolCall, ToolCallDecision, ToolChainOutcome, ToolContext, ToolDefinition,
+    ToolEventPresentation, ToolInvocation, ToolNarrationContext, ToolNarrationPhase, ToolOutput,
+    ToolPolicy, ToolProgress, ToolProgressSink, TurnAction, TurnControls, TurnId, TurnMiddleware,
+    TurnOutcome, TurnPhase, TurnState, Usage, after_tool_chain, before_tool_chain, event_types,
+    messages_from_events, notify_event_listeners,
 };
 /// The names most applications want in scope at once.
 ///
@@ -182,3 +185,6 @@ pub use mcp::{
 #[cfg(feature = "http")]
 #[cfg_attr(docsrs, doc(cfg(feature = "http")))]
 pub use drivers::{anthropic::AnthropicDriver, openai::OpenAiDriver};
+#[cfg(feature = "http")]
+#[cfg_attr(docsrs, doc(cfg(feature = "http")))]
+pub mod providers;

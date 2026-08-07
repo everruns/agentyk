@@ -150,11 +150,12 @@ mod tests {
     use std::task::{Context, Poll, Waker};
 
     use agentyk_core::context::PassthroughContextAssembler;
-    use agentyk_core::driver::{DriverRegistry, ModelSpec};
+    use agentyk_core::driver::ModelSpec;
     use agentyk_core::event::{Event, EventListener, EventRequest, event_types};
     use agentyk_core::event_log::EventStore;
     use agentyk_core::extensions::Extensions;
     use agentyk_core::id::MessageId;
+    use agentyk_core::provider::ProviderRegistry;
 
     use super::*;
     use crate::agent::{AgentDefinition, AgentEnvironment};
@@ -248,7 +249,7 @@ mod tests {
             context_token_limit: None,
         };
         let environment = AgentEnvironment {
-            drivers: DriverRegistry::new(),
+            providers: ProviderRegistry::new(),
             listeners: Vec::new(),
             extensions: Extensions::new(),
         };
@@ -291,7 +292,7 @@ mod tests {
         };
         let count = Arc::new(AtomicU32::new(0));
         let environment = AgentEnvironment {
-            drivers: DriverRegistry::new(),
+            providers: ProviderRegistry::new(),
             listeners: vec![Arc::new(FilteredListener {
                 count: count.clone(),
             })],
@@ -335,7 +336,7 @@ mod tests {
             context_token_limit: None,
         };
         let environment = AgentEnvironment {
-            drivers: DriverRegistry::new(),
+            providers: ProviderRegistry::new(),
             listeners: Vec::new(),
             extensions: Extensions::new(),
         };

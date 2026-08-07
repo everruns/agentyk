@@ -15,7 +15,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use agentyk::{
-    Agent, ModelSpec, Role, SimDriver, SimTurn, Tool, ToolContext, ToolDefinition, ToolOutput,
+    Agent, ModelSpec, Provider, Role, SimDriver, SimTurn, Tool, ToolContext, ToolDefinition,
+    ToolOutput,
 };
 use async_trait::async_trait;
 use serde_json::json;
@@ -80,9 +81,9 @@ impl Tool for SpawnSubagentsTool {
                     .name(format!("worker-{}", index + 1))
                     .system_prompt("Complete the assigned independent task.")
                     .model(ModelSpec::llmsim())
-                    .driver(SimDriver::new([SimTurn::text(format!(
+                    .provider(Provider::llmsim(SimDriver::new([SimTurn::text(format!(
                         "{task_id_for_run} completed: {instruction}"
-                    ))]))
+                    ))])))
                     .build()?;
                 let mut session = child.session();
                 let result = session.run(instruction).await?;
@@ -207,11 +208,11 @@ async fn main() -> agentyk::Result<()> {
             "Delegate five independent reviews, then wait for and summarize all results.",
         )
         .model(ModelSpec::llmsim())
-        .driver(SimDriver::new([
+        .provider(Provider::llmsim(SimDriver::new([
             SimTurn::tool_call("spawn_subagents", json!({"tasks": task_descriptions})),
             SimTurn::tool_call("wait_for_subagents", json!({"task_ids": task_ids})),
             SimTurn::text("All five subagents completed; their results are in the tool output."),
-        ]))
+        ])))
         .tool(SpawnSubagentsTool {
             tasks: child_tasks.clone(),
         })

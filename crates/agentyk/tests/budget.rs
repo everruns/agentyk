@@ -5,8 +5,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use async_trait::async_trait;
 
 use agentyk::{
-    Agent, BudgetChecker, BudgetDecision, Error, ModelSpec, Result, SealReason, SessionId,
-    SimDriver, SimTurn, event_types,
+    Agent, BudgetChecker, BudgetDecision, Error, ModelSpec, Provider, Result, SealReason,
+    SessionId, SimDriver, SimTurn, event_types,
 };
 
 /// Seals as soon as it has been checked `seal_after` times.
@@ -31,7 +31,9 @@ impl BudgetChecker for CountingBudget {
 async fn budget_exhaustion_seals_before_any_reason_call() -> Result<()> {
     let agent = Agent::builder()
         .model(ModelSpec::llmsim())
-        .driver(SimDriver::new([SimTurn::text("should never run")]))
+        .provider(Provider::llmsim(SimDriver::new([SimTurn::text(
+            "should never run",
+        )])))
         .budget_checker(CountingBudget {
             checks: AtomicUsize::new(0),
             seal_after: 1,
@@ -64,11 +66,11 @@ async fn budget_allows_a_few_iterations_then_seals() -> Result<()> {
 
     let agent = Agent::builder()
         .model(ModelSpec::llmsim())
-        .driver(SimDriver::new([
+        .provider(Provider::llmsim(SimDriver::new([
             SimTurn::tool_call("noop", json!({})),
             SimTurn::tool_call("noop", json!({})),
             SimTurn::text("should never be reached"),
-        ]))
+        ])))
         .max_iterations(10)
         // Checked once at turn start, once before each of the two tool
         // calls, once before the third reason: seal on the 4th check.
@@ -101,7 +103,7 @@ async fn budget_allows_a_few_iterations_then_seals() -> Result<()> {
 async fn no_budget_checker_never_seals() -> Result<()> {
     let agent = Agent::builder()
         .model(ModelSpec::llmsim())
-        .driver(SimDriver::new([SimTurn::text("done")]))
+        .provider(Provider::llmsim(SimDriver::new([SimTurn::text("done")])))
         .build()?;
 
     let turn = agent.run("go").await?;

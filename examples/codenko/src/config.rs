@@ -8,7 +8,7 @@
 
 use std::path::PathBuf;
 
-use agentyk::{DriverId, ModelSpec};
+use agentyk::{AnthropicDriver, ModelSpec, providers};
 use clap::{Parser, ValueEnum};
 
 /// Appended to `--help`. clap documents the flags from the struct below; the
@@ -65,10 +65,19 @@ impl Provider {
         }
     }
 
-    fn driver(self) -> DriverId {
-        match self {
-            Provider::Anthropic => DriverId::anthropic(),
-            Provider::OpenAi => DriverId::openai(),
+    /// The service to talk to: endpoint and credentials, plus the driver
+    /// whose protocol it speaks. `base_url` overrides the vendor's own.
+    fn resolve(self, api_key: String, base_url: Option<String>) -> agentyk::Provider {
+        let provider = match self {
+            // Room for a long tool-calling turn; the default 8k truncates edits.
+            Provider::Anthropic => {
+                providers::anthropic(api_key).with_driver(AnthropicDriver::new().max_tokens(16_000))
+            }
+            Provider::OpenAi => providers::openai(api_key),
+        };
+        match base_url {
+            Some(url) => provider.base_url(url),
+            None => provider,
         }
     }
 }
@@ -112,6 +121,9 @@ pub struct Args {
 pub struct Config {
     pub dir: PathBuf,
     pub model: ModelSpec,
+    /// Where that model runs: endpoint, credentials, and the driver whose
+    /// protocol the service speaks.
+    pub provider: agentyk::Provider,
     /// Shown in the header, e.g. `anthropic/claude-sonnet-5 · ~/src/agentyk`.
     pub banner: String,
     pub log: Option<PathBuf>,
@@ -143,10 +155,9 @@ impl Config {
         let model_id = args
             .model
             .unwrap_or_else(|| provider.default_model().to_string());
-        let mut model = ModelSpec::new(provider.driver(), &model_id).api_key(api_key);
-        if let Some(url) = args.base_url.or_else(|| lookup(provider.base_url_var())) {
-            model = model.base_url(url);
-        }
+        let base_url = args.base_url.or_else(|| lookup(provider.base_url_var()));
+        let service = provider.resolve(api_key, base_url);
+        let mut model = ModelSpec::on(provider.name(), &model_id);
         // Passed through verbatim — the provider validates the level, and its
         // rejection is more informative than anything guessed here. `none`
         // matters on OpenAI's gpt-5.6 family, which refuses function tools on
@@ -160,10 +171,11 @@ impl Config {
             .canonicalize()
             .map_err(|error| format!("{}: {error}", dir.display()))?;
 
-        let banner = format!("{}/{model_id} · {}", provider.driver(), dir.display());
+        let banner = format!("{}/{model_id} · {}", provider.name(), dir.display());
         Ok(Config {
             dir,
             model,
+            provider: service,
             banner,
             log: args.log,
         })
@@ -228,10 +240,11 @@ mod tests {
             (name == "OPENAI_API_KEY").then(|| "sk-test".to_string())
         })
         .unwrap();
-        assert_eq!(config.model.driver, DriverId::openai());
+        assert_eq!(config.model.provider.as_str(), "openai");
         assert_eq!(config.model.model, OPENAI_DEFAULT_MODEL);
-        assert_eq!(config.model.api_key.as_deref(), Some("sk-test"));
-        assert_eq!(config.model.base_url, None);
+        // The credential is the provider's, and never the spec's — a
+        // ModelSpec is ordinary config.
+        assert!(!format!("{:?}", config.provider).contains("sk-test"));
     }
 
     #[test]
@@ -242,9 +255,10 @@ mod tests {
             _ => None,
         })
         .unwrap();
-        assert_eq!(
-            from_env.model.base_url.as_deref(),
-            Some("http://127.0.0.1:8787")
+        assert!(
+            format!("{:?}", from_env.provider).contains("http://127.0.0.1:8787"),
+            "{:?}",
+            from_env.provider
         );
 
         let from_flag = Config::resolve(
@@ -259,9 +273,10 @@ mod tests {
             },
         )
         .unwrap();
-        assert_eq!(
-            from_flag.model.base_url.as_deref(),
-            Some("http://localhost:11434")
+        assert!(
+            format!("{:?}", from_flag.provider).contains("http://localhost:11434"),
+            "{:?}",
+            from_flag.provider
         );
     }
 
@@ -297,7 +312,7 @@ mod tests {
     #[test]
     fn anthropic_wins_when_both_keys_are_set() {
         let config = Config::resolve(Args::default(), |_| Some("k".to_string())).unwrap();
-        assert_eq!(config.model.driver, DriverId::anthropic());
+        assert_eq!(config.model.provider.as_str(), "anthropic");
         assert_eq!(config.model.model, ANTHROPIC_DEFAULT_MODEL);
     }
 

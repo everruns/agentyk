@@ -1,4 +1,7 @@
-//! Anthropic Messages API driver.
+//! The Anthropic Messages protocol — spoken by Anthropic itself and by the
+//! gateways that proxy it. Which service a request reaches is a
+//! [`Provider`]'s business, not this
+//! driver's; [`anthropic()`] is the ready-made one for Anthropic.
 //!
 //! Wire mapping only — sending, status/transport classification, and SSE
 //! framing live in the crate-internal `drivers::http` layer.
@@ -9,21 +12,45 @@ use async_trait::async_trait;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use agentyk_core::driver::{
-    ChatDriver, ChatRequest, ChatResponse, DeltaSink, DriverId, ModelSpec, Usage,
-};
-use agentyk_core::error::{Error, LlmErrorKind, Result};
+use agentyk_core::driver::{ChatDriver, ChatRequest, ChatResponse, DeltaSink, Usage};
+use agentyk_core::error::{LlmErrorKind, Result};
 use agentyk_core::message::{ContentPart, Message, Role, ToolCall};
+use agentyk_core::provider::{Provider, ProviderId, StaticHeaderAuth};
 
-use super::http::{self, HttpProvider, StreamAccumulator, decode};
+use super::http::{self, StreamAccumulator, WireProtocol, decode};
 
-const DEFAULT_BASE_URL: &str = "https://api.anthropic.com";
-const API_VERSION: &str = "2023-06-01";
+/// Where Anthropic itself serves this protocol. Gateways and clones bring
+/// their own base url.
+pub const ANTHROPIC_BASE_URL: &str = "https://api.anthropic.com";
+/// The Messages API version this driver's wire mapping targets — sent on
+/// every request, so it belongs to the protocol rather than to the service.
+pub const ANTHROPIC_VERSION: &str = "2023-06-01";
 const DEFAULT_MAX_TOKENS: u64 = 8192;
 
-/// Speaks the Anthropic Messages protocol.
+/// Anthropic itself: `api.anthropic.com`, `x-api-key` auth, the Messages
+/// protocol.
 ///
-/// Requires an api key on the [`ModelSpec`]. Streams real incremental deltas.
+/// ```no_run
+/// # use agentyk::{Agent, ModelSpec, providers};
+/// # fn wire(api_key: String) -> agentyk::Result<()> {
+/// let agent = Agent::builder()
+///     .name("assistant")
+///     .model(ModelSpec::on("anthropic", "claude-sonnet-4-5"))
+///     .provider(providers::anthropic(api_key))
+///     .build()?;
+/// # Ok(())
+/// # }
+/// ```
+pub fn anthropic(api_key: impl Into<String>) -> Provider {
+    Provider::new(ProviderId::anthropic(), AnthropicDriver::new())
+        .base_url(ANTHROPIC_BASE_URL)
+        .auth(StaticHeaderAuth::new("x-api-key", api_key))
+}
+
+/// Speaks the Anthropic Messages protocol. One instance serves any number of
+/// services that speak it — pair it with a
+/// [`Provider`] that supplies the endpoint
+/// and credentials. Streams real incremental deltas.
 pub struct AnthropicDriver {
     client: reqwest::Client,
     max_tokens: u64,
@@ -505,35 +532,19 @@ impl StreamAccumulator for AnthropicStream {
     }
 }
 
-impl HttpProvider for AnthropicDriver {
+impl WireProtocol for AnthropicDriver {
     type Accumulator = AnthropicStream;
 
     fn label(&self) -> &str {
-        "anthropic"
-    }
-
-    fn default_base_url(&self) -> &str {
-        DEFAULT_BASE_URL
+        "anthropic messages"
     }
 
     fn endpoint(&self) -> &str {
         "/v1/messages"
     }
 
-    fn authorize(
-        &self,
-        builder: reqwest::RequestBuilder,
-        model: &ModelSpec,
-    ) -> Result<reqwest::RequestBuilder> {
-        let api_key = model.api_key.clone().ok_or_else(|| {
-            Error::driver(
-                LlmErrorKind::Authentication,
-                "anthropic driver requires an api key",
-            )
-        })?;
-        Ok(builder
-            .header("x-api-key", api_key)
-            .header("anthropic-version", API_VERSION))
+    fn protocol_headers(&self) -> Vec<(&'static str, &'static str)> {
+        vec![("anthropic-version", ANTHROPIC_VERSION)]
     }
 
     fn build_body(&self, request: &ChatRequest) -> Value {
@@ -606,10 +617,6 @@ impl HttpProvider for AnthropicDriver {
 
 #[async_trait]
 impl ChatDriver for AnthropicDriver {
-    fn id(&self) -> DriverId {
-        DriverId::anthropic()
-    }
-
     async fn complete(&self, request: ChatRequest) -> Result<ChatResponse> {
         http::complete(self, &self.client, request).await
     }
@@ -627,6 +634,7 @@ impl ChatDriver for AnthropicDriver {
 mod tests {
     use super::*;
     use crate::drivers::http::{RecordingSink, drive_stream};
+    use agentyk_core::driver::ModelSpec;
 
     fn request(model: ModelSpec) -> ChatRequest {
         ChatRequest::new(model, vec![Message::user("hi")])
@@ -736,20 +744,13 @@ mod tests {
     }
 
     #[test]
-    fn missing_api_key_is_an_authentication_error() {
-        let driver = AnthropicDriver::new();
-        let builder = reqwest::Client::new().post("https://example.invalid");
-        let error = driver
-            .authorize(builder, &ModelSpec::anthropic("claude-x"))
-            .unwrap_err();
-        assert!(!error.is_retryable());
-        assert!(matches!(
-            error,
-            Error::Driver {
-                kind: LlmErrorKind::Authentication,
-                ..
-            }
-        ));
+    fn the_api_version_rides_with_the_protocol_not_the_service() {
+        // Every service speaking Messages needs this header, so a gateway
+        // provider gets it without having to know to set it.
+        assert_eq!(
+            AnthropicDriver::new().protocol_headers(),
+            vec![("anthropic-version", ANTHROPIC_VERSION)]
+        );
     }
 
     #[test]

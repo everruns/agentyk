@@ -3,8 +3,8 @@
 use std::sync::Arc;
 
 use agentyk::{
-    Agent, ChatDriver, ChatRequest, ChatResponse, DriverId, EventData, InputQueue, Message,
-    ModelSpec, Result, SimDriver, SimTurn, Usage, event_types,
+    Agent, ChatDriver, ChatRequest, ChatResponse, EventData, InputQueue, Message, ModelSpec,
+    Provider, Result, SimDriver, SimTurn, Usage, event_types,
 };
 use async_trait::async_trait;
 use serde_json::json;
@@ -33,10 +33,6 @@ impl SteeringDriver {
 
 #[async_trait]
 impl ChatDriver for SteeringDriver {
-    fn id(&self) -> DriverId {
-        DriverId::llmsim()
-    }
-
     async fn complete(&self, request: ChatRequest) -> Result<ChatResponse> {
         let call = {
             let mut calls = self.calls.lock().expect("calls");
@@ -86,7 +82,7 @@ async fn a_message_pushed_mid_turn_reaches_the_next_model_call() -> Result<()> {
     let driver = SteeringDriver::new();
     let agent = Agent::builder()
         .model(ModelSpec::llmsim())
-        .driver(SteeringHandle(driver.clone()))
+        .provider(Provider::llmsim(SteeringHandle(driver.clone())))
         .tool(noop_tool())
         .build()?;
 
@@ -124,10 +120,6 @@ struct SteeringHandle(Arc<SteeringDriver>);
 
 #[async_trait]
 impl ChatDriver for SteeringHandle {
-    fn id(&self) -> DriverId {
-        self.0.id()
-    }
-
     async fn complete(&self, request: ChatRequest) -> Result<ChatResponse> {
         self.0.complete(request).await
     }
@@ -138,7 +130,7 @@ async fn steering_is_recorded_so_a_replay_sees_the_same_conversation() -> Result
     let driver = SteeringDriver::new();
     let agent = Agent::builder()
         .model(ModelSpec::llmsim())
-        .driver(SteeringHandle(driver.clone()))
+        .provider(Provider::llmsim(SteeringHandle(driver.clone())))
         .tool(noop_tool())
         .build()?;
 
@@ -166,7 +158,7 @@ async fn steering_is_recorded_so_a_replay_sees_the_same_conversation() -> Result
 async fn input_pushed_between_turns_joins_the_next_one() -> Result<()> {
     let agent = Agent::builder()
         .model(ModelSpec::llmsim())
-        .driver(SimDriver::new([SimTurn::text("ok")]))
+        .provider(Provider::llmsim(SimDriver::new([SimTurn::text("ok")])))
         .build()?;
 
     let mut session = agent.session();

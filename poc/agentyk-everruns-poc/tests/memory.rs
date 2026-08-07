@@ -5,7 +5,7 @@
 use std::sync::Arc;
 
 use agentyk::{
-    Agent, ChatDriver, ChatRequest, ChatResponse, DriverId, ModelSpec, Result, SimDriver, SimTurn,
+    Agent, ChatDriver, ChatRequest, ChatResponse, ModelSpec, Provider, Result, SimDriver, SimTurn,
 };
 use agentyk_everruns_poc::MemoryAssembler;
 use async_trait::async_trait;
@@ -16,10 +16,6 @@ struct ForwardingDriver(Arc<SimDriver>);
 
 #[async_trait]
 impl ChatDriver for ForwardingDriver {
-    fn id(&self) -> DriverId {
-        self.0.id()
-    }
-
     async fn complete(&self, request: ChatRequest) -> Result<ChatResponse> {
         self.0.complete(request).await
     }
@@ -30,7 +26,7 @@ async fn memory_note_is_prepended_to_what_the_model_sees() -> Result<()> {
     let sim = Arc::new(SimDriver::new([SimTurn::text("ack")]));
     let agent = Agent::builder()
         .model(ModelSpec::llmsim())
-        .driver(ForwardingDriver(sim.clone()))
+        .provider(Provider::llmsim(ForwardingDriver(sim.clone())))
         .context_assembler(MemoryAssembler::new("user prefers metric units"))
         .build()?;
 
@@ -54,7 +50,7 @@ async fn keep_last_compacts_history_yet_the_note_and_log_survive() -> Result<()>
     ]));
     let agent = Agent::builder()
         .model(ModelSpec::llmsim())
-        .driver(ForwardingDriver(sim.clone()))
+        .provider(Provider::llmsim(ForwardingDriver(sim.clone())))
         .context_assembler(MemoryAssembler::new("remember: keep it short").keep_last(1))
         .build()?;
 

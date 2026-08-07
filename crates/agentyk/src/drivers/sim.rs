@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use async_trait::async_trait;
 
-use agentyk_core::driver::{ChatDriver, ChatRequest, ChatResponse, DriverId, Usage};
+use agentyk_core::driver::{ChatDriver, ChatRequest, ChatResponse, Usage};
 use agentyk_core::error::Result;
 use agentyk_core::message::{Message, ToolCall};
 
@@ -98,10 +98,6 @@ impl SimDriver {
 
 #[async_trait]
 impl ChatDriver for SimDriver {
-    fn id(&self) -> DriverId {
-        DriverId::llmsim()
-    }
-
     async fn complete(&self, request: ChatRequest) -> Result<ChatResponse> {
         self.requests
             .lock()

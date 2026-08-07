@@ -39,7 +39,7 @@ async fn run(args: Args) -> Result<(), String> {
     };
 
     let (events, inbox) = mpsc::unbounded_channel();
-    let agent = build_agent(&config.dir, config.model, events.clone())
+    let agent = build_agent(&config.dir, config.model, config.provider, events.clone())
         .map_err(|error| error.to_string())?;
     let prompts = spawn_agent_task(agent, log, events);
 

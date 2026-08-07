@@ -4,7 +4,7 @@
 use std::sync::{Arc, Mutex};
 
 use agentyk::{
-    Agent, Event, EventData, EventListener, ModelSpec, Result, SimDriver, SimTurn, Tool,
+    Agent, Event, EventData, EventListener, ModelSpec, Provider, Result, SimDriver, SimTurn, Tool,
     ToolContext, ToolDefinition, ToolOutput, ToolProgress, event_types,
 };
 use async_trait::async_trait;
@@ -52,10 +52,10 @@ async fn run_build() -> Result<(Arc<Collector>, agentyk::Session)> {
     let collector = Arc::new(Collector::default());
     let agent = Agent::builder()
         .model(ModelSpec::llmsim())
-        .driver(SimDriver::new([
+        .provider(Provider::llmsim(SimDriver::new([
             SimTurn::tool_call("build", json!({})),
             SimTurn::text("built it"),
-        ]))
+        ])))
         .tool(BuildTool)
         .listener_arc(collector.clone())
         .build()?;

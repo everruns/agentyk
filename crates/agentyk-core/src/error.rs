@@ -74,9 +74,11 @@ pub enum Error {
     #[error("invalid agent: {0}")]
     InvalidAgent(String),
 
-    /// No driver registered for the model's `DriverId`.
-    #[error("no chat driver registered for `{0}`")]
-    UnknownDriver(String),
+    /// No provider registered under the model's `ProviderId`. Lists the ids
+    /// that are, because the usual cause is a typo in configuration rather
+    /// than missing wiring.
+    #[error("no provider registered as `{0}` (registered: {1})")]
+    UnknownProvider(String, String),
 
     /// A turn hit the iteration ceiling without producing a final response.
     #[error("turn exceeded max iterations ({0})")]

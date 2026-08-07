@@ -68,19 +68,18 @@ impl TurnControls {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::driver::DriverId;
 
     #[test]
     fn no_controls_keeps_the_default_model() {
-        let default_model = ModelSpec::new(DriverId::openai(), "gpt-5.5");
+        let default_model = ModelSpec::openai("gpt-5.5");
         let resolved = TurnControls::new().resolve(&default_model);
         assert_eq!(resolved, default_model);
     }
 
     #[test]
     fn model_override_replaces_the_default() {
-        let default_model = ModelSpec::new(DriverId::openai(), "gpt-5.5");
-        let override_model = ModelSpec::new(DriverId::anthropic(), "claude-sonnet-4-5");
+        let default_model = ModelSpec::openai("gpt-5.5");
+        let override_model = ModelSpec::anthropic("claude-sonnet-4-5");
         let resolved = TurnControls::new()
             .model(override_model.clone())
             .resolve(&default_model);
@@ -89,7 +88,7 @@ mod tests {
 
     #[test]
     fn reasoning_effort_layers_onto_whichever_model_is_chosen() {
-        let default_model = ModelSpec::new(DriverId::openai(), "gpt-5.5");
+        let default_model = ModelSpec::openai("gpt-5.5");
         let resolved = TurnControls::new()
             .reasoning_effort("high")
             .resolve(&default_model);

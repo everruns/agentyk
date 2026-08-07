@@ -6,7 +6,8 @@
 use std::sync::Arc;
 
 use agentyk::{
-    Agent, Capability, EventData, FnTool, ModelSpec, Result, SimDriver, SimTurn, Tool, ToolOutput,
+    Agent, Capability, EventData, FnTool, ModelSpec, Provider, Result, SimDriver, SimTurn, Tool,
+    ToolOutput,
 };
 use agentyk_core::message::ToolCall;
 use agentyk_core::middleware::{ToolCallDecision, ToolInvocation, TurnMiddleware};
@@ -67,10 +68,10 @@ fn was_denied(events: &[agentyk::Event]) -> bool {
 async fn a_guard_rewrites_a_call_before_it_runs() -> Result<()> {
     let agent = Agent::builder()
         .model(ModelSpec::llmsim())
-        .driver(SimDriver::new([
+        .provider(Provider::llmsim(SimDriver::new([
             SimTurn::tool_call("store", json!({"secret": "hunter2"})),
             SimTurn::text("stored"),
-        ]))
+        ])))
         .middleware(RedactSecret)
         .tool(echo_tool())
         .build()?;
@@ -91,10 +92,10 @@ async fn guards_compose_and_the_first_deny_short_circuits() -> Result<()> {
     // tool). The deny wins — the tool never runs.
     let agent = Agent::builder()
         .model(ModelSpec::llmsim())
-        .driver(SimDriver::new([
+        .provider(Provider::llmsim(SimDriver::new([
             SimTurn::tool_call("store", json!({"secret": "hunter2"})),
             SimTurn::text("done"),
-        ]))
+        ])))
         .middleware(RedactSecret)
         .middleware(ApprovalMiddleware::new(DenyAll))
         .tool(HintedTool::new(echo_tool(), ToolHints::destructive()))
@@ -138,10 +139,10 @@ async fn a_capability_contributes_its_own_guard() -> Result<()> {
     // middleware — both halves of one everruns "capability with a guardrail".
     let agent = Agent::builder()
         .model(ModelSpec::llmsim())
-        .driver(SimDriver::new([
+        .provider(Provider::llmsim(SimDriver::new([
             SimTurn::tool_call("store", json!({})),
             SimTurn::text("ok"),
-        ]))
+        ])))
         .capability(SecretVault)
         .middleware(SecretVault::guard())
         .build()?;

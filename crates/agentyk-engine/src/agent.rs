@@ -14,7 +14,7 @@ use std::sync::Arc;
 use agentyk_core::budget::BudgetChecker;
 use agentyk_core::capability::Capability;
 use agentyk_core::context::ContextAssembler;
-use agentyk_core::driver::{ChatDriver, ModelSpec};
+use agentyk_core::driver::ModelSpec;
 use agentyk_core::error::{Error, Result};
 use agentyk_core::event::EventListener;
 use agentyk_core::event_log::{EventLog, InMemoryEventLog};
@@ -23,6 +23,7 @@ use agentyk_core::id::SessionId;
 use agentyk_core::message::Message;
 use agentyk_core::middleware::TurnMiddleware;
 use agentyk_core::profile::{ModelCatalog, ModelProfile};
+use agentyk_core::provider::Provider;
 use agentyk_core::tool::Tool;
 use async_trait::async_trait;
 
@@ -77,8 +78,9 @@ impl std::fmt::Debug for AgentDefinition {
 /// Host resources used to execute an [`AgentDefinition`].
 #[derive(Clone)]
 pub struct AgentEnvironment {
-    /// Provider implementations available to the host.
-    pub drivers: agentyk_core::driver::DriverRegistry,
+    /// The services available to the host, routed by
+    /// [`ModelSpec::provider`](agentyk_core::driver::ModelSpec::provider).
+    pub providers: agentyk_core::provider::ProviderRegistry,
     /// Observers of durable and ephemeral events.
     pub listeners: Vec<Arc<dyn EventListener>>,
     /// Typed services made available to tools.
@@ -147,10 +149,12 @@ impl Agent {
         &self.definition.capabilities
     }
 
-    /// The driver that speaks this agent's model protocol. Guaranteed by
-    /// `build()` to exist.
-    pub fn driver_for_model(&self) -> Option<Arc<dyn ChatDriver>> {
-        self.environment.drivers.get(&self.definition.model.driver)
+    /// The service this agent's model runs on. Guaranteed by `build()` to
+    /// exist.
+    pub fn provider_for_model(&self) -> Option<Arc<Provider>> {
+        self.environment
+            .providers
+            .get(&self.definition.model.provider)
     }
 
     /// Start a session with an in-memory event log.
@@ -254,9 +258,11 @@ impl AgentBuilder {
         self
     }
 
-    /// Register an extra or replacement LLM driver.
-    pub fn driver(mut self, driver: impl ChatDriver + 'static) -> Self {
-        self.config.drivers.register(driver);
+    /// Make a service available to this agent — the endpoint and credentials
+    /// a [`ModelSpec`] names by id. Registering a second provider under the
+    /// same id replaces the first.
+    pub fn provider(mut self, provider: Provider) -> Self {
+        self.config.providers.register(provider);
         self
     }
 
@@ -336,15 +342,15 @@ impl AgentBuilder {
     /// values, before a turn ever runs:
     ///
     /// ```
-    /// use agentyk_core::{DriverId, InMemoryModelCatalog, ModelCatalog, ModelProfile, ModelSpec};
+    /// use agentyk_core::{InMemoryModelCatalog, ModelCatalog, ModelProfile, ModelSpec, ProviderId};
     ///
     /// let catalog = InMemoryModelCatalog::new().with(
-    ///     DriverId::openai(),
+    ///     ProviderId::openai(),
     ///     "gpt-5.5",
     ///     ModelProfile::new().reasoning_efforts(["low", "high"]),
     /// );
     ///
-    /// let profile = catalog.profile(&DriverId::openai(), "gpt-5.5").unwrap();
+    /// let profile = catalog.profile(&ProviderId::openai(), "gpt-5.5").unwrap();
     /// let error = profile
     ///     .validate(&ModelSpec::openai("gpt-5.5").reasoning_effort("medium"))
     ///     .unwrap_err();
@@ -414,8 +420,11 @@ impl AgentBuilder {
                 .push(Arc::new(AdHocTools { tools: self.tools }));
         }
 
-        if !config.drivers.contains(&config.model().driver) {
-            return Err(Error::UnknownDriver(config.model().driver.to_string()));
+        if !config.providers.contains(&config.model().provider) {
+            return Err(Error::UnknownProvider(
+                config.model().provider.to_string(),
+                config.providers.ids().join(", "),
+            ));
         }
 
         for hook in &config.hooks {
@@ -439,7 +448,7 @@ impl AgentBuilder {
         let model_profile = config
             .model_catalog
             .as_ref()
-            .and_then(|catalog| catalog.profile(&config.model().driver, &config.model().model));
+            .and_then(|catalog| catalog.profile(&config.model().provider, &config.model().model));
         if let Some(profile) = &model_profile
             && let Err(reason) = profile.validate(config.model())
         {
@@ -469,7 +478,7 @@ impl AgentBuilder {
             context_token_limit,
         };
         let environment = AgentEnvironment {
-            drivers: config.drivers.clone(),
+            providers: config.providers.clone(),
             listeners: config.listeners.clone(),
             extensions: config.extensions.clone(),
         };

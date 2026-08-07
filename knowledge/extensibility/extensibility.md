@@ -68,7 +68,8 @@ identity-first lifecycle. See
 | Host services reaching tools | `ToolContext.extensions` (typed, `TypeId`-keyed bag) |
 | A domain event core lacks | `EventData::Custom { event_type, payload }` |
 | Model capability knowledge (context window, supported efforts) | `profile::ModelCatalog` — a host-implemented seam, because a model list inside a library is stale by the next provider release |
-| Remote-service credentials that expire | An auth provider trait asked **per request**, not a config field read once — see `mcp::McpAuthProvider`; `mcp::oauth::McpOAuthTokenProvider` supplies OAuth discovery/login/refresh without owning browser or storage policy |
+| Remote-service credentials that expire | An auth provider trait asked **per request**, not a config field read once — `provider::ProviderAuth` for models, `mcp::McpAuthProvider` for MCP servers; `mcp::oauth::McpOAuthTokenProvider` supplies OAuth discovery/login/refresh without owning browser or storage policy |
+| A service that speaks a protocol agentyk already drives (a gateway, an OpenAI-compatible vendor, a local runtime) | `Provider::new(id, driver)` with its own `base_url`/`auth` — a new *service*, not a new driver |
 
 Event observation follows the Everruns contract. `EventListener::event_types`
 can restrict delivery by dot-notation type; `CompositeEventListener` provides
@@ -119,11 +120,12 @@ than bending it:
   accepts; that is lossy for a UI, which then re-parses prose to render a diff
   or an exit code. The structured form is host-owned, so it is a hatch, and it
   rides on `tool.completed` so listeners and replay both see it.
-- **`ModelSpec.metadata`** — provider-flavored configuration (OAuth refresh
-  token, account id, organization id, gateway headers). Only the driver that
-  understands a given provider reads it, which is the definition of
-  everruns-flavored richness. Treated as sensitive: redacted in `Debug`
-  alongside `api_key`, and a `ModelSpec` still never reaches an event.
+- **`ModelSpec.metadata`** — model-flavored request configuration only the
+  driver that understands it reads, which is the definition of
+  everruns-flavored richness. Credentials no longer ride here: the OAuth
+  refresh token, account id, organization id, and gateway headers that
+  motivated it moved to `Provider` when the service seam landed, and
+  with them the redaction rule. A `ModelSpec` now carries no secret at all.
 
 `EventData::ToolProgress` is the counter-example worth noting — it is a typed
 variant, not `Custom`, because ephemerality is a **protocol** property. The

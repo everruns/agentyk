@@ -5,8 +5,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use agentyk::{
-    Agent, EventData, ModelSpec, Result, SimDriver, SimToolCall, SimTurn, Tool, ToolContext,
-    ToolDefinition, ToolOutput,
+    Agent, EventData, ModelSpec, Provider, Result, SimDriver, SimToolCall, SimTurn, Tool,
+    ToolContext, ToolDefinition, ToolOutput,
 };
 use async_trait::async_trait;
 use serde_json::json;
@@ -55,7 +55,7 @@ async fn a_batch_runs_concurrently_by_default() -> Result<()> {
     let log = Arc::new(Mutex::new(Vec::new()));
     let agent = Agent::builder()
         .model(ModelSpec::llmsim())
-        .driver(batching_driver())
+        .provider(Provider::llmsim(batching_driver()))
         .tool(SlowTool {
             name: "slow",
             delay: Duration::from_millis(80),
@@ -87,7 +87,7 @@ async fn results_are_recorded_in_batch_order_not_completion_order() -> Result<()
     let log = Arc::new(Mutex::new(Vec::new()));
     let agent = Agent::builder()
         .model(ModelSpec::llmsim())
-        .driver(batching_driver())
+        .provider(Provider::llmsim(batching_driver()))
         .tool(SlowTool {
             name: "slow",
             delay: Duration::from_millis(80),
@@ -143,7 +143,7 @@ async fn a_denied_call_in_a_batch_does_not_block_the_others() -> Result<()> {
     let log = Arc::new(Mutex::new(Vec::new()));
     let agent = Agent::builder()
         .model(ModelSpec::llmsim())
-        .driver(batching_driver())
+        .provider(Provider::llmsim(batching_driver()))
         .tool(SlowTool {
             name: "slow",
             delay: Duration::from_millis(1),

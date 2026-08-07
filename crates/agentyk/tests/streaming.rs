@@ -4,7 +4,8 @@ use std::sync::Arc;
 use std::sync::Mutex;
 
 use agentyk::{
-    Agent, Event, EventData, EventListener, ModelSpec, Result, SimDriver, SimTurn, event_types,
+    Agent, Event, EventData, EventListener, ModelSpec, Provider, Result, SimDriver, SimTurn,
+    event_types,
 };
 use async_trait::async_trait;
 use serde_json::json;
@@ -39,7 +40,9 @@ async fn listener_filters_apply_to_a_real_turn() -> Result<()> {
     let listener = Arc::new(DeltaListener(CollectingListener::default()));
     let agent = Agent::builder()
         .model(ModelSpec::llmsim())
-        .driver(SimDriver::new([SimTurn::text("hello there")]))
+        .provider(Provider::llmsim(SimDriver::new([SimTurn::text(
+            "hello there",
+        )])))
         .listener_arc(listener.clone())
         .build()?;
 
@@ -57,7 +60,9 @@ async fn deltas_reach_listeners_but_never_the_log() -> Result<()> {
     let listener: Arc<CollectingListener> = Arc::default();
     let agent = Agent::builder()
         .model(ModelSpec::llmsim())
-        .driver(SimDriver::new([SimTurn::text("hello there")]))
+        .provider(Provider::llmsim(SimDriver::new([SimTurn::text(
+            "hello there",
+        )])))
         .listener_arc(listener.clone())
         .build()?;
 
@@ -109,10 +114,10 @@ async fn started_event_carries_model_and_increasing_iteration() -> Result<()> {
     let listener: Arc<CollectingListener> = Arc::default();
     let agent = Agent::builder()
         .model(ModelSpec::llmsim())
-        .driver(SimDriver::new([
+        .provider(Provider::llmsim(SimDriver::new([
             SimTurn::tool_call("noop", json!({})),
             SimTurn::text("done"),
-        ]))
+        ])))
         .listener_arc(listener.clone())
         .build()?;
 
@@ -148,7 +153,9 @@ async fn output_message_events_correlate_by_message_id() -> Result<()> {
     let listener: Arc<CollectingListener> = Arc::default();
     let agent = Agent::builder()
         .model(ModelSpec::llmsim())
-        .driver(SimDriver::new([SimTurn::text("hello there")]))
+        .provider(Provider::llmsim(SimDriver::new([SimTurn::text(
+            "hello there",
+        )])))
         .listener_arc(listener.clone())
         .build()?;
 

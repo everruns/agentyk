@@ -1,69 +1,23 @@
-//! LLM drivers — the multi-provider seam.
+//! LLM drivers — the protocol seam.
 //!
-//! Keeps the everruns driver vocabulary: a [`ChatDriver`] implements one
-//! provider protocol, a [`DriverRegistry`] routes by [`DriverId`], and a
-//! [`ModelSpec`] (everruns: `ResolvedModel`) is the by-value description of
-//! "which model, through which driver, with which credentials" — no model or
-//! provider ids, no registration ceremony.
-
-use std::collections::HashMap;
-use std::fmt;
-use std::sync::Arc;
+//! A [`ChatDriver`] implements one provider protocol and nothing else: build
+//! a request body, read a response, fold a stream. Where that request is
+//! sent and what credential it carries belong to the
+//! [`Provider`](crate::provider::Provider) that speaks the protocol — one
+//! wire format is spoken by many services, so a driver that knew a hostname
+//! or an api key could only ever serve one of them.
+//!
+//! A [`ModelSpec`] (everruns: `ResolvedModel`) is the by-value description of
+//! "which model, on which service" — no credentials, no registration
+//! ceremony.
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
 use crate::error::Result;
 use crate::message::Message;
+use crate::provider::{ProviderEndpoint, ProviderId};
 use crate::tool::ToolDefinition;
-
-/// Names a provider protocol implementation, e.g. `"openai"`, `"anthropic"`,
-/// `"llmsim"`. An open string (not a closed enum) so embedders can register
-/// their own drivers.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(transparent)]
-pub struct DriverId(String);
-
-impl DriverId {
-    /// Name a driver protocol. Use the constructors below for the bundled
-    /// ones; this is for your own.
-    pub fn new(id: impl Into<String>) -> Self {
-        Self(id.into())
-    }
-
-    /// The id as written on the wire and in a [`ModelSpec`].
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-
-    /// `"openai"` — the Chat Completions protocol, which many other
-    /// providers also speak.
-    pub fn openai() -> Self {
-        Self::new("openai")
-    }
-
-    /// `"anthropic"` — the Messages protocol.
-    pub fn anthropic() -> Self {
-        Self::new("anthropic")
-    }
-
-    /// `"llmsim"` — the scripted offline simulator, for tests and examples.
-    pub fn llmsim() -> Self {
-        Self::new("llmsim")
-    }
-}
-
-impl fmt::Display for DriverId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.0)
-    }
-}
-
-impl From<&str> for DriverId {
-    fn from(s: &str) -> Self {
-        Self::new(s)
-    }
-}
 
 /// Reasoning/thinking configuration for models that support it. Mirrors
 /// everruns' `ReasoningConfig`.
@@ -81,103 +35,74 @@ pub struct ReasoningConfig {
     pub budget_tokens: Option<u32>,
 }
 
-/// A model, by value (everruns: `ResolvedModel`): wire model name, the driver
-/// that speaks its protocol, and optional credentials/endpoint. Build it
-/// inline and hand it to the agent — nothing to register.
-#[derive(Clone, PartialEq, Serialize, Deserialize)]
+/// A model, by value (everruns: `ResolvedModel`): the wire model name and the
+/// service it runs on. Build it inline and hand it to the agent — nothing to
+/// register.
+///
+/// It carries **no credentials**. That is deliberate and load-bearing: a
+/// `ModelSpec` is ordinary configuration, safe to deserialize from a file, to
+/// log, and to put in an event. The key lives on the
+/// [`Provider`](crate::provider::Provider) this names, which is a runtime
+/// object that was never serializable in the first place.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct ModelSpec {
-    /// Which protocol implementation to route through.
-    pub driver: DriverId,
+    /// The service to run this model on — resolved against the agent's
+    /// [`ProviderRegistry`](crate::provider::ProviderRegistry).
+    pub provider: ProviderId,
     /// The provider's own model name, sent verbatim.
     pub model: String,
-    /// Credential for this model. Some drivers require one
-    /// (Anthropic); others accept none, for local runtimes and proxies.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub api_key: Option<String>,
-    /// Override the driver's default endpoint (OpenAI-compatible servers,
-    /// proxies, local runtimes).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub base_url: Option<String>,
     /// Reasoning/thinking request, for models that support it. Honored per
     /// driver — see [`ReasoningConfig`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reasoning: Option<ReasoningConfig>,
-    /// Generic, serializable hatch for provider-flavored configuration core
-    /// should not grow a field for — everruns' `ProviderMetadata`, in the
-    /// shape [`crate::tool::ToolDefinition::metadata`] established.
+    /// Generic, serializable hatch for model-flavored request configuration
+    /// core should not grow a field for — everruns' `ProviderMetadata`, in
+    /// the shape [`crate::tool::ToolDefinition::metadata`] established. A
+    /// driver that understands a knob reads it here rather than every adopter
+    /// waiting on a core release for a field only one service uses.
     ///
-    /// `api_key` + `base_url` covers a plain API-key provider. It does not
-    /// cover the rest of what real providers ask for: an OAuth
-    /// subscription's refresh token, account id, and expiry; an
-    /// organization or project id; extra headers a gateway requires. Those
-    /// are provider-specific, so they ride here and the driver that
-    /// understands them reads them, rather than every adopter waiting on a
-    /// core release for a field only one provider uses.
-    ///
-    /// **Treat it as sensitive.** It is the natural home for credentials, so
-    /// it is redacted in `Debug` alongside `api_key`, and a `ModelSpec` must
-    /// never reach an event or a log line.
+    /// Per-*model* configuration only, and never a credential: service-wide
+    /// settings belong on the provider, and credentials on its
+    /// [`ProviderAuth`](crate::provider::ProviderAuth).
     #[serde(default, skip_serializing_if = "serde_json::Value::is_null")]
     pub metadata: serde_json::Value,
 }
 
-impl std::fmt::Debug for ModelSpec {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ModelSpec")
-            .field("driver", &self.driver)
-            .field("model", &self.model)
-            .field("api_key", &self.api_key.as_ref().map(|_| "<redacted>"))
-            .field("base_url", &self.base_url)
-            .field("reasoning", &self.reasoning)
-            .field(
-                "metadata",
-                &(!self.metadata.is_null()).then_some("<redacted>"),
-            )
-            .finish()
-    }
-}
-
 impl ModelSpec {
-    /// A model on an explicitly named driver. Prefer [`ModelSpec::openai`]
+    /// A model on an explicitly named service. Prefer [`ModelSpec::openai`]
     /// or [`ModelSpec::anthropic`] for the bundled ones.
-    pub fn new(driver: impl Into<DriverId>, model: impl Into<String>) -> Self {
+    ///
+    /// The id must match a [`Provider`](crate::provider::Provider)
+    /// registered on the agent, or `build()` fails naming the ids that are.
+    pub fn on(provider: impl Into<ProviderId>, model: impl Into<String>) -> Self {
         Self {
-            driver: driver.into(),
+            provider: provider.into(),
             model: model.into(),
-            api_key: None,
-            base_url: None,
             reasoning: None,
             metadata: serde_json::Value::Null,
         }
     }
 
-    /// A model served over the OpenAI Chat Completions protocol. Point it
-    /// at any compatible endpoint with [`ModelSpec::base_url`].
+    /// A model on OpenAI itself — the `"openai"` provider.
     pub fn openai(model: impl Into<String>) -> Self {
-        Self::new(DriverId::openai(), model)
+        Self::on(ProviderId::openai(), model)
     }
 
-    /// A model served over the Anthropic Messages protocol.
+    /// A model on Anthropic itself — the `"anthropic"` provider.
     pub fn anthropic(model: impl Into<String>) -> Self {
-        Self::new(DriverId::anthropic(), model)
+        Self::on(ProviderId::anthropic(), model)
     }
 
     /// The scripted offline simulator (the `SimDriver` in the `agentyk`
-    /// framework crate).
+    /// framework crate, behind [`Provider::llmsim`](crate::provider::Provider::llmsim)).
     pub fn llmsim() -> Self {
-        Self::new(DriverId::llmsim(), "llmsim")
-    }
-
-    /// Attach the credential this model authenticates with.
-    pub fn api_key(mut self, key: impl Into<String>) -> Self {
-        self.api_key = Some(key.into());
-        self
+        Self::on(ProviderId::llmsim(), "llmsim")
     }
 
     /// Request a reasoning/thinking effort level, where the driver supports
-    /// it (currently honored by [`crate::driver::DriverId::openai`]-shaped
-    /// drivers via `reasoning_effort`).
+    /// it (currently honored by OpenAI-shaped drivers via
+    /// `reasoning_effort`).
     pub fn reasoning_effort(mut self, effort: impl Into<String>) -> Self {
         let mut reasoning = self.reasoning.unwrap_or_default();
         reasoning.effort = Some(effort.into());
@@ -195,21 +120,14 @@ impl ModelSpec {
         self
     }
 
-    /// Send to a different endpoint than the driver's default — an
-    /// OpenAI-compatible server, a proxy, a local runtime.
-    pub fn base_url(mut self, url: impl Into<String>) -> Self {
-        self.base_url = Some(url.into());
-        self
-    }
-
-    /// Attach provider-specific configuration a driver knows how to read —
-    /// see [`ModelSpec::metadata`].
+    /// Attach model-flavored configuration a driver knows how to read — see
+    /// [`ModelSpec::metadata`].
     ///
     /// ```
     /// # use agentyk_core::ModelSpec;
     /// let model = ModelSpec::openai("gpt-5.5")
-    ///     .metadata(serde_json::json!({ "organization": "org_123" }));
-    /// assert_eq!(model.metadata["organization"], "org_123");
+    ///     .metadata(serde_json::json!({ "service_tier": "flex" }));
+    /// assert_eq!(model.metadata["service_tier"], "flex");
     /// ```
     pub fn metadata(mut self, metadata: serde_json::Value) -> Self {
         self.metadata = metadata;
@@ -222,8 +140,14 @@ impl ModelSpec {
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct ChatRequest {
-    /// Which model, through which driver, with which credentials.
+    /// Which model, on which service.
     pub model: ModelSpec,
+    /// Where this request goes and what it carries — filled in by
+    /// [`Provider::complete`](crate::provider::Provider::complete)
+    /// immediately before the driver sees the request, so credentials are
+    /// resolved per call rather than frozen at composition time. Empty for
+    /// drivers that speak no HTTP.
+    pub endpoint: ProviderEndpoint,
     /// The assembled system prompt: the agent's, plus every capability's
     /// contribution.
     pub system_prompt: Option<String>,
@@ -239,6 +163,7 @@ impl ChatRequest {
     pub fn new(model: ModelSpec, messages: Vec<Message>) -> Self {
         Self {
             model,
+            endpoint: ProviderEndpoint::default(),
             system_prompt: None,
             messages,
             tools: Vec::new(),
@@ -370,13 +295,12 @@ pub trait DeltaSink: Send {
 }
 
 /// One provider protocol. Implementations translate [`ChatRequest`] to the
-/// provider's wire format and back.
+/// wire format and back — and nothing else: a driver is named by the
+/// [`Provider`](crate::provider::Provider) that holds it, so it needs no id
+/// of its own, and it reads its endpoint and credentials from
+/// [`ChatRequest::endpoint`] rather than owning any.
 #[async_trait]
 pub trait ChatDriver: Send + Sync {
-    /// The protocol id this driver answers to; a [`ModelSpec`] naming it
-    /// routes here.
-    fn id(&self) -> DriverId;
-
     /// Produce the next assistant message.
     ///
     /// Errors should be [`crate::error::Error::Driver`] with a
@@ -404,51 +328,22 @@ pub trait ChatDriver: Send + Sync {
     }
 }
 
-/// Routes a [`ModelSpec`] to the [`ChatDriver`] that speaks its protocol.
-#[derive(Default, Clone)]
-pub struct DriverRegistry {
-    drivers: HashMap<DriverId, Arc<dyn ChatDriver>>,
-}
-
-impl DriverRegistry {
-    /// An empty registry.
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Add a driver, replacing any already registered under the same id.
-    pub fn register(&mut self, driver: impl ChatDriver + 'static) {
-        self.register_arc(Arc::new(driver));
-    }
-
-    /// Add a driver you already hold as an `Arc` — e.g. one shared between
-    /// agents.
-    pub fn register_arc(&mut self, driver: Arc<dyn ChatDriver>) {
-        self.drivers.insert(driver.id(), driver);
-    }
-
-    /// The driver registered under `id`, if any.
-    pub fn get(&self, id: &DriverId) -> Option<Arc<dyn ChatDriver>> {
-        self.drivers.get(id).cloned()
-    }
-
-    /// Whether a driver is registered under `id`.
-    pub fn contains(&self, id: &DriverId) -> bool {
-        self.drivers.contains_key(id)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::ModelSpec;
 
     #[test]
-    fn model_debug_redacts_credentials() {
-        let model = ModelSpec::openai("test-model").api_key("super-secret");
+    fn a_model_spec_is_ordinary_config_and_round_trips_as_such() {
+        // No credential field to redact: the whole reason a spec can be
+        // serialized, logged, and checked into config.
+        let model = ModelSpec::openai("gpt-5.5").reasoning_effort("high");
 
-        let debug = format!("{model:?}");
+        let json = serde_json::to_string(&model).unwrap();
 
-        assert!(debug.contains("<redacted>"));
-        assert!(!debug.contains("super-secret"));
+        assert_eq!(
+            json,
+            r#"{"provider":"openai","model":"gpt-5.5","reasoning":{"effort":"high"}}"#
+        );
+        assert_eq!(serde_json::from_str::<ModelSpec>(&json).unwrap(), model);
     }
 }

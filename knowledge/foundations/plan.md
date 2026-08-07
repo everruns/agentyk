@@ -23,7 +23,8 @@ In agentyk everything is composed **by value**:
 ```rust
 let agent = Agent::builder()
     .system_prompt("You are a coding agent.")
-    .model(ModelSpec::anthropic("claude-sonnet-4-5").api_key(key))
+    .model(ModelSpec::anthropic("claude-sonnet-4-5"))
+    .provider(providers::anthropic(key))
     .capability(McpCapability::new(McpServer::stdio("github", "github-mcp-server")))
     .tool(my_tool)
     .build()?;
@@ -61,7 +62,7 @@ one host of the value-first core, not its foundation.
 Yolop swaps `everruns-runtime` for agentyk (directly or via the rebuilt
 runtime). Yolop is the acceptance consumer: its JSONL event log maps to
 `JsonlEventLog`, its capabilities to `Capability`, its provider selection to
-`ModelSpec` + `DriverRegistry`.
+`ModelSpec` + `ProviderRegistry`.
 
 ## Domain language mapping
 
@@ -80,8 +81,8 @@ everruns concept must be expressible on top of the agentyk primitive.
 | `Capability` (id, system_prompt_contribution, tools) | `Capability` | same trait shape; **attached by object, not registered + referenced by string id**; `tools()` is async so MCP fits |
 | `CapabilityRegistry` + `AgentCapabilityConfig { ref, config }` | — (builder holds objects) | the registry/config indirection becomes a Phase-2 host concern for config-driven wiring |
 | `Tool` / `ToolDefinition` / `ToolCall` | `tool::{Tool, ToolDefinition}`, `message::ToolCall` | same; plus `FnTool` closure helper and `#[agentyk::tool]` for typed async functions |
-| `ChatDriver` / `DriverRegistry` / `DriverId` | same names | `DriverId` is an open string, not a closed enum |
-| `ResolvedModel` | `ModelSpec` | same by-value shape (model, driver, api_key, base_url) |
+| `ChatDriver` / `DriverRegistry` / `DriverId` | `ChatDriver` + `Provider` / `ProviderRegistry` / `ProviderId` | split in two: a driver is a wire protocol only, a `Provider` is a service that speaks one and owns endpoint + credentials; `ProviderId` is an open string, not a closed enum |
+| `ResolvedModel` | `ModelSpec` | same by-value shape, minus the credentials (model + provider id); endpoint and key belong to the provider |
 | `llmsim` (`SimTurn`, scripted turns) | `SimDriver` / `SimTurn` | same idea; also records requests for test assertions |
 | `Harness` → `Agent` → `Session` hierarchy | `Agent` → `Session` | harness collapsed into the agent; reintroduced in Phase 2 as an agent-template layer if needed |
 | `InProcessRuntime::run_turn(session_id, input)` | `Session::run(input)` | the session holds its own id |
@@ -148,10 +149,13 @@ server):
 - Tools — `Tool`, `FnTool`, and `#[agentyk::tool]` for typed async functions;
   unknown-tool calls and invalid macro-generated arguments surface as error
   results the model can recover from.
-- Drivers — `SimDriver` (scripted, request-recording); `OpenAiDriver`
-  (Chat Completions; any OpenAI-compatible endpoint via `base_url`) and
-  `AnthropicDriver` (Messages API) behind the `http` feature. Both stream
-  real incremental SSE deltas.
+- Drivers and providers — a driver is one wire protocol: `SimDriver`
+  (scripted, request-recording); `OpenAiDriver` (Chat Completions) and
+  `AnthropicDriver` (Messages API) behind the `http` feature, both streaming
+  real incremental SSE deltas. A `Provider` pairs one with an endpoint and a
+  per-request `ProviderAuth`, so the same driver serves the vendor, a
+  gateway, and a local runtime; `providers::{openai, anthropic}` are the
+  ready-made assemblies.
 - MCP — static and live-reloadable server capabilities over stdio and
   Streamable HTTP JSON-RPC clients (`server/discover`,
   `tools/list`, `tools/call`, and the `initialize` handshake for servers that

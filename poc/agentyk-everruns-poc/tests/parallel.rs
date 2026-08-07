@@ -3,7 +3,8 @@
 //! durable host may dispatch it concurrently without replacing the engine.
 
 use agentyk::{
-    Agent, EventData, FnTool, ModelSpec, Result, SimDriver, SimToolCall, SimTurn, ToolOutput,
+    Agent, EventData, FnTool, ModelSpec, Provider, Result, SimDriver, SimToolCall, SimTurn,
+    ToolOutput,
 };
 use agentyk_core::message::ToolCall;
 use agentyk_everruns_poc::{ApprovalDecision, ApprovalMiddleware, Approver, HintedTool, ToolHints};
@@ -42,7 +43,10 @@ fn two_call_turn() -> SimTurn {
 async fn a_batch_is_dispatched_and_gated_per_call() -> Result<()> {
     let agent = Agent::builder()
         .model(ModelSpec::llmsim())
-        .driver(SimDriver::new([two_call_turn(), SimTurn::text("done")]))
+        .provider(Provider::llmsim(SimDriver::new([
+            two_call_turn(),
+            SimTurn::text("done"),
+        ])))
         .middleware(ApprovalMiddleware::new(DenyDestructive))
         .tool(HintedTool::new(
             tool("safe_read", "file contents"),

@@ -11,8 +11,8 @@
 #![cfg(all(unix, feature = "mcp"))]
 
 use agentyk::{
-    Agent, DynamicMcpCapability, EventData, McpCapability, McpClient, McpServer, ModelSpec, Result,
-    SimDriver, SimTurn,
+    Agent, DynamicMcpCapability, EventData, McpCapability, McpClient, McpServer, ModelSpec,
+    Provider, Result, SimDriver, SimTurn,
 };
 use serde_json::json;
 
@@ -93,10 +93,10 @@ impl Drop for RequestLog {
 async fn run_a_turn(script: &str, log: &RequestLog) -> Result<()> {
     let agent = Agent::builder()
         .model(ModelSpec::llmsim())
-        .driver(SimDriver::new([
+        .provider(Provider::llmsim(SimDriver::new([
             SimTurn::tool_call("lookup", json!({"q": "answer"})),
             SimTurn::text("The answer is 42."),
-        ]))
+        ])))
         .capability(McpCapability::new(
             McpServer::stdio("fake", "sh")
                 .arg("-c")
@@ -172,12 +172,12 @@ async fn dynamic_servers_change_at_the_next_turn_boundary() -> Result<()> {
     );
     let agent = Agent::builder()
         .model(ModelSpec::llmsim())
-        .driver(SimDriver::new([
+        .provider(Provider::llmsim(SimDriver::new([
             SimTurn::tool_call("first_tool", json!({})),
             SimTurn::text("first done"),
             SimTurn::tool_call("second_tool", json!({})),
             SimTurn::text("second done"),
-        ]))
+        ])))
         .capability(dynamic.clone())
         .build()?;
     let mut session = agent.session();

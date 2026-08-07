@@ -1,7 +1,9 @@
 //! `Capability::commands()` / `Session::execute_command`: host-invoked
 //! slash commands that bypass the turn loop entirely.
 
-use agentyk::{Agent, CommandContext, CommandDescriptor, ModelSpec, Result, SimDriver, ToolOutput};
+use agentyk::{
+    Agent, CommandContext, CommandDescriptor, ModelSpec, Provider, Result, SimDriver, ToolOutput,
+};
 use async_trait::async_trait;
 
 struct GoalCapability;
@@ -40,7 +42,7 @@ impl agentyk::Capability for GoalCapability {
 async fn commands_lists_every_capabilitys_descriptors() -> Result<()> {
     let agent = Agent::builder()
         .model(ModelSpec::llmsim())
-        .driver(SimDriver::new([]))
+        .provider(Provider::llmsim(SimDriver::new([])))
         .capability(GoalCapability)
         .build()?;
 
@@ -55,7 +57,7 @@ async fn commands_lists_every_capabilitys_descriptors() -> Result<()> {
 async fn execute_command_dispatches_to_the_owning_capability() -> Result<()> {
     let agent = Agent::builder()
         .model(ModelSpec::llmsim())
-        .driver(SimDriver::new([]))
+        .provider(Provider::llmsim(SimDriver::new([])))
         .capability(GoalCapability)
         .build()?;
 
@@ -73,7 +75,7 @@ async fn execute_command_dispatches_to_the_owning_capability() -> Result<()> {
 async fn unknown_command_is_an_error_result_not_a_panic() -> Result<()> {
     let agent = Agent::builder()
         .model(ModelSpec::llmsim())
-        .driver(SimDriver::new([]))
+        .provider(Provider::llmsim(SimDriver::new([])))
         .capability(GoalCapability)
         .build()?;
 

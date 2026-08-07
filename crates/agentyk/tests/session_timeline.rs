@@ -4,8 +4,8 @@ use std::sync::Arc;
 
 use agentyk::{
     Agent, EventData, EventRange, EventStore, InMemoryEventLog, InMemorySnapshotStore,
-    JsonlEventLog, ModelSpec, ProjectionSnapshot, Result, SessionPoint, SimDriver, SimTurn,
-    SnapshotStore,
+    JsonlEventLog, ModelSpec, ProjectionSnapshot, Provider, Result, SessionPoint, SimDriver,
+    SimTurn, SnapshotStore,
 };
 use serde_json::json;
 
@@ -14,11 +14,11 @@ async fn a_completed_session_point_can_be_inspected_and_forked() -> Result<()> {
     let log = Arc::new(InMemoryEventLog::new());
     let agent = Agent::builder()
         .model(ModelSpec::llmsim())
-        .driver(SimDriver::new([
+        .provider(Provider::llmsim(SimDriver::new([
             SimTurn::text("shared answer"),
             SimTurn::text("fork answer"),
             SimTurn::text("original answer"),
-        ]))
+        ])))
         .build()?;
 
     let mut original = agent.session_with_log(log.clone());
@@ -65,7 +65,7 @@ async fn a_mid_turn_event_is_inspectable_but_not_forkable() -> Result<()> {
     let log = Arc::new(InMemoryEventLog::new());
     let agent = Agent::builder()
         .model(ModelSpec::llmsim())
-        .driver(SimDriver::new([SimTurn::text("done")]))
+        .provider(Provider::llmsim(SimDriver::new([SimTurn::text("done")])))
         .build()?;
     let mut session = agent.session_with_log(log);
     session.run("go").await?;
@@ -187,7 +187,7 @@ async fn a_jsonl_fork_retains_lineage_and_resumes_after_reopen() -> Result<()> {
     let path = dir.path().join("forks.jsonl");
     let parent_agent = Agent::builder()
         .model(ModelSpec::llmsim())
-        .driver(SimDriver::new([SimTurn::text("parent")]))
+        .provider(Provider::llmsim(SimDriver::new([SimTurn::text("parent")])))
         .build()?;
     let child_id = {
         let log = Arc::new(JsonlEventLog::new(&path)?);
@@ -200,7 +200,9 @@ async fn a_jsonl_fork_retains_lineage_and_resumes_after_reopen() -> Result<()> {
     let log = Arc::new(JsonlEventLog::new(&path)?);
     let child_agent = Agent::builder()
         .model(ModelSpec::llmsim())
-        .driver(SimDriver::new([SimTurn::text("continued")]))
+        .provider(Provider::llmsim(SimDriver::new([SimTurn::text(
+            "continued",
+        )])))
         .build()?;
     let mut child = child_agent.resume_session(log, child_id).await?;
     assert_eq!(child.messages().last().unwrap().text(), "parent");
@@ -231,7 +233,9 @@ async fn an_incomplete_head_turn_resumes_without_new_user_input() -> Result<()> 
 
     let agent = Agent::builder()
         .model(ModelSpec::llmsim())
-        .driver(SimDriver::new([SimTurn::text("recovered")]))
+        .provider(Provider::llmsim(SimDriver::new([SimTurn::text(
+            "recovered",
+        )])))
         .build()?;
     let mut session = agent.resume_session(log, session_id).await?;
     let result = session

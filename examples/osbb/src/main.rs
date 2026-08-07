@@ -32,6 +32,7 @@ async fn run(args: Args) -> Result<(), String> {
     };
     let agent = build_agent(
         config.model,
+        config.provider,
         &config.agent_name,
         &config.building,
         &config.people,

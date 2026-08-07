@@ -14,7 +14,7 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use agentyk::{
-    Agent, ModelSpec, SimDriver, SimTurn, Tool, ToolContext, ToolDefinition, ToolOutput,
+    Agent, ModelSpec, Provider, SimDriver, SimTurn, Tool, ToolContext, ToolDefinition, ToolOutput,
 };
 use async_trait::async_trait;
 use serde_json::json;
@@ -154,7 +154,7 @@ async fn main() -> agentyk::Result<()> {
             "Start one detached GitHub checks watch, end the turn, and review its completion wake.",
         )
         .model(ModelSpec::llmsim())
-        .driver(SimDriver::new([
+        .provider(Provider::llmsim(SimDriver::new([
             SimTurn::tool_call(
                 "monitor_github_checks",
                 json!({
@@ -164,7 +164,7 @@ async fn main() -> agentyk::Result<()> {
             ),
             SimTurn::text("The GitHub monitor is running in the background."),
             SimTurn::text("I reviewed the completed GitHub checks."),
-        ]))
+        ])))
         .tool(GithubMonitorTool::new(finished_tx))
         .build()?;
 

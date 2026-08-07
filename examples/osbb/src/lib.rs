@@ -17,7 +17,7 @@ use std::io::{self, Write};
 use std::path::PathBuf;
 
 use agentyk::{
-    Agent, Event, EventData, EventListener, ExternalActor, Message, ModelSpec, OpenAiDriver,
+    Agent, Event, EventData, EventListener, ExternalActor, Message, ModelSpec, Provider, providers,
 };
 use async_trait::async_trait;
 use clap::Parser;
@@ -102,6 +102,8 @@ pub struct Config {
     pub building: String,
     /// Live model specification.
     pub model: ModelSpec,
+    /// The service that model runs on: endpoint and credentials.
+    pub provider: Provider,
     /// Optional durable event log path.
     pub log: Option<PathBuf>,
 }
@@ -118,11 +120,10 @@ impl Config {
             .ok_or_else(|| format!("initial actor `{actor}` is not in --people"))?;
         let api_key =
             lookup("OPENAI_API_KEY").ok_or_else(|| "OPENAI_API_KEY is not set".to_string())?;
-        let mut model = ModelSpec::openai(args.model)
-            .api_key(api_key)
-            .reasoning_effort(args.reasoning_effort);
+        let model = ModelSpec::openai(args.model).reasoning_effort(args.reasoning_effort);
+        let mut provider = providers::openai(api_key);
         if let Some(base_url) = args.base_url.or_else(|| lookup("OPENAI_BASE_URL")) {
-            model = model.base_url(base_url);
+            provider = provider.base_url(base_url);
         }
 
         if args.agent_name.trim().is_empty() {
@@ -137,6 +138,7 @@ impl Config {
             agent_name: args.agent_name,
             building: args.building,
             model,
+            provider,
             log: args.log,
         })
     }
@@ -254,6 +256,7 @@ impl Room {
 /// Compose the live OpenAI agent that speaks for the association.
 pub fn build_agent(
     model: ModelSpec,
+    provider: Provider,
     agent_name: &str,
     building: &str,
     people: &[String],
@@ -262,7 +265,7 @@ pub fn build_agent(
         .name(agent_name)
         .system_prompt(system_prompt(agent_name, building, people))
         .model(model)
-        .driver(OpenAiDriver::new())
+        .provider(provider)
         .listener(ConsoleListener::new(agent_name))
         .build()
 }
@@ -339,10 +342,6 @@ mod tests {
 
     #[async_trait]
     impl ChatDriver for SharedSim {
-        fn id(&self) -> agentyk::DriverId {
-            agentyk::DriverId::llmsim()
-        }
-
         async fn complete(&self, request: ChatRequest) -> agentyk::Result<ChatResponse> {
             self.0.complete(request).await
         }
@@ -411,7 +410,7 @@ mod tests {
             .name(DEFAULT_AGENT)
             .system_prompt(system_prompt(DEFAULT_AGENT, DEFAULT_BUILDING, &people))
             .model(ModelSpec::llmsim())
-            .driver(SharedSim(driver.clone()))
+            .provider(Provider::llmsim(SharedSim(driver.clone())))
             .build()
             .unwrap();
         let mut room = Room::new(people, "Olena").unwrap();
