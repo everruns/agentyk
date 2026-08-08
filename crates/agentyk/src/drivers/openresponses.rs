@@ -688,6 +688,12 @@ impl WireProtocol for OpenResponsesDriver {
             // Ask for the summary too: without it a reasoning response carries
             // an opaque item and the token count, and `Message::thinking`
             // stays empty.
+            //
+            // `auto` is the model's discretion, not a guarantee — a live
+            // gpt-5.5 call at `low` effort reports reasoning *tokens* and emits
+            // no summary events at all, so `thinking` is legitimately empty
+            // there while `high` fills it. Worth knowing before suspecting this
+            // driver of dropping it.
             body["reasoning"] = json!({"effort": effort, "summary": "auto"});
         }
         if !request.tools.is_empty() {
