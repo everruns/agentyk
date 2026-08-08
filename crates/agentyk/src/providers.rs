@@ -15,6 +15,11 @@
 //!
 //! let ollama = Provider::new("ollama", OpenAiDriver::new()).base_url("http://localhost:11434/v1");
 //! ```
+//!
+//! [`openai`] speaks [Responses](crate::drivers::openresponses), OpenAI's
+//! current protocol. Chat Completions is still bundled as
+//! [`OpenAiDriver`](crate::OpenAiDriver) — swap it in with
+//! [`Provider::with_driver`](agentyk_core::provider::Provider::with_driver).
 
 pub use crate::drivers::anthropic::anthropic;
-pub use crate::drivers::openai::openai;
+pub use crate::drivers::openresponses::openai;

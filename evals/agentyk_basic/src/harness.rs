@@ -20,11 +20,11 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use agentyk::providers;
-use agentyk::{Provider, 
+use agentyk::{
     Agent, AnthropicDriver, BearerAuth, ChatDriver, ChatRequest, ChatResponse, DeltaSink, Event,
     EventData, EventListener, FileSystemCapability, FnTool, InMemoryEventLog, ModelSpec,
-    OpenAiDriver, RealDiskFileSystem, SimDriver, SimTurn, ToolCallDecision, ToolInvocation,
-    ToolOutput, TurnMiddleware, Usage as AgentykUsage,
+    OpenAiDriver, OpenResponsesDriver, Provider, RealDiskFileSystem, SimDriver, SimTurn,
+    ToolCallDecision, ToolInvocation, ToolOutput, TurnMiddleware, Usage as AgentykUsage,
 };
 use async_trait::async_trait;
 use mira::trajectory::{
@@ -121,7 +121,13 @@ pub async fn run_case(sample: Sample, cx: RunCx) -> Transcript {
         Err(error) => return infra_failure(error),
     };
     let recorder = Arc::new(Recorder::default());
-    let agent = match build_agent(workspace.path(), model, provider, &harness, recorder.clone()) {
+    let agent = match build_agent(
+        workspace.path(),
+        model,
+        provider,
+        &harness,
+        recorder.clone(),
+    ) {
         Ok(agent) => agent,
         Err(error) => return infra_failure(format!("could not build the agent: {error}")),
     };
@@ -235,8 +241,10 @@ fn provider(cx: &RunCx, sample: &Sample, buffered: bool) -> Result<Provider, Str
         // 16k: the 8k default truncates a multi-file edit mid-write.
         "anthropic" => providers::anthropic(key("ANTHROPIC_API_KEY")?)
             .with_driver_arc(wrap(AnthropicDriver::new().max_tokens(16_000), buffered)),
+        // Responses, matching what `providers::openai` speaks — an eval on a
+        // protocol the library no longer defaults to measures the wrong thing.
         "openai" => providers::openai(key("OPENAI_API_KEY")?)
-            .with_driver_arc(wrap(OpenAiDriver::new(), buffered)),
+            .with_driver_arc(wrap(OpenResponsesDriver::new(), buffered)),
         "openrouter" => Provider::from_driver("openrouter", wrap(OpenAiDriver::new(), buffered))
             .base_url("https://openrouter.ai/api/v1")
             .auth(BearerAuth::new(key("OPENROUTER_API_KEY")?)),
