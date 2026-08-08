@@ -88,6 +88,55 @@ Provider::new("openrouter", OpenAiDriver::new())
     .auth(BearerAuth::new(key))
 ```
 
+## Which protocol OpenAI speaks
+
+`providers::openai` speaks [OpenResponses](https://www.openresponses.org/) —
+the vendor-neutral standard OpenAI's Responses API implements — rather than
+Chat Completions. The split above is what made that a one-line decision
+instead of a per-call-site one, and it is the exact case the split was
+introduced for.
+
+Responses is a different shape, not a rename. The conversation is a flat list
+of typed items (`message`, `function_call`, `function_call_output`,
+`reasoning`); the system prompt is `instructions`; a tool result quotes the
+`call_id` the model issued rather than the item's own `id`; and content parts
+are typed by direction (`input_text` on the way in, `output_text` on the way
+back). Two consequences decide the default:
+
+- **Reasoning is a first-class item.** A reasoning model's summary
+  round-trips onto `Message::thinking`, the same place Anthropic's extended
+  thinking lands. On Chat Completions it does not exist — only a token count
+  does.
+- **It is where OpenAI's stateful features live.** `previous_response_id`
+  chaining, the gap [`everruns-adoption.md`](../roadmap/everruns-adoption.md)
+  records, has no Chat Completions equivalent.
+
+Chat Completions is not deprecated here and is not going away: it is what most
+OpenAI-compatible vendors, gateways, and local runtimes actually speak, so
+`OpenAiDriver` stays bundled and stays the one to pair with a provider of your
+own. An OpenAI account or proxy that does not serve Responses swaps it back
+with `providers::openai(key).with_driver(OpenAiDriver::new())` — the escape
+hatch `with_driver` exists for.
+
+Two driver-level defaults are worth stating because they differ from the
+API's own:
+
+- **`store` is off** (the API defaults it on). agentyk replays the whole
+  transcript from its event log and sends it in full every turn, so server-side
+  retention buys the agent nothing while leaving conversation data with the
+  provider — not a default a library should pick for its host. `store(true)`
+  for the features that need server state.
+- **A refusal is answer text, not an error.** It is something the model said;
+  a host that cannot show it has lost the only explanation there is. A
+  `response.failed` or `error` *event*, by contrast, is a real failure and is
+  raised as one — otherwise a truncated stream reads as a short answer.
+
+The wire mapping was adopted from everruns' `openresponses_protocol`, which
+had already found what a from-spec reading misses: gateways that close the
+stream with Chat Completions' `[DONE]` sentinel, gateways that emit plaintext
+reasoning as `response.reasoning_text.delta`, and `effort: "none"` needing the
+reasoning block omitted entirely rather than sent.
+
 ## Known limits
 
 - `ProviderAuth` produces headers. A service that signs the request *body*

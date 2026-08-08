@@ -144,15 +144,18 @@ contributions, dynamic tool discovery, commands, metadata, and shared state.
   event metadata carries host-owned participant provenance.
 - **Concurrent tools** — a batch the model asked for in parallel runs in
   parallel, with results still recorded in the order it asked.
-- **Providers over drivers** — a `ChatDriver` is one wire protocol (OpenAI
-  Chat Completions, Anthropic Messages, both feature `http`, plus a scripted
-  `SimDriver` for offline tests); a `Provider` is a service that speaks one,
-  owning the endpoint and the credentials. So one driver serves OpenAI, a
-  gateway, and a local runtime at once, credentials refresh per request
-  through `ProviderAuth`, and a `ModelSpec` stays plain config that names a
-  service without carrying its key. The Anthropic driver places prompt-cache
-  breakpoints by default, so a long session does not pay full price to
-  re-send its own transcript.
+- **Providers over drivers** — a `ChatDriver` is one wire protocol
+  (OpenResponses, OpenAI Chat Completions, Anthropic Messages, all feature
+  `http`, plus a scripted `SimDriver` for offline tests); a `Provider` is a
+  service that speaks one, owning the endpoint and the credentials. So one
+  driver serves OpenAI, a gateway, and a local runtime at once, credentials
+  refresh per request through `ProviderAuth`, and a `ModelSpec` stays plain
+  config that names a service without carrying its key. `providers::openai`
+  speaks OpenResponses — reasoning summaries round-trip and gateways that
+  serve the standard work unchanged; Chat Completions is one
+  `.with_driver(OpenAiDriver::new())` away. The Anthropic driver places
+  prompt-cache breakpoints by default, so a long session does not pay full
+  price to re-send its own transcript.
 
 ## Multi-actor demo
 
@@ -221,7 +224,7 @@ nothing that can open a socket or spawn a process. Opt in to what you need.
 | Feature | Adds | Pulls in |
 | --- | --- | --- |
 | *(none)* | turn loop, `InMemoryEventLog`, `JsonlEventLog`, `SimDriver` | — |
-| `http` | `OpenAiDriver`, `AnthropicDriver` (SSE streaming) | `reqwest`, `futures-util` |
+| `http` | `OpenResponsesDriver`, `OpenAiDriver`, `AnthropicDriver` (SSE streaming) | `reqwest`, `futures-util` |
 | `mcp` | static or live-reloadable MCP capabilities / `McpClient` over stdio (HTTP transport also needs `http`) | `tokio` (rt, process, io-util, sync, time) |
 | `mcp-oauth` | OAuth 2.1 discovery, DCR, PKCE loopback login, token refresh | `mcp`, `http`, `base64`, `rand`, `sha2` |
 | `fs` | `FileSystemCapability`, real-disk and in-memory stores | `tokio` (fs, sync), `regex` |

@@ -9,7 +9,32 @@ release — every release bumps the patch component (`0.1.z`). See
 
 ## [Unreleased]
 
+### Added
+
+- **`OpenResponsesDriver` — the OpenResponses protocol** (the vendor-neutral
+  standard OpenAI's Responses API implements), behind `http`. Flat typed input
+  items, `instructions` for the system prompt, tools declared flat, and
+  streaming that folds text, tool-call arguments, and reasoning summaries.
+  Reasoning summaries round-trip onto `Message::thinking`, which Chat
+  Completions has no way to express. Tolerates what gateways serving the
+  standard actually send: a Chat Completions `[DONE]` sentinel, plaintext
+  `response.reasoning_text.delta` reasoning, and `response.failed` / `error`
+  events (raised as errors rather than read as a short answer). Wire mapping
+  adopted from everruns' `openresponses_protocol`.
+
 ### Changed
+
+- **`providers::openai` now speaks OpenResponses instead of Chat
+  Completions.** Same id, endpoint, and credentials; a different protocol on
+  the wire (`POST /responses`). Reasoning summaries survive the round trip and
+  OpenAI's stateful features become reachable. Chat Completions stays bundled
+  and unchanged — `providers::openai(key).with_driver(OpenAiDriver::new())`
+  restores the old behavior, and `OpenAiDriver` remains the driver to pair
+  with OpenAI-compatible vendors, gateways, and local runtimes. Unlike the
+  API's own default, the driver sends `store: false`: agentyk replays its
+  transcript from its own event log, so server-side retention buys nothing and
+  leaves conversation data with the provider. `OpenResponsesDriver::store(true)`
+  turns it on.
 
 - **Providers are now a layer above drivers, and credentials live on them.** A
   `ChatDriver` is one wire protocol and nothing more — it no longer carries a

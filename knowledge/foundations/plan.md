@@ -150,8 +150,9 @@ server):
   unknown-tool calls and invalid macro-generated arguments surface as error
   results the model can recover from.
 - Drivers and providers — a driver is one wire protocol: `SimDriver`
-  (scripted, request-recording); `OpenAiDriver` (Chat Completions) and
-  `AnthropicDriver` (Messages API) behind the `http` feature, both streaming
+  (scripted, request-recording); `OpenResponsesDriver` (OpenResponses, what
+  `providers::openai` speaks), `OpenAiDriver` (Chat Completions) and
+  `AnthropicDriver` (Messages API) behind the `http` feature, all streaming
   real incremental SSE deltas. A `Provider` pairs one with an endpoint and a
   per-request `ProviderAuth`, so the same driver serves the vendor, a
   gateway, and a local runtime; `providers::{openai, anthropic}` are the

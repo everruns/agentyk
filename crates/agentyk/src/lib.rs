@@ -184,7 +184,9 @@ pub use mcp::{
 
 #[cfg(feature = "http")]
 #[cfg_attr(docsrs, doc(cfg(feature = "http")))]
-pub use drivers::{anthropic::AnthropicDriver, openai::OpenAiDriver};
+pub use drivers::{
+    anthropic::AnthropicDriver, openai::OpenAiDriver, openresponses::OpenResponsesDriver,
+};
 #[cfg(feature = "http")]
 #[cfg_attr(docsrs, doc(cfg(feature = "http")))]
 pub mod providers;
