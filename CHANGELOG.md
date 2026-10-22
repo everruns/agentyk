@@ -9,6 +9,11 @@ release — every release bumps the patch component (`0.1.z`). See
 
 ## [Unreleased]
 
+### Fixed
+
+- Refresh locked TLS certificate validation, roots, QUIC and LRU dependencies in
+  the workspace and offline eval, and update async-trait for Rust 1.99 lint compatibility.
+
 ### Added
 
 - **`OpenResponsesDriver` — the OpenResponses protocol** (the vendor-neutral
