@@ -9,6 +9,11 @@ release — every release bumps the patch component (`0.1.z`). See
 
 ## [Unreleased]
 
+### Changed
+
+- OSBB defaults to GPT-6.1 Terra for OpenAI. Explicit models, recorded
+  demos, and evaluation baselines are unchanged.
+
 ### Fixed
 
 - Refresh locked TLS certificate validation, roots, QUIC and LRU dependencies in
