@@ -43,7 +43,7 @@ Options:
                                              [default: Manager]
       --building <BUILDING>                  Building the association manages
                                              [default: "Sadova 12"]
-      --model <MODEL>                        OpenAI model id [default: gpt-5.6-terra]
+      --model <MODEL>                        OpenAI model id [default: gpt-6.1-terra]
       --base-url <BASE_URL>
       --reasoning-effort <REASONING_EFFORT>  [default: none]
       --log <LOG>

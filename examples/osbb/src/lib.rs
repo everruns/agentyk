@@ -22,7 +22,7 @@ use agentyk::{
 use async_trait::async_trait;
 use clap::Parser;
 
-const DEFAULT_MODEL: &str = "gpt-5.6-terra";
+const DEFAULT_MODEL: &str = "gpt-6.1-terra";
 const DEFAULT_AGENT: &str = "Manager";
 const DEFAULT_PEOPLE: &str = "Olena,Petro,Iryna,Mykola,Sofia";
 const DEFAULT_BUILDING: &str = "Sadova 12";
@@ -477,7 +477,7 @@ mod tests {
         assert_eq!(config.actor, "Olena");
         assert_eq!(config.agent_name, "Manager");
         assert_eq!(config.building, "Sadova 12");
-        assert_eq!(config.model.model, DEFAULT_MODEL);
+        assert_eq!(config.model.model, "gpt-6.1-terra");
         assert_eq!(
             config.model.reasoning.unwrap().effort.as_deref(),
             Some("none")
